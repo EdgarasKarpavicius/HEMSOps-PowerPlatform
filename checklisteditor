@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-    Badge,
     Button,
     Caption1,
     Card,
@@ -33,10 +32,8 @@ import {
     AddRegular,
     ArrowLeftRegular,
     DeleteRegular,
-    DismissRegular,
     EditRegular,
     EyeRegular,
-    FilterRegular,
     SaveRegular,
 } from "@fluentui/react-icons";
 
@@ -52,6 +49,14 @@ type Checklist = {
     sections: ChecklistSection[];
     definitionJson?: string;
     definitionHash?: string;
+    raw?: Record<string, any>;
+};
+
+type ChecklistVersion = {
+    id?: string;
+    versionNumber: string;
+    statuscode: number;
+    checklist: Checklist;
     raw?: Record<string, any>;
 };
 
@@ -71,7 +76,21 @@ type ChecklistItem = {
     quantity: number;
 };
 
+type GenerativePageInput = {
+    pageType?: string;
+    pageId?: string;
+    entityName?: string;
+    recordId?: string;
+    data?: Record<string, any>;
+};
+
+type StatusOption = {
+    text: string;
+    color?: string;
+};
+
 const TABLE_NAME = "int_checklist";
+const VERSION_TABLE_NAME = "int_checklistversion";
 const REQUIRE_REVIEW_SETTING_NAME = "int_RequireChecklistVersionReview";
 const STATUS_DRAFT = 1;
 const STATUS_PUBLISHED = 2;
@@ -139,12 +158,15 @@ const translations: Record<string, Record<string, string>> = {
         noChecklists: "No checklists found.",
         noSections: "No sections yet.",
         noItems: "No items yet.",
+        loadingChecklist: "Loading checklist",
         editChecklist: "Edit checklist",
         viewChecklist: "View checklist",
         createChecklist: "Create checklist",
         loading: "Loading checklists",
         loadFallback: "Dataverse was not available, so the page is using local checklist data for this session.",
         saveFallback: "This save stayed local because Dataverse save was not available.",
+        noFocusedChecklist: "No checklist matched this context.",
+        focusedContext: "Focused context",
         details: "Details",
         definition: "Items",
         allTypes: "All checklist types",
@@ -165,12 +187,12 @@ const TARGET_TYPES = [
     { key: "Facility", text: "Facility" },
 ];
 
-const STATUS_CODES = [
-    { key: STATUS_DRAFT, text: "Draft", appearance: "filled" as const },
-    { key: STATUS_PUBLISHED, text: "Published", appearance: "tint" as const },
-    { key: STATUS_INACTIVE, text: "Inactive", appearance: "outline" as const },
-    { key: STATUS_IN_REVIEW, text: "In review", appearance: "ghost" as const },
-];
+const STATUS_LABELS: Record<number, string> = {
+    [STATUS_DRAFT]: "Draft",
+    [STATUS_PUBLISHED]: "Published",
+    [STATUS_INACTIVE]: "Inactive",
+    [STATUS_IN_REVIEW]: "In review",
+};
 
 const EMPTY_CHECKLISTS: Checklist[] = [];
 
@@ -180,7 +202,7 @@ const useStyles = makeStyles({
         height: "100%",
         minHeight: "100%",
         boxSizing: "border-box",
-        backgroundColor: tokens.colorNeutralBackground2,
+        backgroundColor: tokens.colorNeutralBackground3,
         color: tokens.colorNeutralForeground1,
         display: "flex",
         flexDirection: "column",
@@ -191,20 +213,49 @@ const useStyles = makeStyles({
         flexDirection: "column",
         flexGrow: 1,
         minHeight: 0,
-        padding: "24px",
-        rowGap: "16px",
+        padding: "22px 24px",
+        rowGap: "14px",
     },
     header: {
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "space-between",
         gap: "16px",
+        paddingBottom: "14px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    titleStack: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "2px",
+    },
+    eyebrow: {
+        color: tokens.colorNeutralForeground3,
+        fontSize: "11px",
+        fontWeight: tokens.fontWeightSemibold,
+        lineHeight: tokens.lineHeightBase200,
+        textTransform: "uppercase",
+    },
+    pageTitle: {
+        margin: 0,
+        fontSize: "24px",
+        lineHeight: "30px",
+        fontWeight: tokens.fontWeightSemibold,
+    },
+    pageSubtitle: {
+        color: tokens.colorNeutralForeground3,
+        fontSize: "12px",
+        lineHeight: "18px",
     },
     filters: {
         display: "flex",
         alignItems: "center",
         gap: "12px",
         flexWrap: "wrap",
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        padding: "8px 10px",
     },
     gridSurface: {
         backgroundColor: tokens.colorNeutralBackground1,
@@ -213,6 +264,7 @@ const useStyles = makeStyles({
         flexGrow: 1,
         minHeight: 0,
         overflow: "auto",
+        boxShadow: tokens.shadow2,
     },
     empty: {
         display: "flex",
@@ -232,13 +284,20 @@ const useStyles = makeStyles({
     },
     editorHeader: {
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "space-between",
         gap: "12px",
+        paddingBottom: "14px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    headerAction: {
+        display: "flex",
+        alignItems: "center",
+        alignSelf: "stretch",
     },
     detailsPage: {
         display: "grid",
-        gridTemplateRows: "auto auto minmax(0, 1fr)",
+        gridTemplateRows: "auto minmax(0, 1fr)",
         flexGrow: 1,
         height: "100%",
         minHeight: 0,
@@ -248,13 +307,41 @@ const useStyles = makeStyles({
     detailsGrid: {
         display: "grid",
         gridTemplateColumns: "minmax(240px, 1.6fr) repeat(3, minmax(160px, 1fr))",
-        gap: "12px",
+        gap: "16px",
         "@media (max-width: 900px)": {
             gridTemplateColumns: "1fr 1fr",
         },
         "@media (max-width: 620px)": {
             gridTemplateColumns: "1fr",
         },
+    },
+    detailValue: {
+        fontSize: "14px",
+        lineHeight: "20px",
+        color: tokens.colorNeutralForeground1,
+    },
+    statusPill: {
+        display: "inline-flex",
+        alignItems: "center",
+        alignSelf: "center",
+        width: "fit-content",
+        maxWidth: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        padding: "4px 10px",
+        borderRadius: tokens.borderRadiusCircular,
+        fontSize: "13px",
+        lineHeight: "20px",
+        fontWeight: tokens.fontWeightSemibold,
+        whiteSpace: "nowrap",
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        backgroundColor: tokens.colorNeutralBackground2,
+        color: tokens.colorNeutralForeground2,
+    },
+    headerStatusPill: {
+        padding: "6px 14px",
+        fontSize: "14px",
+        lineHeight: "22px",
     },
     detailsStack: {
         display: "flex",
@@ -275,13 +362,15 @@ const useStyles = makeStyles({
         flexDirection: "column",
         minHeight: 0,
         overflow: "hidden",
+        boxShadow: tokens.shadow2,
     },
     versionsHeader: {
-        padding: "12px 16px",
+        padding: "14px 16px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
         gap: "12px",
+        backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
     versionsGrid: {
@@ -492,6 +581,87 @@ async function loadRequireReviewForNewVersions(): Promise<boolean> {
     }
 }
 
+function getCollectionItems(collection: any): any[] {
+    if (!collection) return [];
+    if (Array.isArray(collection)) return collection;
+    if (typeof collection.get === "function") {
+        const items = collection.get();
+        return Array.isArray(items) ? items : [];
+    }
+    return [];
+}
+
+function getOptionLabel(option: any) {
+    return (
+        option?.Label?.UserLocalizedLabel?.Label ||
+        option?.Label?.LocalizedLabels?.[0]?.Label ||
+        option?.text ||
+        option?.Text ||
+        ""
+    );
+}
+
+async function loadStatusOptions(entityName = TABLE_NAME): Promise<Record<number, StatusOption>> {
+    if (typeof Xrm === "undefined") return {};
+
+    try {
+        const metadata = await Xrm.Utility?.getEntityMetadata?.(entityName, ["statuscode"]);
+        const attributes = getCollectionItems(metadata?.Attributes || metadata?.attributes);
+        const statusAttribute =
+            attributes.find((attribute) => attribute?.LogicalName === "statuscode" || attribute?.logicalName === "statuscode") ||
+            metadata?.Attributes?.get?.("statuscode");
+        const options = getCollectionItems(statusAttribute?.OptionSet?.Options || statusAttribute?.optionSet?.options || statusAttribute?.Options);
+        return options.reduce((acc, option) => {
+            const value = Number(option?.Value ?? option?.value);
+            if (!Number.isNaN(value)) {
+                acc[value] = {
+                    text: getOptionLabel(option) || STATUS_LABELS[value] || value.toString(),
+                    color: option?.Color || option?.color,
+                };
+            }
+            return acc;
+        }, {} as Record<number, StatusOption>);
+    } catch {
+        return {};
+    }
+}
+
+function getReadableTextColor(hexColor: string) {
+    const hex = hexColor.replace("#", "");
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return undefined;
+    const red = parseInt(hex.slice(0, 2), 16);
+    const green = parseInt(hex.slice(2, 4), 16);
+    const blue = parseInt(hex.slice(4, 6), 16);
+    const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+    return luminance > 0.58 ? "#111827" : "#ffffff";
+}
+
+function StatusPill({
+    statuscode,
+    statusOptions,
+    className,
+}: {
+    statuscode: number;
+    statusOptions: Record<number, StatusOption>;
+    className: string;
+}) {
+    const option = statusOptions[statuscode];
+    const color = option?.color;
+    const style = color
+        ? {
+              backgroundColor: color,
+              borderColor: color,
+              color: getReadableTextColor(color),
+          }
+        : undefined;
+
+    return (
+        <span className={className} style={style}>
+            {option?.text || STATUS_LABELS[statuscode] || statuscode}
+        </span>
+    );
+}
+
 function getValue(record: Record<string, any>, names: string[], fallback = "") {
     for (const name of names) {
         if (record[name] !== undefined && record[name] !== null) return record[name];
@@ -508,6 +678,10 @@ function getDisplayValue(record: Record<string, any>, names: string[], fallback 
         if (record[name] !== undefined && record[name] !== null) return record[name];
     }
     return fallback;
+}
+
+function getLookupId(record: Record<string, any>, names: string[]) {
+    return String(getValue(record, names, "")).replace(/[{}]/g, "");
 }
 
 function makeId() {
@@ -571,6 +745,120 @@ async function loadChecklistsFromDataverse(): Promise<Checklist[]> {
     return (result.entities || []).map(mapChecklistRecord);
 }
 
+async function loadChecklistFromDataverse(checklistId: string): Promise<Checklist | null> {
+    if (!checklistId) return null;
+    try {
+        const record = await Xrm.WebApi.retrieveRecord(
+            TABLE_NAME,
+            checklistId,
+            "?$select=int_checklistid,int_name,int_checklisttype,int_targettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion"
+        );
+        return mapChecklistRecord(record);
+    } catch {
+        return null;
+    }
+}
+
+function getExpandedChecklist(record: Record<string, any>, relationshipNames: string[]): Checklist | null {
+    const expanded = relationshipNames
+        .map((name) => record[name])
+        .find((value) => value && typeof value === "object");
+    return expanded ? mapChecklistRecord(expanded) : null;
+}
+
+function mapChecklistFromVersionRecord(record: Record<string, any>): Checklist {
+    return {
+        id: getLookupId(record, ["_int_checklist_value", "_int_checklistid_value", "_int_checklistid_value"]),
+        name: String(
+            getDisplayValue(record, ["_int_checklist_value", "_int_checklistid_value", "int_checklistid"], "Untitled checklist")
+        ),
+        currentVersion: String(getValue(record, ["int_versionnumber", "int_version", "versionnumber"], "")),
+        checklistType: String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], "Standard")),
+        targetType: String(getDisplayValue(record, ["int_targettype", "targettype"], "")),
+        statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
+        sections: parseSections(String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""))),
+        definitionJson: String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], "")),
+        definitionHash: String(getValue(record, ["int_definitionhash", "definitionhash"], "")),
+        raw: record,
+    };
+}
+
+function getRelationshipNavigationName(relationship: any) {
+    return (
+        relationship?.ReferencingEntityNavigationPropertyName ||
+        relationship?.referencingEntityNavigationPropertyName ||
+        relationship?.NavigationPropertyName ||
+        relationship?.navigationPropertyName ||
+        relationship?.SchemaName ||
+        relationship?.schemaName ||
+        ""
+    );
+}
+
+async function loadChecklistNavigationProperty(): Promise<string | null> {
+    if (typeof Xrm === "undefined") return null;
+
+    try {
+        const metadata = await Xrm.Utility?.getEntityMetadata?.(VERSION_TABLE_NAME, ["int_checklist"]);
+        const relationships = getCollectionItems(metadata?.ManyToOneRelationships || metadata?.manyToOneRelationships);
+        const relationship = relationships.find((item) => {
+            const referencingAttribute = String(item?.ReferencingAttribute || item?.referencingAttribute || "").toLowerCase();
+            const referencedEntity = String(item?.ReferencedEntity || item?.referencedEntity || "").toLowerCase();
+            return referencingAttribute === "int_checklist" || referencedEntity === TABLE_NAME;
+        });
+        return relationship ? getRelationshipNavigationName(relationship) || null : null;
+    } catch {
+        return null;
+    }
+}
+
+function mapChecklistVersionRecord(record: Record<string, any>, checklist: Checklist): ChecklistVersion {
+    return {
+        id: String(getValue(record, ["int_checklistversionid", "id", "checklistversionid"], "")),
+        versionNumber: String(getValue(record, ["int_versionnumber", "versionnumber"], "")),
+        statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
+        checklist,
+        raw: record,
+    };
+}
+
+async function loadChecklistVersionFromDataverse(versionId: string): Promise<ChecklistVersion | null> {
+    if (!versionId) return null;
+    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_targettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion";
+    const metadataNavigationName = await loadChecklistNavigationProperty();
+    const relationshipNames = [
+        metadataNavigationName,
+        "int_Checklist",
+        "int_checklist",
+        "int_ChecklistId",
+        "int_checklistid",
+    ].filter((name, index, names): name is string => !!name && names.indexOf(name) === index);
+
+    for (const relationshipName of relationshipNames) {
+        try {
+            const record = await Xrm.WebApi.retrieveRecord(
+                VERSION_TABLE_NAME,
+                versionId,
+                `?$select=int_checklistversionid,int_versionnumber,statuscode&$expand=${relationshipName}($select=${checklistSelect})`
+            );
+            const checklist = getExpandedChecklist(record, relationshipNames);
+            if (checklist) return mapChecklistVersionRecord(record, checklist);
+        } catch {
+            // Try the next possible relationship navigation property.
+        }
+    }
+
+    const record = await Xrm.WebApi.retrieveRecord(VERSION_TABLE_NAME, versionId);
+    const fallbackChecklist = mapChecklistFromVersionRecord(record);
+    const checklistId = getLookupId(record, [
+        "_int_checklist_value",
+        "_int_checklistid_value",
+        "_int_Checklist_value",
+    ]);
+    const checklist = (await loadChecklistFromDataverse(checklistId)) || fallbackChecklist;
+    return mapChecklistVersionRecord(record, checklist);
+}
+
 function buildDataversePayload(checklist: Checklist) {
     const definitionJson = checklist.definitionJson || JSON.stringify({ sections: checklist.sections });
     return {
@@ -614,6 +902,62 @@ function getChecklistVersions(checklists: Checklist[], checklist: Checklist) {
         .sort((a, b) => Number(b.currentVersion) - Number(a.currentVersion));
 }
 
+function normalizeLookupValue(value: unknown) {
+    return String(value || "")
+        .trim()
+        .replace(/[{}]/g, "")
+        .toLowerCase();
+}
+
+function parsePageInputData(value: unknown): Record<string, any> {
+    if (!value) return {};
+    if (typeof value === "object") return value as Record<string, any>;
+    if (typeof value !== "string") return {};
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function getUrlPageInput(): GenerativePageInput {
+    if (typeof window === "undefined") return {};
+    const params = new URLSearchParams(window.location.search);
+    const data = parsePageInputData(params.get("data"));
+    params.forEach((value, key) => {
+        if (key.startsWith("data.")) data[key.slice(5)] = value;
+    });
+    return {
+        pageType: params.get("pageType") || undefined,
+        pageId: params.get("pageId") || undefined,
+        entityName: params.get("entityName") || undefined,
+        recordId: params.get("recordId") || undefined,
+        data,
+    };
+}
+
+function getGenerativePageInput(): GenerativePageInput {
+    const globalContext = typeof Xrm !== "undefined" ? Xrm.Utility?.getGlobalContext?.() : undefined;
+    const pageContextInput = typeof Xrm !== "undefined" ? Xrm.Utility?.getPageContext?.()?.input : undefined;
+    const queryParameters = globalContext?.getQueryStringParameters?.() || {};
+    const urlInput = getUrlPageInput();
+    const inputData = parsePageInputData(pageContextInput?.data ?? queryParameters.data ?? urlInput.data);
+
+    return {
+        ...urlInput,
+        ...queryParameters,
+        ...pageContextInput,
+        entityName: pageContextInput?.entityName || queryParameters.entityName || urlInput.entityName,
+        recordId: pageContextInput?.recordId || queryParameters.recordId || urlInput.recordId,
+        data: {
+            ...(urlInput.data || {}),
+            ...parsePageInputData(queryParameters.data),
+            ...inputData,
+        },
+    };
+}
+
 function getLatestChecklists(checklists: Checklist[]) {
     const latestByFamily = new Map<string, Checklist>();
     checklists.forEach((checklist) => {
@@ -624,6 +968,31 @@ function getLatestChecklists(checklists: Checklist[]) {
         }
     });
     return Array.from(latestByFamily.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function resolveFocusedChecklist(checklists: Checklist[], pageInput: GenerativePageInput) {
+    const data = pageInput.data || {};
+    const checklistId = normalizeLookupValue(data.checklistId || data.int_checklistid);
+    const checklistName = normalizeLookupValue(data.checklistName || data.name);
+    const recordId = normalizeLookupValue(pageInput.recordId || data.recordId);
+    const targetCandidates = [
+        data.targetType,
+        data.target,
+        data.entityName,
+        pageInput.entityName,
+    ].map(normalizeLookupValue).filter(Boolean);
+    const activeOnly = normalizeLookupValue(data.filter) === "active";
+
+    const matches = checklists.filter((checklist) => {
+        if (activeOnly && checklist.statuscode === STATUS_INACTIVE) return false;
+        if (checklistId || recordId) return [checklistId, recordId].includes(normalizeLookupValue(checklist.id));
+        if (checklistName && normalizeLookupValue(checklist.name) !== checklistName) return false;
+        if (targetCandidates.length === 0) return true;
+        const checklistTarget = normalizeLookupValue(checklist.targetType || checklist.raw?.int_targettype);
+        return targetCandidates.includes(checklistTarget);
+    });
+
+    return getLatestChecklists(matches)[0] || null;
 }
 
 function findSectionById(sections: ChecklistSection[], sectionId?: string): ChecklistSection | undefined {
@@ -650,15 +1019,11 @@ const GeneratedComponent = () => {
     const { language, isRTL } = useMemo(getLanguageAndRtl, []);
     const t = useMemo(() => getTranslationFn(language), [language]);
 
-    const [view, setView] = useState<"list" | "details" | "editor">("list");
-    const [editingChecklist, setEditingChecklist] = useState<Checklist | null>(null);
-    const [viewingChecklist, setViewingChecklist] = useState<Checklist | null>(null);
-    const [filterType, setFilterType] = useState<string | undefined>();
-    const [filterTarget, setFilterTarget] = useState<string | undefined>();
-    const [checklists, setChecklists] = useState<Checklist[]>(EMPTY_CHECKLISTS);
+    const [selectedVersion, setSelectedVersion] = useState<ChecklistVersion | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [message, setMessage] = useState("");
-    const [requireReviewForNewVersion, setRequireReviewForNewVersion] = useState(true);
+    const [statusOptions, setStatusOptions] = useState<Record<number, StatusOption>>({});
+    const [pageInput] = useState<GenerativePageInput>(() => getGenerativePageInput());
 
     useEffect(() => {
         let isMounted = true;
@@ -666,21 +1031,27 @@ const GeneratedComponent = () => {
             setIsLoading(true);
             try {
                 if (hasDataverse()) {
-                    const [rows, requireReview] = await Promise.all([
-                        loadChecklistsFromDataverse(),
-                        loadRequireReviewForNewVersions(),
+                    const versionId = normalizeLookupValue(
+                        pageInput.data?.checklistVersionId ||
+                            pageInput.data?.int_checklistversionid ||
+                            pageInput.recordId
+                    );
+                    const [version, statusMetadata] = await Promise.all([
+                        loadChecklistVersionFromDataverse(versionId),
+                        loadStatusOptions(VERSION_TABLE_NAME),
                     ]);
-                    if (isMounted) setChecklists(rows);
-                    if (isMounted) setRequireReviewForNewVersion(requireReview);
+                    if (isMounted) {
+                        setSelectedVersion(version);
+                        setStatusOptions(statusMetadata);
+                    }
                 } else if (isMounted) {
                     setMessage(t("loadFallback"));
-                    setChecklists(EMPTY_CHECKLISTS);
-                    setRequireReviewForNewVersion(true);
+                    setSelectedVersion(null);
                 }
             } catch (error) {
                 if (isMounted) {
                     setMessage(error instanceof Error ? error.message : t("loadFallback"));
-                    setChecklists(EMPTY_CHECKLISTS);
+                    setSelectedVersion(null);
                 }
             } finally {
                 if (isMounted) setIsLoading(false);
@@ -690,94 +1061,7 @@ const GeneratedComponent = () => {
         return () => {
             isMounted = false;
         };
-    }, [t]);
-
-    const filteredChecklists = useMemo(
-        () =>
-            getLatestChecklists(checklists).filter((c) => {
-                if (filterType && c.checklistType !== filterType) return false;
-                if (filterType === "Standard" && filterTarget && c.targetType !== filterTarget) {
-                    return false;
-                }
-                return true;
-            }),
-        [checklists, filterTarget, filterType]
-    );
-
-    const handleView = (checklist: Checklist) => {
-        setViewingChecklist(checklist);
-        setEditingChecklist(null);
-        setView("details");
-    };
-
-    const handleSaveChecklist = async (newChecklist: Checklist, isNew: boolean, publishAction: "draft" | "submit") => {
-        try {
-            const createsNewVersion = isNew || !!newChecklist.id;
-            const statuscode =
-                publishAction === "draft"
-                    ? STATUS_DRAFT
-                    : requireReviewForNewVersion
-                        ? STATUS_IN_REVIEW
-                        : STATUS_PUBLISHED;
-            const checklistToSave = { ...newChecklist, statuscode };
-            const savedChecklist = canSaveDataverse()
-                ? await saveChecklistToDataverse(checklistToSave, createsNewVersion)
-                : { ...checklistToSave, id: createsNewVersion ? makeId() : checklistToSave.id };
-            setChecklists((prev) =>
-                createsNewVersion
-                    ? [...prev, { ...savedChecklist, id: savedChecklist.id || makeId() }]
-                    : prev.map((c) => (c.id === savedChecklist.id ? savedChecklist : c))
-            );
-            if (!canSaveDataverse()) setMessage(t("saveFallback"));
-            setView("list");
-        } catch (error) {
-            setMessage(error instanceof Error ? error.message : t("saveFallback"));
-        }
-    };
-
-    const columns = [
-        createTableColumn<Checklist>({
-            columnId: "name",
-            renderHeaderCell: () => <Text weight="semibold">{t("checklistName")}</Text>,
-            renderCell: (item) => <TableCellLayout>{item.name}</TableCellLayout>,
-        }),
-        createTableColumn<Checklist>({
-            columnId: "currentVersion",
-            renderHeaderCell: () => <Text weight="semibold">{t("currentVersion")}</Text>,
-            renderCell: (item) => <TableCellLayout>{item.currentVersion}</TableCellLayout>,
-        }),
-        createTableColumn<Checklist>({
-            columnId: "checklistType",
-            renderHeaderCell: () => <Text weight="semibold">{t("checklistType")}</Text>,
-            renderCell: (item) => <TableCellLayout>{item.checklistType}</TableCellLayout>,
-        }),
-        createTableColumn<Checklist>({
-            columnId: "targetType",
-            renderHeaderCell: () => <Text weight="semibold">{t("checklistTargetType")}</Text>,
-            renderCell: (item) => <TableCellLayout>{item.targetType}</TableCellLayout>,
-        }),
-        createTableColumn<Checklist>({
-            columnId: "statuscode",
-            renderHeaderCell: () => <Text weight="semibold">{t("status")}</Text>,
-            renderCell: (item) => {
-                const status = STATUS_CODES.find((s) => s.key === item.statuscode);
-                return (
-                    <TableCellLayout>
-                        <Badge appearance={status?.appearance || "outline"}>{status?.text || item.statuscode}</Badge>
-                    </TableCellLayout>
-                );
-            },
-        }),
-        createTableColumn<Checklist>({
-            columnId: "actions",
-            renderHeaderCell: () => <Text weight="semibold">{t("actions")}</Text>,
-            renderCell: (item) => (
-                <Button icon={<EyeRegular />} appearance="subtle" onClick={() => handleView(item)}>
-                    {t("view")}
-                </Button>
-            ),
-        }),
-    ];
+    }, [pageInput, t]);
 
     return (
         <div dir={isRTL ? "rtl" : "ltr"} className={styles.page}>
@@ -787,282 +1071,108 @@ const GeneratedComponent = () => {
                         <MessageBarBody>{message}</MessageBarBody>
                     </MessageBar>
                 )}
-                {view === "list" ? (
-                    <MainChecklistList
-                        columns={columns}
-                        checklists={filteredChecklists}
-                        filterType={filterType}
-                        setFilterType={setFilterType}
-                        filterTarget={filterTarget}
-                        setFilterTarget={setFilterTarget}
-                        onAdd={() => {
-                            setEditingChecklist(null);
-                            setViewingChecklist(null);
-                            setView("editor");
-                        }}
-                        t={t}
-                        isLoading={isLoading}
-                    />
-                ) : view === "details" && viewingChecklist ? (
+                {isLoading ? (
+                    <FocusedChecklistLoading t={t} />
+                ) : selectedVersion ? (
                     <ChecklistDetails
-                        checklist={viewingChecklist}
-                        versions={getChecklistVersions(checklists, viewingChecklist)}
-                        onBack={() => setView("list")}
+                        version={selectedVersion}
+                        statusOptions={statusOptions}
                         t={t}
                     />
                 ) : (
-                    <ChecklistEditor
-                        checklist={editingChecklist}
-                        onBack={() => setView("list")}
-                        onSave={handleSaveChecklist}
-                        requireReviewForNewVersion={requireReviewForNewVersion}
-                        t={t}
-                    />
+                    <FocusedChecklistEmpty t={t} />
                 )}
             </div>
         </div>
     );
 };
 
-function MainChecklistList({
-    columns,
-    checklists,
-    filterType,
-    setFilterType,
-    filterTarget,
-    setFilterTarget,
-    onAdd,
+function FocusedChecklistLoading({ t }: { t: (key: string) => string }) {
+    const styles = useStyles();
+    return (
+        <div className={styles.detailsPage}>
+            <div className={styles.header}>
+                <div className={styles.titleStack}>
+                    <Text className={styles.eyebrow}>{t("loadingChecklist")}</Text>
+                    <Text as="h1" className={styles.pageTitle}>
+                        {t("loadingChecklist")}
+                    </Text>
+                </div>
+            </div>
+            <div className={styles.versionsSurface}>
+                <div className={styles.empty}>
+                    <Spinner label={t("loadingChecklist")} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function FocusedChecklistEmpty({
     t,
-    isLoading,
 }: {
-    columns: any[];
-    checklists: Checklist[];
-    filterType: string | undefined;
-    setFilterType: (v: string | undefined) => void;
-    filterTarget: string | undefined;
-    setFilterTarget: (v: string | undefined) => void;
-    onAdd: () => void;
     t: (key: string) => string;
-    isLoading: boolean;
 }) {
     const styles = useStyles();
-
     return (
-        <>
+        <div className={styles.detailsPage}>
             <div className={styles.header}>
-                <div>
-                    <Text as="h1" size={700} weight="semibold">
-                        {t("checklistBuilder")}
+                <div className={styles.titleStack}>
+                    <Text className={styles.eyebrow}>{t("focusedContext")}</Text>
+                    <Text as="h1" className={styles.pageTitle}>
+                        {t("noFocusedChecklist")}
                     </Text>
-                    <Caption1 block>int_checklist</Caption1>
                 </div>
-                <Button appearance="primary" icon={<AddRegular />} onClick={onAdd} disabled>
-                    {t("addChecklist")}
-                </Button>
             </div>
-            <Toolbar className={styles.filters} aria-label="Checklist filters">
-                <ToolbarButton icon={<FilterRegular />} disabled />
-                <Dropdown
-                    aria-label={t("filterByType")}
-                    placeholder={t("allTypes")}
-                    selectedOptions={filterType ? [filterType] : []}
-                    value={filterType || ""}
-                    onOptionSelect={(_, data) => {
-                        setFilterType(data.optionValue);
-                        setFilterTarget(undefined);
-                    }}
-                    style={{ minWidth: 210 }}
-                >
-                    {CHECKLIST_TYPES.map((type) => (
-                        <Option key={type.key} value={type.key}>
-                            {type.text}
-                        </Option>
-                    ))}
-                </Dropdown>
-                {filterType === "Standard" && (
-                    <Dropdown
-                        aria-label={t("filterByTarget")}
-                        placeholder={t("allTargets")}
-                        selectedOptions={filterTarget ? [filterTarget] : []}
-                        value={filterTarget || ""}
-                        onOptionSelect={(_, data) => setFilterTarget(data.optionValue)}
-                        style={{ minWidth: 210 }}
-                    >
-                        {TARGET_TYPES.map((target) => (
-                            <Option key={target.key} value={target.key}>
-                                {target.text}
-                            </Option>
-                        ))}
-                    </Dropdown>
-                )}
-                {(filterType || filterTarget) && (
-                    <ToolbarButton
-                        icon={<DismissRegular />}
-                        onClick={() => {
-                            setFilterType(undefined);
-                            setFilterTarget(undefined);
-                        }}
-                    >
-                        {t("clearFilters")}
-                    </ToolbarButton>
-                )}
-            </Toolbar>
-            <div className={styles.gridSurface}>
-                {isLoading ? (
-                    <div className={styles.empty}>
-                        <Spinner label={t("loading")} />
+            <div className={styles.versionsSurface}>
+                <div className={styles.emptyVersionPlaceholder}>
+                    <div>
+                        <Text block weight="semibold">{t("noFocusedChecklist")}</Text>
                     </div>
-                ) : checklists.length === 0 ? (
-                    <div className={styles.empty}>
-                        <Text>{t("noChecklists")}</Text>
-                    </div>
-                ) : (
-                    <DataGrid items={checklists} columns={columns} getRowId={(item) => item.id || item.name} focusMode="composite">
-                        <DataGridHeader>
-                            <DataGridRow>
-                                {({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
-                            </DataGridRow>
-                        </DataGridHeader>
-                        <DataGridBody>
-                            {({ item }) => (
-                                <DataGridRow key={item.id || item.name}>
-                                    {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}
-                                </DataGridRow>
-                            )}
-                        </DataGridBody>
-                    </DataGrid>
-                )}
+                </div>
             </div>
-        </>
+        </div>
     );
 }
 
 function ChecklistDetails({
-    checklist,
-    versions,
-    onBack,
+    version,
+    statusOptions,
     t,
 }: {
-    checklist: Checklist;
-    versions: Checklist[];
-    onBack: () => void;
+    version: ChecklistVersion;
+    statusOptions: Record<number, StatusOption>;
     t: (key: string) => string;
 }) {
     const styles = useStyles();
-    const status = STATUS_CODES.find((s) => s.key === checklist.statuscode);
-    const versionColumns = [
-        createTableColumn<Checklist>({
-            columnId: "currentVersion",
-            renderHeaderCell: () => <Text weight="semibold">{t("version")}</Text>,
-            renderCell: (item) => <TableCellLayout>{item.currentVersion}</TableCellLayout>,
-        }),
-        createTableColumn<Checklist>({
-            columnId: "statuscode",
-            renderHeaderCell: () => <Text weight="semibold">{t("status")}</Text>,
-            renderCell: (item) => {
-                const versionStatus = STATUS_CODES.find((s) => s.key === item.statuscode);
-                return (
-                    <TableCellLayout>
-                        <Badge appearance={versionStatus?.appearance || "outline"}>
-                            {versionStatus?.text || item.statuscode}
-                        </Badge>
-                    </TableCellLayout>
-                );
-            },
-        }),
-        createTableColumn<Checklist>({
-            columnId: "targetType",
-            renderHeaderCell: () => <Text weight="semibold">{t("checklistTargetType")}</Text>,
-            renderCell: (item) => <TableCellLayout>{item.targetType || "-"}</TableCellLayout>,
-        }),
-        createTableColumn<Checklist>({
-            columnId: "actions",
-            renderHeaderCell: () => <Text weight="semibold">{t("actions")}</Text>,
-            renderCell: () => (
-                <Button appearance="subtle" icon={<EyeRegular />} disabled>
-                    {t("view")}
-                </Button>
-            ),
-        }),
-    ];
+    const checklist = version.checklist;
 
     return (
         <div className={styles.detailsPage}>
             <div className={styles.editorHeader}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <Button icon={<ArrowLeftRegular />} appearance="subtle" onClick={onBack}>
-                        {t("back")}
-                    </Button>
-                    <div>
-                        <Text as="h1" size={600} weight="semibold">
-                            {t("viewChecklist")}
-                        </Text>
-                        <Caption1 block>{checklist.name}</Caption1>
-                    </div>
-                </div>
-            </div>
-            <Card>
-                <CardHeader header={<Text weight="semibold">{t("details")}</Text>} />
-                <div className={styles.detailsGrid} style={{ padding: "0 12px 12px" }}>
-                    <Field label={t("checklistName")}>
-                        <Text weight="semibold">{checklist.name}</Text>
-                    </Field>
-                    <Field label={t("checklistType")}>
-                        <Text>{checklist.checklistType}</Text>
-                    </Field>
-                    {checklist.checklistType === "Standard" && (
-                        <Field label={t("checklistTargetType")}>
-                            <Text>{checklist.targetType || "-"}</Text>
-                        </Field>
-                    )}
-                    <Field label={t("status")}>
-                        <Badge appearance={status?.appearance || "outline"}>{status?.text || checklist.statuscode}</Badge>
-                    </Field>
-                </div>
-            </Card>
-            <div className={styles.versionsSurface}>
-                <div className={styles.versionsHeader}>
-                    <div>
-                        <Text weight="semibold">{t("versions")}</Text>
-                        <Caption1 block>{checklist.name}</Caption1>
-                    </div>
-                    {versions.length === 0 && (
-                        <Button appearance="primary" icon={<EditRegular />} disabled>
-                            {t("createNewVersion")}
-                        </Button>
+                <div className={styles.titleStack}>
+                    <Text className={styles.eyebrow}>{`${checklist.checklistType} Checklist`}</Text>
+                    <Text as="h1" className={styles.pageTitle}>
+                        {checklist.name}
+                    </Text>
+                    <Caption1 block className={styles.pageSubtitle}>
+                        {`${t("version")}: ${version.versionNumber || "-"}`}
+                    </Caption1>
+                    {checklist.targetType && (
+                        <Caption1 block className={styles.pageSubtitle}>
+                            {`Target Type: ${checklist.targetType}`}
+                        </Caption1>
                     )}
                 </div>
-                {versions.length === 0 ? (
-                    <div className={styles.emptyVersionPlaceholder}>
-                        <div>
-                            <Text block weight="semibold">{t("noVersionsTitle")}</Text>
-                            <Caption1 block>{t("noVersionsBody")}</Caption1>
-                        </div>
-                    </div>
-                ) : (
-                    <div className={styles.versionsGrid}>
-                        <DataGrid
-                            items={versions}
-                            columns={versionColumns}
-                            getRowId={(item) => item.id || `${item.name}-${item.currentVersion}`}
-                            focusMode="composite"
-                        >
-                            <DataGridHeader>
-                                <DataGridRow>
-                                    {({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
-                                </DataGridRow>
-                            </DataGridHeader>
-                            <DataGridBody>
-                                {({ item }) => (
-                                    <DataGridRow key={item.id || `${item.name}-${item.currentVersion}`}>
-                                        {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}
-                                    </DataGridRow>
-                                )}
-                            </DataGridBody>
-                        </DataGrid>
-                    </div>
-                )}
+                <div className={styles.headerAction}>
+                    <StatusPill
+                        statuscode={version.statuscode}
+                        statusOptions={statusOptions}
+                        className={`${styles.statusPill} ${styles.headerStatusPill}`}
+                    />
+                </div>
             </div>
+            <div className={styles.versionsSurface} aria-hidden="true" />
         </div>
     );
 }
@@ -1072,12 +1182,14 @@ function ChecklistEditor({
     onBack,
     onSave,
     requireReviewForNewVersion,
+    statusOptions,
     t,
 }: {
     checklist: Checklist | null;
     onBack: () => void;
     onSave: (c: Checklist, isNew: boolean, publishAction: "draft" | "submit") => void;
     requireReviewForNewVersion: boolean;
+    statusOptions: Record<number, StatusOption>;
     t: (key: string) => string;
 }) {
     const styles = useStyles();
@@ -1209,7 +1321,7 @@ function ChecklistEditor({
                         </Dropdown>
                     </Field>
                     <Field label={t("status")}>
-                        <Badge appearance="filled">{t("draft")}</Badge>
+                        <StatusPill statuscode={STATUS_DRAFT} statusOptions={statusOptions} className={styles.statusPill} />
                     </Field>
                 </div>
             </Card>
