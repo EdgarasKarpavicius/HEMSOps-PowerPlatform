@@ -1,0 +1,1549 @@
+import React, { useEffect, useMemo, useState } from "react";
+import {
+    Badge,
+    Button,
+    Caption1,
+    Card,
+    CardHeader,
+    Checkbox,
+    DataGrid,
+    DataGridBody,
+    DataGridCell,
+    DataGridHeader,
+    DataGridHeaderCell,
+    DataGridRow,
+    Divider,
+    Dropdown,
+    Field,
+    Input,
+    MessageBar,
+    MessageBarBody,
+    Option,
+    Spinner,
+    TableCellLayout,
+    Text,
+    Toolbar,
+    ToolbarButton,
+    createTableColumn,
+    makeStyles,
+    shorthands,
+    tokens,
+} from "@fluentui/react-components";
+import {
+    AddRegular,
+    ArrowLeftRegular,
+    DeleteRegular,
+    DismissRegular,
+    EditRegular,
+    EyeRegular,
+    FilterRegular,
+    SaveRegular,
+} from "@fluentui/react-icons";
+
+declare const Xrm: any;
+
+type Checklist = {
+    id?: string;
+    name: string;
+    currentVersion: string;
+    checklistType: string;
+    targetType: string;
+    statuscode: number;
+    sections: ChecklistSection[];
+    definitionJson?: string;
+    definitionHash?: string;
+    raw?: Record<string, any>;
+};
+
+type ChecklistSection = {
+    id: string;
+    name: string;
+    bulkServiceable: boolean;
+    parentId?: string | null;
+    sections: ChecklistSection[];
+    items: ChecklistItem[];
+};
+
+type ChecklistItem = {
+    id: string;
+    name: string;
+    description: string;
+    quantity: number;
+};
+
+const TABLE_NAME = "int_checklist";
+const REQUIRE_REVIEW_SETTING_NAME = "int_RequireChecklistVersionReview";
+const STATUS_DRAFT = 1;
+const STATUS_PUBLISHED = 2;
+const STATUS_INACTIVE = 3;
+const STATUS_IN_REVIEW = 4;
+
+const langMap: Record<number, { code: string; name: string; isRtl: boolean }> = {
+    1033: { code: "en-US", name: "English (United States)", isRtl: false },
+};
+
+const translations: Record<string, Record<string, string>> = {
+    "en-US": {
+        checklistBuilder: "Checklist Builder",
+        filterByType: "Filter by checklist type",
+        filterByTarget: "Filter by target type",
+        clearFilters: "Clear filters",
+        checklistName: "Checklist name",
+        currentVersion: "Version",
+        checklistType: "Checklist type",
+        checklistTargetType: "Target type",
+        status: "Status",
+        actions: "Actions",
+        addChecklist: "Add checklist",
+        view: "View",
+        edit: "Edit",
+        editNextVersion: "Edit next version",
+        editChecklistVersion: "Edit checklist",
+        confirmEditTitle: "Create draft version?",
+        confirmEditBody:
+            "Editing this checklist creates a new version in Draft mode. It will remain Draft until it is submitted for review or published.",
+        requireReviewSetting: "Review required for new versions",
+        createNewVersion: "Create new version",
+        noVersionsTitle: "No checklist versions",
+        noVersionsBody: "Create a new version to start managing this checklist lifecycle.",
+        versions: "Versions",
+        version: "Version",
+        versionStatus: "Version status",
+        submitForReview: "Submit for review",
+        publishChecklist: "Publish checklist",
+        saveDraft: "Save draft",
+        inReview: "In review",
+        back: "Back",
+        save: "Save",
+        sectionName: "Section name",
+        sectionBulkServiceable: "Bulk mark fully serviceable",
+        addSection: "Add section",
+        addChildSection: "Add child section",
+        newTopLevelSection: "New top level section",
+        newChildSection: "New child section",
+        addItem: "Add item",
+        itemName: "Item name",
+        itemDescription: "Description",
+        itemQuantity: "Qty",
+        remove: "Remove",
+        noItemsAllowed: "Parent sections cannot contain items",
+        saveChecklist: "Save checklist",
+        cancel: "Cancel",
+        versionNote: "Saving an existing checklist creates the next version.",
+        checklistEditor: "Checklist Editor",
+        sections: "Sections",
+        items: "Items",
+        draft: "Draft",
+        published: "Published",
+        inactive: "Inactive",
+        noChecklists: "No checklists found.",
+        noSections: "No sections yet.",
+        noItems: "No items yet.",
+        editChecklist: "Edit checklist",
+        viewChecklist: "View checklist",
+        createChecklist: "Create checklist",
+        loading: "Loading checklists",
+        loadFallback: "Dataverse was not available, so the page is using local checklist data for this session.",
+        saveFallback: "This save stayed local because Dataverse save was not available.",
+        details: "Details",
+        definition: "Items",
+        allTypes: "All checklist types",
+        allTargets: "All targets",
+        selectSection: "Select a section to view or edit its items.",
+        previewBeforeEdit: "Preview the existing checklist before creating a new version.",
+    },
+};
+
+const CHECKLIST_TYPES = [
+    { key: "Standard", text: "Standard" },
+    { key: "Custom", text: "Custom" },
+];
+
+const TARGET_TYPES = [
+    { key: "Aircraft", text: "Aircraft" },
+    { key: "Vehicle", text: "Vehicle" },
+    { key: "Facility", text: "Facility" },
+];
+
+const STATUS_CODES = [
+    { key: STATUS_DRAFT, text: "Draft", appearance: "filled" as const },
+    { key: STATUS_PUBLISHED, text: "Published", appearance: "tint" as const },
+    { key: STATUS_INACTIVE, text: "Inactive", appearance: "outline" as const },
+    { key: STATUS_IN_REVIEW, text: "In review", appearance: "ghost" as const },
+];
+
+const EMPTY_CHECKLISTS: Checklist[] = [];
+
+const useStyles = makeStyles({
+    page: {
+        width: "100%",
+        height: "100%",
+        minHeight: "100%",
+        boxSizing: "border-box",
+        backgroundColor: tokens.colorNeutralBackground2,
+        color: tokens.colorNeutralForeground1,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+    },
+    shell: {
+        display: "flex",
+        flexDirection: "column",
+        flexGrow: 1,
+        minHeight: 0,
+        padding: "24px",
+        rowGap: "16px",
+    },
+    header: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "16px",
+    },
+    filters: {
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        flexWrap: "wrap",
+    },
+    gridSurface: {
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        flexGrow: 1,
+        minHeight: 0,
+        overflow: "auto",
+    },
+    empty: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "220px",
+        color: tokens.colorNeutralForeground3,
+    },
+    editor: {
+        display: "grid",
+        gridTemplateRows: "auto auto minmax(0, 1fr) auto",
+        flexGrow: 1,
+        height: "100%",
+        minHeight: 0,
+        rowGap: "16px",
+        overflow: "hidden",
+    },
+    editorHeader: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+    },
+    detailsPage: {
+        display: "grid",
+        gridTemplateRows: "auto auto minmax(0, 1fr)",
+        flexGrow: 1,
+        height: "100%",
+        minHeight: 0,
+        rowGap: "16px",
+        overflow: "hidden",
+    },
+    detailsGrid: {
+        display: "grid",
+        gridTemplateColumns: "minmax(240px, 1.6fr) repeat(3, minmax(160px, 1fr))",
+        gap: "12px",
+        "@media (max-width: 900px)": {
+            gridTemplateColumns: "1fr 1fr",
+        },
+        "@media (max-width: 620px)": {
+            gridTemplateColumns: "1fr",
+        },
+    },
+    detailsStack: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "16px",
+        padding: "0 12px 12px",
+    },
+    versionsList: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+    },
+    versionsSurface: {
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        overflow: "hidden",
+    },
+    versionsHeader: {
+        padding: "12px 16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    versionsGrid: {
+        flexGrow: 1,
+        minHeight: 0,
+        overflow: "auto",
+    },
+    versionRow: {
+        display: "grid",
+        gridTemplateColumns: "96px minmax(140px, 1fr) minmax(140px, 1fr) auto",
+        alignItems: "center",
+        gap: "12px",
+        padding: "10px",
+        backgroundColor: tokens.colorNeutralBackground2,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        "@media (max-width: 760px)": {
+            gridTemplateColumns: "1fr 1fr",
+        },
+    },
+    emptyVersionPlaceholder: {
+        minHeight: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+        color: tokens.colorNeutralForeground3,
+        padding: "32px",
+    },
+    editorCanvas: {
+        display: "grid",
+        gridTemplateColumns: "minmax(280px, 0.42fr) 8px minmax(420px, 1fr)",
+        minHeight: 0,
+        overflow: "hidden",
+        "@media (max-width: 900px)": {
+            gridTemplateColumns: "1fr",
+            rowGap: "8px",
+        },
+    },
+    sectionPane: {
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        overflow: "hidden",
+    },
+    panelGap: {
+        backgroundColor: tokens.colorNeutralStroke3,
+        borderRadius: tokens.borderRadiusSmall,
+        margin: "0 3px",
+        "@media (max-width: 900px)": {
+            height: "8px",
+            margin: "0",
+        },
+    },
+    paneHeader: {
+        padding: "12px 14px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "8px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    sectionList: {
+        padding: "12px",
+        overflow: "auto",
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+    },
+    footer: {
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+        padding: "12px 16px",
+        flexShrink: 0,
+    },
+    sectionCard: {
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        backgroundColor: tokens.colorNeutralBackground1,
+        boxShadow: tokens.shadow2,
+    },
+    selectedSectionCard: {
+        ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
+        boxShadow: tokens.shadow4,
+    },
+    previewSectionButton: {
+        width: "100%",
+        justifyContent: "flex-start",
+    },
+    sectionBody: {
+        display: "grid",
+        gridTemplateColumns: "minmax(180px, 1fr) auto auto",
+        gap: "8px",
+        alignItems: "end",
+        padding: "12px",
+        "@media (max-width: 760px)": {
+            gridTemplateColumns: "1fr",
+        },
+    },
+    itemPane: {
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        overflow: "hidden",
+    },
+    itemList: {
+        padding: "12px",
+        overflow: "auto",
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+    },
+    itemRow: {
+        display: "grid",
+        gridTemplateColumns: "minmax(160px, 1.2fr) minmax(180px, 1.6fr) 72px auto",
+        alignItems: "end",
+        gap: "8px",
+        padding: "10px",
+        backgroundColor: tokens.colorNeutralBackground2,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        "@media (max-width: 920px)": {
+            gridTemplateColumns: "1fr 1fr",
+        },
+    },
+    previewItemRow: {
+        display: "grid",
+        gridTemplateColumns: "minmax(160px, 1.2fr) minmax(180px, 1.6fr) 72px",
+        alignItems: "start",
+        gap: "8px",
+        padding: "10px",
+        backgroundColor: tokens.colorNeutralBackground2,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        "@media (max-width: 920px)": {
+            gridTemplateColumns: "1fr 1fr",
+        },
+    },
+    sectionChildren: {
+        padding: "0 12px 12px 22px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+        ...shorthands.borderLeft("2px", "solid", tokens.colorBrandStroke2),
+        marginLeft: "12px",
+    },
+    childSectionAction: {
+        padding: "0 12px 12px 22px",
+    },
+});
+
+function getUiLanguageId() {
+    return (
+        (typeof Xrm !== "undefined" &&
+            Xrm.Utility?.getGlobalContext()?.userSettings?.languageId) ||
+        1033
+    );
+}
+
+function getLanguageAndRtl() {
+    const uiLanguageId = getUiLanguageId();
+    const lang = langMap[uiLanguageId]?.code || "en-US";
+    const isRtl = langMap[uiLanguageId]?.isRtl ?? false;
+    return { language: lang, isRTL: isRtl };
+}
+
+function getTranslationFn(language: string) {
+    return (key: string): string =>
+        translations[language]?.[key] || translations["en-US"]?.[key] || key;
+}
+
+function hasDataverse() {
+    return typeof Xrm !== "undefined" && !!Xrm.WebApi?.retrieveMultipleRecords;
+}
+
+function canSaveDataverse() {
+    return typeof Xrm !== "undefined" && !!Xrm.WebApi?.createRecord && !!Xrm.WebApi?.updateRecord;
+}
+
+function parseBooleanSetting(value: unknown, fallback: boolean) {
+    if (value === undefined || value === null || value === "") return fallback;
+    const normalized = String(value).trim().toLowerCase();
+    if (["true", "yes", "y", "1"].includes(normalized)) return true;
+    if (["false", "no", "n", "0"].includes(normalized)) return false;
+    return fallback;
+}
+
+async function loadRequireReviewForNewVersions(): Promise<boolean> {
+    if (typeof Xrm === "undefined") return true;
+
+    try {
+        const globalContext = Xrm.Utility?.getGlobalContext?.();
+        const appSettingValue = globalContext?.getCurrentAppSetting?.(REQUIRE_REVIEW_SETTING_NAME);
+        return parseBooleanSetting(appSettingValue, true);
+    } catch {
+        return true;
+    }
+}
+
+function getValue(record: Record<string, any>, names: string[], fallback = "") {
+    for (const name of names) {
+        if (record[name] !== undefined && record[name] !== null) return record[name];
+        const formatted = `${name}@OData.Community.Display.V1.FormattedValue`;
+        if (record[formatted] !== undefined && record[formatted] !== null) return record[formatted];
+    }
+    return fallback;
+}
+
+function getDisplayValue(record: Record<string, any>, names: string[], fallback = "") {
+    for (const name of names) {
+        const formatted = `${name}@OData.Community.Display.V1.FormattedValue`;
+        if (record[formatted] !== undefined && record[formatted] !== null) return record[formatted];
+        if (record[name] !== undefined && record[name] !== null) return record[name];
+    }
+    return fallback;
+}
+
+function makeId() {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+        return (crypto as any).randomUUID();
+    }
+    return Math.random().toString(36).slice(2, 11);
+}
+
+function normalizeSections(sections: any[]): ChecklistSection[] {
+    return sections.map((section) => ({
+        id: String(section.id || section.int_checklistsectionid || makeId()),
+        name: String(section.name || section.int_name || ""),
+        bulkServiceable: Boolean(section.bulkServiceable || section.int_bulkserviceable),
+        parentId: section.parentId || section.int_parentsectionid || null,
+        sections: normalizeSections(Array.isArray(section.sections) ? section.sections : []),
+        items: normalizeItems(Array.isArray(section.items) ? section.items : []),
+    }));
+}
+
+function normalizeItems(items: any[]): ChecklistItem[] {
+    return items.map((item) => ({
+        id: String(item.id || item.int_checklistitemid || makeId()),
+        name: String(item.name || item.int_name || ""),
+        description: String(item.description || item.int_description || ""),
+        quantity: Number(item.quantity || item.int_quantity || 1),
+    }));
+}
+
+function parseSections(value: unknown): ChecklistSection[] {
+    if (!value || typeof value !== "string") return [];
+    try {
+        const parsed = JSON.parse(value);
+        const source = Array.isArray(parsed) ? parsed : parsed.sections;
+        return Array.isArray(source) ? normalizeSections(source) : [];
+    } catch {
+        return [];
+    }
+}
+
+function mapChecklistRecord(record: Record<string, any>): Checklist {
+    const definitionJson = String(
+        getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], "")
+    );
+    return {
+        id: String(getValue(record, ["int_checklistid", "id", "checklistid"], "")),
+        name: String(getValue(record, ["int_name", "name", "int_checklistname"], "Untitled checklist")),
+        currentVersion: String(getValue(record, ["int_currentversion", "int_version", "currentversion"], "1")),
+        checklistType: String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], "Standard")),
+        targetType: String(getDisplayValue(record, ["int_targettype", "targettype"], "")),
+        statuscode: Number(getValue(record, ["statuscode"], 1)),
+        sections: parseSections(definitionJson),
+        definitionJson,
+        definitionHash: String(getValue(record, ["int_definitionhash", "definitionhash"], "")),
+        raw: record,
+    };
+}
+
+async function loadChecklistsFromDataverse(): Promise<Checklist[]> {
+    const result = await Xrm.WebApi.retrieveMultipleRecords(TABLE_NAME, "?$top=5000");
+    return (result.entities || []).map(mapChecklistRecord);
+}
+
+function buildDataversePayload(checklist: Checklist) {
+    const definitionJson = checklist.definitionJson || JSON.stringify({ sections: checklist.sections });
+    return {
+        int_name: checklist.name,
+        int_currentversion: checklist.currentVersion,
+        int_checklisttype: checklist.checklistType,
+        int_targettype: checklist.targetType,
+        statuscode: checklist.statuscode,
+        int_definitionjson: definitionJson,
+        int_definitionhash: checklist.definitionHash || hashText(definitionJson),
+    };
+}
+
+async function saveChecklistToDataverse(checklist: Checklist, createNewRecord: boolean) {
+    const payload = buildDataversePayload(checklist);
+    if (checklist.id && !createNewRecord) {
+        await Xrm.WebApi.updateRecord(TABLE_NAME, checklist.id, payload);
+        return checklist;
+    }
+    const created = await Xrm.WebApi.createRecord(TABLE_NAME, payload);
+    return { ...checklist, id: created.id };
+}
+
+function hashText(text: string) {
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+        hash = (hash << 5) - hash + text.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash).toString(16);
+}
+
+function getChecklistFamilyKey(checklist: Checklist) {
+    return [checklist.name.trim().toLowerCase(), checklist.checklistType, checklist.targetType || ""].join("|");
+}
+
+function getChecklistVersions(checklists: Checklist[], checklist: Checklist) {
+    const familyKey = getChecklistFamilyKey(checklist);
+    return checklists
+        .filter((candidate) => getChecklistFamilyKey(candidate) === familyKey)
+        .sort((a, b) => Number(b.currentVersion) - Number(a.currentVersion));
+}
+
+function getLatestChecklists(checklists: Checklist[]) {
+    const latestByFamily = new Map<string, Checklist>();
+    checklists.forEach((checklist) => {
+        const familyKey = getChecklistFamilyKey(checklist);
+        const currentLatest = latestByFamily.get(familyKey);
+        if (!currentLatest || Number(checklist.currentVersion) > Number(currentLatest.currentVersion)) {
+            latestByFamily.set(familyKey, checklist);
+        }
+    });
+    return Array.from(latestByFamily.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function findSectionById(sections: ChecklistSection[], sectionId?: string): ChecklistSection | undefined {
+    if (!sectionId) return undefined;
+    for (const section of sections) {
+        if (section.id === sectionId) return section;
+        const child = findSectionById(section.sections, sectionId);
+        if (child) return child;
+    }
+    return undefined;
+}
+
+function findFirstLeafSection(sections: ChecklistSection[]): ChecklistSection | undefined {
+    for (const section of sections) {
+        const childLeaf = findFirstLeafSection(section.sections);
+        if (childLeaf) return childLeaf;
+        if (section.sections.length === 0) return section;
+    }
+    return undefined;
+}
+
+const GeneratedComponent = () => {
+    const styles = useStyles();
+    const { language, isRTL } = useMemo(getLanguageAndRtl, []);
+    const t = useMemo(() => getTranslationFn(language), [language]);
+
+    const [view, setView] = useState<"list" | "details" | "editor">("list");
+    const [editingChecklist, setEditingChecklist] = useState<Checklist | null>(null);
+    const [viewingChecklist, setViewingChecklist] = useState<Checklist | null>(null);
+    const [filterType, setFilterType] = useState<string | undefined>();
+    const [filterTarget, setFilterTarget] = useState<string | undefined>();
+    const [checklists, setChecklists] = useState<Checklist[]>(EMPTY_CHECKLISTS);
+    const [isLoading, setIsLoading] = useState(true);
+    const [message, setMessage] = useState("");
+    const [requireReviewForNewVersion, setRequireReviewForNewVersion] = useState(true);
+
+    useEffect(() => {
+        let isMounted = true;
+        async function load() {
+            setIsLoading(true);
+            try {
+                if (hasDataverse()) {
+                    const [rows, requireReview] = await Promise.all([
+                        loadChecklistsFromDataverse(),
+                        loadRequireReviewForNewVersions(),
+                    ]);
+                    if (isMounted) setChecklists(rows);
+                    if (isMounted) setRequireReviewForNewVersion(requireReview);
+                } else if (isMounted) {
+                    setMessage(t("loadFallback"));
+                    setChecklists(EMPTY_CHECKLISTS);
+                    setRequireReviewForNewVersion(true);
+                }
+            } catch (error) {
+                if (isMounted) {
+                    setMessage(error instanceof Error ? error.message : t("loadFallback"));
+                    setChecklists(EMPTY_CHECKLISTS);
+                }
+            } finally {
+                if (isMounted) setIsLoading(false);
+            }
+        }
+        load();
+        return () => {
+            isMounted = false;
+        };
+    }, [t]);
+
+    const filteredChecklists = useMemo(
+        () =>
+            getLatestChecklists(checklists).filter((c) => {
+                if (filterType && c.checklistType !== filterType) return false;
+                if (filterType === "Standard" && filterTarget && c.targetType !== filterTarget) {
+                    return false;
+                }
+                return true;
+            }),
+        [checklists, filterTarget, filterType]
+    );
+
+    const handleView = (checklist: Checklist) => {
+        setViewingChecklist(checklist);
+        setEditingChecklist(null);
+        setView("details");
+    };
+
+    const handleSaveChecklist = async (newChecklist: Checklist, isNew: boolean, publishAction: "draft" | "submit") => {
+        try {
+            const createsNewVersion = isNew || !!newChecklist.id;
+            const statuscode =
+                publishAction === "draft"
+                    ? STATUS_DRAFT
+                    : requireReviewForNewVersion
+                        ? STATUS_IN_REVIEW
+                        : STATUS_PUBLISHED;
+            const checklistToSave = { ...newChecklist, statuscode };
+            const savedChecklist = canSaveDataverse()
+                ? await saveChecklistToDataverse(checklistToSave, createsNewVersion)
+                : { ...checklistToSave, id: createsNewVersion ? makeId() : checklistToSave.id };
+            setChecklists((prev) =>
+                createsNewVersion
+                    ? [...prev, { ...savedChecklist, id: savedChecklist.id || makeId() }]
+                    : prev.map((c) => (c.id === savedChecklist.id ? savedChecklist : c))
+            );
+            if (!canSaveDataverse()) setMessage(t("saveFallback"));
+            setView("list");
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : t("saveFallback"));
+        }
+    };
+
+    const columns = [
+        createTableColumn<Checklist>({
+            columnId: "name",
+            renderHeaderCell: () => <Text weight="semibold">{t("checklistName")}</Text>,
+            renderCell: (item) => <TableCellLayout>{item.name}</TableCellLayout>,
+        }),
+        createTableColumn<Checklist>({
+            columnId: "currentVersion",
+            renderHeaderCell: () => <Text weight="semibold">{t("currentVersion")}</Text>,
+            renderCell: (item) => <TableCellLayout>{item.currentVersion}</TableCellLayout>,
+        }),
+        createTableColumn<Checklist>({
+            columnId: "checklistType",
+            renderHeaderCell: () => <Text weight="semibold">{t("checklistType")}</Text>,
+            renderCell: (item) => <TableCellLayout>{item.checklistType}</TableCellLayout>,
+        }),
+        createTableColumn<Checklist>({
+            columnId: "targetType",
+            renderHeaderCell: () => <Text weight="semibold">{t("checklistTargetType")}</Text>,
+            renderCell: (item) => <TableCellLayout>{item.targetType}</TableCellLayout>,
+        }),
+        createTableColumn<Checklist>({
+            columnId: "statuscode",
+            renderHeaderCell: () => <Text weight="semibold">{t("status")}</Text>,
+            renderCell: (item) => {
+                const status = STATUS_CODES.find((s) => s.key === item.statuscode);
+                return (
+                    <TableCellLayout>
+                        <Badge appearance={status?.appearance || "outline"}>{status?.text || item.statuscode}</Badge>
+                    </TableCellLayout>
+                );
+            },
+        }),
+        createTableColumn<Checklist>({
+            columnId: "actions",
+            renderHeaderCell: () => <Text weight="semibold">{t("actions")}</Text>,
+            renderCell: (item) => (
+                <Button icon={<EyeRegular />} appearance="subtle" onClick={() => handleView(item)}>
+                    {t("view")}
+                </Button>
+            ),
+        }),
+    ];
+
+    return (
+        <div dir={isRTL ? "rtl" : "ltr"} className={styles.page}>
+            <div className={styles.shell}>
+                {message && (
+                    <MessageBar intent="warning">
+                        <MessageBarBody>{message}</MessageBarBody>
+                    </MessageBar>
+                )}
+                {view === "list" ? (
+                    <MainChecklistList
+                        columns={columns}
+                        checklists={filteredChecklists}
+                        filterType={filterType}
+                        setFilterType={setFilterType}
+                        filterTarget={filterTarget}
+                        setFilterTarget={setFilterTarget}
+                        onAdd={() => {
+                            setEditingChecklist(null);
+                            setViewingChecklist(null);
+                            setView("editor");
+                        }}
+                        t={t}
+                        isLoading={isLoading}
+                    />
+                ) : view === "details" && viewingChecklist ? (
+                    <ChecklistDetails
+                        checklist={viewingChecklist}
+                        versions={getChecklistVersions(checklists, viewingChecklist)}
+                        onBack={() => setView("list")}
+                        t={t}
+                    />
+                ) : (
+                    <ChecklistEditor
+                        checklist={editingChecklist}
+                        onBack={() => setView("list")}
+                        onSave={handleSaveChecklist}
+                        requireReviewForNewVersion={requireReviewForNewVersion}
+                        t={t}
+                    />
+                )}
+            </div>
+        </div>
+    );
+};
+
+function MainChecklistList({
+    columns,
+    checklists,
+    filterType,
+    setFilterType,
+    filterTarget,
+    setFilterTarget,
+    onAdd,
+    t,
+    isLoading,
+}: {
+    columns: any[];
+    checklists: Checklist[];
+    filterType: string | undefined;
+    setFilterType: (v: string | undefined) => void;
+    filterTarget: string | undefined;
+    setFilterTarget: (v: string | undefined) => void;
+    onAdd: () => void;
+    t: (key: string) => string;
+    isLoading: boolean;
+}) {
+    const styles = useStyles();
+
+    return (
+        <>
+            <div className={styles.header}>
+                <div>
+                    <Text as="h1" size={700} weight="semibold">
+                        {t("checklistBuilder")}
+                    </Text>
+                    <Caption1 block>int_checklist</Caption1>
+                </div>
+                <Button appearance="primary" icon={<AddRegular />} onClick={onAdd} disabled>
+                    {t("addChecklist")}
+                </Button>
+            </div>
+            <Toolbar className={styles.filters} aria-label="Checklist filters">
+                <ToolbarButton icon={<FilterRegular />} disabled />
+                <Dropdown
+                    aria-label={t("filterByType")}
+                    placeholder={t("allTypes")}
+                    selectedOptions={filterType ? [filterType] : []}
+                    value={filterType || ""}
+                    onOptionSelect={(_, data) => {
+                        setFilterType(data.optionValue);
+                        setFilterTarget(undefined);
+                    }}
+                    style={{ minWidth: 210 }}
+                >
+                    {CHECKLIST_TYPES.map((type) => (
+                        <Option key={type.key} value={type.key}>
+                            {type.text}
+                        </Option>
+                    ))}
+                </Dropdown>
+                {filterType === "Standard" && (
+                    <Dropdown
+                        aria-label={t("filterByTarget")}
+                        placeholder={t("allTargets")}
+                        selectedOptions={filterTarget ? [filterTarget] : []}
+                        value={filterTarget || ""}
+                        onOptionSelect={(_, data) => setFilterTarget(data.optionValue)}
+                        style={{ minWidth: 210 }}
+                    >
+                        {TARGET_TYPES.map((target) => (
+                            <Option key={target.key} value={target.key}>
+                                {target.text}
+                            </Option>
+                        ))}
+                    </Dropdown>
+                )}
+                {(filterType || filterTarget) && (
+                    <ToolbarButton
+                        icon={<DismissRegular />}
+                        onClick={() => {
+                            setFilterType(undefined);
+                            setFilterTarget(undefined);
+                        }}
+                    >
+                        {t("clearFilters")}
+                    </ToolbarButton>
+                )}
+            </Toolbar>
+            <div className={styles.gridSurface}>
+                {isLoading ? (
+                    <div className={styles.empty}>
+                        <Spinner label={t("loading")} />
+                    </div>
+                ) : checklists.length === 0 ? (
+                    <div className={styles.empty}>
+                        <Text>{t("noChecklists")}</Text>
+                    </div>
+                ) : (
+                    <DataGrid items={checklists} columns={columns} getRowId={(item) => item.id || item.name} focusMode="composite">
+                        <DataGridHeader>
+                            <DataGridRow>
+                                {({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
+                            </DataGridRow>
+                        </DataGridHeader>
+                        <DataGridBody>
+                            {({ item }) => (
+                                <DataGridRow key={item.id || item.name}>
+                                    {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}
+                                </DataGridRow>
+                            )}
+                        </DataGridBody>
+                    </DataGrid>
+                )}
+            </div>
+        </>
+    );
+}
+
+function ChecklistDetails({
+    checklist,
+    versions,
+    onBack,
+    t,
+}: {
+    checklist: Checklist;
+    versions: Checklist[];
+    onBack: () => void;
+    t: (key: string) => string;
+}) {
+    const styles = useStyles();
+    const status = STATUS_CODES.find((s) => s.key === checklist.statuscode);
+    const versionColumns = [
+        createTableColumn<Checklist>({
+            columnId: "currentVersion",
+            renderHeaderCell: () => <Text weight="semibold">{t("version")}</Text>,
+            renderCell: (item) => <TableCellLayout>{item.currentVersion}</TableCellLayout>,
+        }),
+        createTableColumn<Checklist>({
+            columnId: "statuscode",
+            renderHeaderCell: () => <Text weight="semibold">{t("status")}</Text>,
+            renderCell: (item) => {
+                const versionStatus = STATUS_CODES.find((s) => s.key === item.statuscode);
+                return (
+                    <TableCellLayout>
+                        <Badge appearance={versionStatus?.appearance || "outline"}>
+                            {versionStatus?.text || item.statuscode}
+                        </Badge>
+                    </TableCellLayout>
+                );
+            },
+        }),
+        createTableColumn<Checklist>({
+            columnId: "targetType",
+            renderHeaderCell: () => <Text weight="semibold">{t("checklistTargetType")}</Text>,
+            renderCell: (item) => <TableCellLayout>{item.targetType || "-"}</TableCellLayout>,
+        }),
+        createTableColumn<Checklist>({
+            columnId: "actions",
+            renderHeaderCell: () => <Text weight="semibold">{t("actions")}</Text>,
+            renderCell: () => (
+                <Button appearance="subtle" icon={<EyeRegular />} disabled>
+                    {t("view")}
+                </Button>
+            ),
+        }),
+    ];
+
+    return (
+        <div className={styles.detailsPage}>
+            <div className={styles.editorHeader}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Button icon={<ArrowLeftRegular />} appearance="subtle" onClick={onBack}>
+                        {t("back")}
+                    </Button>
+                    <div>
+                        <Text as="h1" size={600} weight="semibold">
+                            {t("viewChecklist")}
+                        </Text>
+                        <Caption1 block>{checklist.name}</Caption1>
+                    </div>
+                </div>
+            </div>
+            <Card>
+                <CardHeader header={<Text weight="semibold">{t("details")}</Text>} />
+                <div className={styles.detailsGrid} style={{ padding: "0 12px 12px" }}>
+                    <Field label={t("checklistName")}>
+                        <Text weight="semibold">{checklist.name}</Text>
+                    </Field>
+                    <Field label={t("checklistType")}>
+                        <Text>{checklist.checklistType}</Text>
+                    </Field>
+                    {checklist.checklistType === "Standard" && (
+                        <Field label={t("checklistTargetType")}>
+                            <Text>{checklist.targetType || "-"}</Text>
+                        </Field>
+                    )}
+                    <Field label={t("status")}>
+                        <Badge appearance={status?.appearance || "outline"}>{status?.text || checklist.statuscode}</Badge>
+                    </Field>
+                </div>
+            </Card>
+            <div className={styles.versionsSurface}>
+                <div className={styles.versionsHeader}>
+                    <div>
+                        <Text weight="semibold">{t("versions")}</Text>
+                        <Caption1 block>{checklist.name}</Caption1>
+                    </div>
+                    {versions.length === 0 && (
+                        <Button appearance="primary" icon={<EditRegular />} disabled>
+                            {t("createNewVersion")}
+                        </Button>
+                    )}
+                </div>
+                {versions.length === 0 ? (
+                    <div className={styles.emptyVersionPlaceholder}>
+                        <div>
+                            <Text block weight="semibold">{t("noVersionsTitle")}</Text>
+                            <Caption1 block>{t("noVersionsBody")}</Caption1>
+                        </div>
+                    </div>
+                ) : (
+                    <div className={styles.versionsGrid}>
+                        <DataGrid
+                            items={versions}
+                            columns={versionColumns}
+                            getRowId={(item) => item.id || `${item.name}-${item.currentVersion}`}
+                            focusMode="composite"
+                        >
+                            <DataGridHeader>
+                                <DataGridRow>
+                                    {({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
+                                </DataGridRow>
+                            </DataGridHeader>
+                            <DataGridBody>
+                                {({ item }) => (
+                                    <DataGridRow key={item.id || `${item.name}-${item.currentVersion}`}>
+                                        {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}
+                                    </DataGridRow>
+                                )}
+                            </DataGridBody>
+                        </DataGrid>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function ChecklistEditor({
+    checklist,
+    onBack,
+    onSave,
+    requireReviewForNewVersion,
+    t,
+}: {
+    checklist: Checklist | null;
+    onBack: () => void;
+    onSave: (c: Checklist, isNew: boolean, publishAction: "draft" | "submit") => void;
+    requireReviewForNewVersion: boolean;
+    t: (key: string) => string;
+}) {
+    const styles = useStyles();
+    const isNew = !checklist;
+    const [name, setName] = useState(checklist?.name || "");
+    const [checklistType, setChecklistType] = useState(checklist?.checklistType || "Standard");
+    const [targetType, setTargetType] = useState(checklist?.targetType || "");
+    const statuscode = STATUS_DRAFT;
+    const [sections, setSections] = useState<ChecklistSection[]>(checklist?.sections || []);
+    const [selectedSectionId, setSelectedSectionId] = useState<string | undefined>(
+        () => findFirstLeafSection(checklist?.sections || [])?.id
+    );
+    const [currentVersion] = useState(checklist?.currentVersion || "1");
+
+    useEffect(() => {
+        const selectedSection = findSectionById(sections, selectedSectionId);
+        const selectedLeaf = selectedSection && selectedSection.sections.length === 0 ? selectedSection : undefined;
+        if (selectedLeaf) return;
+        setSelectedSectionId(findFirstLeafSection(sections)?.id);
+    }, [sections, selectedSectionId]);
+
+    const selectedSection = useMemo(
+        () => findSectionById(sections, selectedSectionId),
+        [sections, selectedSectionId]
+    );
+    const selectedLeafSection = selectedSection && selectedSection.sections.length === 0
+        ? selectedSection
+        : findFirstLeafSection(selectedSection?.sections || sections);
+    const definitionJson = useMemo(
+        () => JSON.stringify({ name, checklistType, targetType, sections }, null, 2),
+        [checklistType, name, sections, targetType]
+    );
+    const definitionHash = useMemo(() => hashText(definitionJson), [definitionJson]);
+
+    const buildChecklistForSave = (): Checklist => ({
+        id: checklist?.id,
+        name,
+        checklistType,
+        targetType,
+        statuscode,
+        currentVersion: isNew ? "1" : (parseInt(currentVersion, 10) + 1).toString(),
+        sections,
+        definitionJson,
+        definitionHash,
+        raw: checklist?.raw,
+    });
+
+    const handleSave = (publishAction: "draft" | "submit") => {
+        onSave(
+            buildChecklistForSave(),
+            isNew,
+            publishAction
+        );
+    };
+
+    const addSection = (parentSectionId?: string) => {
+        const newSection: ChecklistSection = {
+            id: makeId(),
+            name: "",
+            bulkServiceable: false,
+            sections: [],
+            items: [],
+            parentId: parentSectionId || null,
+        };
+        setSections((prev) =>
+            parentSectionId ? addChildSectionRecursive(prev, parentSectionId, newSection) : [...prev, newSection]
+        );
+        setSelectedSectionId(newSection.id);
+    };
+
+    const addItem = (sectionId: string) => {
+        setSections((prev) =>
+            addItemToSectionRecursive(prev, sectionId, {
+                id: makeId(),
+                name: "",
+                description: "",
+                quantity: 1,
+            })
+        );
+        setSelectedSectionId(sectionId);
+    };
+
+    return (
+        <div className={styles.editor}>
+            <div className={styles.editorHeader}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Button icon={<ArrowLeftRegular />} appearance="subtle" onClick={onBack}>
+                        {t("back")}
+                    </Button>
+                    <Text as="h1" size={600} weight="semibold">
+                        {isNew ? t("createChecklist") : t("editNextVersion")}
+                    </Text>
+                </div>
+            </div>
+            <Card>
+                <CardHeader header={<Text weight="semibold">{t("details")}</Text>} />
+                <div className={styles.detailsGrid}>
+                    <Field label={t("checklistName")} required>
+                        <Input value={name} onChange={(_, d) => setName(d.value)} />
+                    </Field>
+                    <Field label={t("checklistType")}>
+                        <Dropdown
+                            selectedOptions={[checklistType]}
+                            value={checklistType}
+                            onOptionSelect={(_, data) => {
+                                setChecklistType(data.optionValue || "Standard");
+                                if (data.optionValue !== "Standard") setTargetType("");
+                            }}
+                        >
+                            {CHECKLIST_TYPES.map((type) => (
+                                <Option key={type.key} value={type.key}>
+                                    {type.text}
+                                </Option>
+                            ))}
+                        </Dropdown>
+                    </Field>
+                    <Field label={t("checklistTargetType")} required={checklistType === "Standard"}>
+                        <Dropdown
+                            selectedOptions={targetType ? [targetType] : []}
+                            value={targetType}
+                            disabled={checklistType !== "Standard"}
+                            onOptionSelect={(_, data) => setTargetType(data.optionValue || "")}
+                        >
+                            {TARGET_TYPES.map((target) => (
+                                <Option key={target.key} value={target.key}>
+                                    {target.text}
+                                </Option>
+                            ))}
+                        </Dropdown>
+                    </Field>
+                    <Field label={t("status")}>
+                        <Badge appearance="filled">{t("draft")}</Badge>
+                    </Field>
+                </div>
+            </Card>
+            <div className={styles.editorCanvas}>
+                <div className={styles.sectionPane}>
+                    <div className={styles.paneHeader}>
+                        <Text weight="semibold">{t("sections")}</Text>
+                        <Button appearance="subtle" icon={<AddRegular />} onClick={() => addSection()}>
+                            {t("newTopLevelSection")}
+                        </Button>
+                    </div>
+                    <div className={styles.sectionList}>
+                        {sections.length === 0 ? (
+                            <div className={styles.empty}>
+                                <Text>{t("noSections")}</Text>
+                            </div>
+                        ) : (
+                            sections.map((section) => (
+                                <SectionEditor
+                                    key={section.id}
+                                    section={section}
+                                    selectedSectionId={selectedLeafSection?.id}
+                                    onSelectSection={(id) => {
+                                        const sectionToSelect = findSectionById(sections, id);
+                                        setSelectedSectionId(
+                                            sectionToSelect?.sections.length
+                                                ? findFirstLeafSection(sectionToSelect.sections)?.id
+                                                : id
+                                        );
+                                    }}
+                                    onUpdate={(id, updated) => setSections((prev) => updateSectionRecursive(prev, id, updated))}
+                                    onRemove={(id) => setSections((prev) => removeSectionRecursive(prev, id))}
+                                    onAddChild={addSection}
+                                    onAddItem={addItem}
+                                    onRemoveItem={(sectionId, itemId) =>
+                                        setSections((prev) => removeItemFromSectionRecursive(prev, sectionId, itemId))
+                                    }
+                                    onUpdateItem={(sectionId, itemId, updated) =>
+                                        setSections((prev) => updateItemInSectionRecursive(prev, sectionId, itemId, updated))
+                                    }
+                                    t={t}
+                                />
+                            ))
+                        )}
+                    </div>
+                </div>
+                <div className={styles.panelGap} aria-hidden="true" />
+                <div className={styles.itemPane}>
+                    <div className={styles.paneHeader}>
+                        <Text weight="semibold">{t("definition")}</Text>
+                        <Caption1>{selectedLeafSection?.name || t("selectSection")}</Caption1>
+                    </div>
+                    <div className={styles.itemList}>
+                        {!selectedLeafSection ? (
+                            <div className={styles.empty}>
+                                <Text>{sections.length === 0 ? t("noItems") : t("selectSection")}</Text>
+                            </div>
+                        ) : (
+                            <SectionItems
+                                section={selectedLeafSection}
+                                onAddItem={addItem}
+                                onRemoveItem={(sectionId, itemId) =>
+                                    setSections((prev) => removeItemFromSectionRecursive(prev, sectionId, itemId))
+                                }
+                                onUpdateItem={(sectionId, itemId, updated) =>
+                                    setSections((prev) => updateItemInSectionRecursive(prev, sectionId, itemId, updated))
+                                }
+                                t={t}
+                            />
+                        )}
+                    </div>
+                </div>
+            </div>
+            <div className={styles.footer}>
+                <Caption1>{t("versionNote")}</Caption1>
+                <div style={{ display: "flex", gap: 8 }}>
+                    <Button appearance="secondary" onClick={onBack}>
+                        {t("cancel")}
+                    </Button>
+                    <Button
+                        appearance="secondary"
+                        icon={<SaveRegular />}
+                        onClick={() => handleSave("draft")}
+                        disabled={!name || (checklistType === "Standard" && !targetType)}
+                    >
+                        {t("saveDraft")}
+                    </Button>
+                    <Button
+                        appearance="primary"
+                        icon={<SaveRegular />}
+                        onClick={() => handleSave("submit")}
+                        disabled={!name || (checklistType === "Standard" && !targetType)}
+                    >
+                        {requireReviewForNewVersion ? t("submitForReview") : t("publishChecklist")}
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function SectionEditor({
+    section,
+    selectedSectionId,
+    onSelectSection,
+    onUpdate,
+    onRemove,
+    onAddChild,
+    onAddItem,
+    onRemoveItem,
+    onUpdateItem,
+    t,
+}: {
+    section: ChecklistSection;
+    selectedSectionId?: string;
+    onSelectSection: (sectionId: string) => void;
+    onUpdate: (id: string, updated: Partial<ChecklistSection>) => void;
+    onRemove: (id: string) => void;
+    onAddChild: (parentId: string) => void;
+    onAddItem: (sectionId: string) => void;
+    onRemoveItem: (sectionId: string, itemId: string) => void;
+    onUpdateItem: (sectionId: string, itemId: string, updated: Partial<ChecklistItem>) => void;
+    t: (key: string) => string;
+}) {
+    const styles = useStyles();
+    const isParent = section.sections.length > 0;
+    const isSelected = selectedSectionId === section.id;
+
+    return (
+        <div className={`${styles.sectionCard} ${isSelected ? styles.selectedSectionCard : ""}`}>
+            <div className={styles.sectionBody}>
+                <Field label={t("sectionName")}>
+                    <Input
+                        value={section.name}
+                        onFocus={() => onSelectSection(section.id)}
+                        onChange={(_, d) => onUpdate(section.id, { name: d.value })}
+                    />
+                </Field>
+                <Toolbar>
+                    <ToolbarButton disabled={isParent} icon={<AddRegular />} onClick={() => onAddItem(section.id)}>
+                        {t("addItem")}
+                    </ToolbarButton>
+                    <ToolbarButton icon={<DeleteRegular />} onClick={() => onRemove(section.id)}>
+                        {t("remove")}
+                    </ToolbarButton>
+                </Toolbar>
+                <Checkbox
+                    checked={section.bulkServiceable}
+                    onChange={(_, d) => onUpdate(section.id, { bulkServiceable: !!d.checked })}
+                    label={t("sectionBulkServiceable")}
+                />
+            </div>
+            <div className={styles.childSectionAction}>
+                <Button appearance="subtle" icon={<AddRegular />} onClick={() => onAddChild(section.id)}>
+                    {t("newChildSection")}
+                </Button>
+            </div>
+            {section.sections.length > 0 && (
+                <div className={styles.sectionChildren}>
+                    {section.sections.map((child) => (
+                        <SectionEditor
+                            key={child.id}
+                            section={child}
+                            selectedSectionId={selectedSectionId}
+                            onSelectSection={onSelectSection}
+                            onUpdate={onUpdate}
+                            onRemove={onRemove}
+                            onAddChild={onAddChild}
+                            onAddItem={onAddItem}
+                            onRemoveItem={onRemoveItem}
+                            onUpdateItem={onUpdateItem}
+                            t={t}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function SectionItems({
+    section,
+    onAddItem,
+    onRemoveItem,
+    onUpdateItem,
+    t,
+}: {
+    section: ChecklistSection;
+    onAddItem: (sectionId: string) => void;
+    onRemoveItem: (sectionId: string, itemId: string) => void;
+    onUpdateItem: (sectionId: string, itemId: string, updated: Partial<ChecklistItem>) => void;
+    t: (key: string) => string;
+}) {
+    const styles = useStyles();
+    const isParent = section.sections.length > 0;
+
+    return (
+        <Card>
+            <CardHeader
+                header={<Text weight="semibold">{section.name || t("sectionName")}</Text>}
+                description={<Caption1>{isParent ? t("noItemsAllowed") : `${section.items.length} ${t("items")}`}</Caption1>}
+                action={
+                    <Button appearance="subtle" icon={<AddRegular />} disabled={isParent} onClick={() => onAddItem(section.id)}>
+                        {t("addItem")}
+                    </Button>
+                }
+            />
+            <Divider />
+            {isParent ? (
+                <div style={{ padding: 12 }}>
+                    <Text size={200}>{t("noItemsAllowed")}</Text>
+                </div>
+            ) : section.items.length === 0 ? (
+                <div style={{ padding: 12 }}>
+                    <Text size={200}>{t("noItems")}</Text>
+                </div>
+            ) : (
+                <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                    {section.items.map((item) => (
+                        <ItemEditor
+                            key={item.id}
+                            item={item}
+                            onUpdate={(updated) => onUpdateItem(section.id, item.id, updated)}
+                            onRemove={() => onRemoveItem(section.id, item.id)}
+                            t={t}
+                            className={styles.itemRow}
+                        />
+                    ))}
+                </div>
+            )}
+        </Card>
+    );
+}
+
+function ItemEditor({
+    item,
+    onUpdate,
+    onRemove,
+    t,
+    className,
+}: {
+    item: ChecklistItem;
+    onUpdate: (updated: Partial<ChecklistItem>) => void;
+    onRemove: () => void;
+    t: (key: string) => string;
+    className: string;
+}) {
+    return (
+        <div className={className}>
+            <Field label={t("itemName")}>
+                <Input value={item.name} onChange={(_, d) => onUpdate({ name: d.value })} />
+            </Field>
+            <Field label={t("itemDescription")}>
+                <Input value={item.description} onChange={(_, d) => onUpdate({ description: d.value })} />
+            </Field>
+            <Field label={t("itemQuantity")}>
+                <Input
+                    value={item.quantity.toString()}
+                    type="number"
+                    min={1}
+                    onChange={(_, d) => onUpdate({ quantity: Number(d.value) || 1 })}
+                />
+            </Field>
+            <Button appearance="subtle" icon={<DeleteRegular />} onClick={onRemove}>
+                {t("remove")}
+            </Button>
+        </div>
+    );
+}
+
+function addChildSectionRecursive(sections: ChecklistSection[], parentId: string, newSection: ChecklistSection): ChecklistSection[] {
+    return sections.map((section) =>
+        section.id === parentId
+            ? { ...section, sections: [...section.sections, newSection] }
+            : { ...section, sections: addChildSectionRecursive(section.sections, parentId, newSection) }
+    );
+}
+
+function removeSectionRecursive(sections: ChecklistSection[], sectionId: string): ChecklistSection[] {
+    return sections
+        .filter((section) => section.id !== sectionId)
+        .map((section) => ({
+            ...section,
+            sections: removeSectionRecursive(section.sections, sectionId),
+        }));
+}
+
+function updateSectionRecursive(
+    sections: ChecklistSection[],
+    sectionId: string,
+    updated: Partial<ChecklistSection>
+): ChecklistSection[] {
+    return sections.map((section) =>
+        section.id === sectionId
+            ? { ...section, ...updated }
+            : { ...section, sections: updateSectionRecursive(section.sections, sectionId, updated) }
+    );
+}
+
+function addItemToSectionRecursive(
+    sections: ChecklistSection[],
+    sectionId: string,
+    newItem: ChecklistItem
+): ChecklistSection[] {
+    return sections.map((section) =>
+        section.id === sectionId
+            ? { ...section, items: [...section.items, newItem] }
+            : { ...section, sections: addItemToSectionRecursive(section.sections, sectionId, newItem) }
+    );
+}
+
+function removeItemFromSectionRecursive(
+    sections: ChecklistSection[],
+    sectionId: string,
+    itemId: string
+): ChecklistSection[] {
+    return sections.map((section) =>
+        section.id === sectionId
+            ? { ...section, items: section.items.filter((item) => item.id !== itemId) }
+            : { ...section, sections: removeItemFromSectionRecursive(section.sections, sectionId, itemId) }
+    );
+}
+
+function updateItemInSectionRecursive(
+    sections: ChecklistSection[],
+    sectionId: string,
+    itemId: string,
+    updated: Partial<ChecklistItem>
+): ChecklistSection[] {
+    return sections.map((section) =>
+        section.id === sectionId
+            ? { ...section, items: section.items.map((item) => (item.id === itemId ? { ...item, ...updated } : item)) }
+            : { ...section, sections: updateItemInSectionRecursive(section.sections, sectionId, itemId, updated) }
+    );
+}
+
+export default GeneratedComponent;
