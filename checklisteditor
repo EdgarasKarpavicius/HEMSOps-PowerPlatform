@@ -662,16 +662,16 @@ const useStyles = makeStyles({
         borderColor: tokens.colorBrandStroke1,
     },
     selectedAncestorSectionRow: {
-        backgroundColor: tokens.colorNeutralBackground2,
-        borderColor: tokens.colorNeutralStroke2,
-        boxShadow: `inset 3px 0 0 ${tokens.colorNeutralStrokeAccessible}`,
+        backgroundColor: tokens.colorBrandBackground2,
+        borderColor: tokens.colorBrandStroke2,
+        boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
     },
     selectedChildSectionRow: {
-        backgroundColor: tokens.colorNeutralBackground2,
-        borderColor: tokens.colorNeutralStrokeAccessible,
-        borderLeftColor: tokens.colorNeutralStrokeAccessible,
+        backgroundColor: tokens.colorBrandBackground2,
+        borderColor: tokens.colorBrandStroke1,
+        borderLeftColor: tokens.colorBrandStroke1,
         borderLeftWidth: "3px",
-        boxShadow: `inset 0 0 0 1px ${tokens.colorNeutralStroke2}`,
+        boxShadow: `inset 0 0 0 1px ${tokens.colorBrandStroke1}`,
         fontWeight: tokens.fontWeightSemibold,
     },
     draggingRow: {
