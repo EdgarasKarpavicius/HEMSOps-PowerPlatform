@@ -92,6 +92,7 @@ type StatusOption = {
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
 const REQUIRE_REVIEW_SETTING_NAME = "int_RequireChecklistVersionReview";
+const TEMP_DEV_CHECKLIST_VERSION_ID = "24e8d1ae-fa66-f111-ab0c-000d3a7ecf04";
 const STATUS_DRAFT = 1;
 const STATUS_PUBLISHED = 2;
 const STATUS_INACTIVE = 3;
@@ -1034,7 +1035,8 @@ const GeneratedComponent = () => {
                     const versionId = normalizeLookupValue(
                         pageInput.data?.checklistVersionId ||
                             pageInput.data?.int_checklistversionid ||
-                            pageInput.recordId
+                            pageInput.recordId ||
+                            TEMP_DEV_CHECKLIST_VERSION_ID
                     );
                     const [version, statusMetadata] = await Promise.all([
                         loadChecklistVersionFromDataverse(versionId),
