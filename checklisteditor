@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Button,
     Caption1,
@@ -1828,7 +1828,7 @@ function ChecklistDetails({
         setDraftItem({ sectionId, name: "", description: "", quantity: "" });
         setDraftSection(null);
     };
-    const handleChecklistShortcutKeyDown = (event: React.KeyboardEvent) => {
+    const handleChecklistShortcutKeyDown = useCallback((event: KeyboardEvent | React.KeyboardEvent) => {
         if (event.key !== " " || activeTab !== "contents" || !selectedSection || draftSection || draftItem) return;
         const target = event.target as HTMLElement | null;
         const tagName = target?.tagName.toLowerCase();
@@ -1851,7 +1851,22 @@ function ChecklistDetails({
             event.preventDefault();
             startNewItem(selectedSection.id);
         }
-    };
+    }, [
+        activeTab,
+        canAddChildSection,
+        draftItem,
+        draftSection,
+        selectedSection,
+        selectedSectionHasChildren,
+        startNewItem,
+        startNewSection,
+    ]);
+    useEffect(() => {
+        if (typeof document === "undefined") return;
+        const handleKeyDown = (event: KeyboardEvent) => handleChecklistShortcutKeyDown(event);
+        document.addEventListener("keydown", handleKeyDown);
+        return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [handleChecklistShortcutKeyDown]);
     const startEditItem = (sectionId: string, item: ChecklistItem) => {
         setDraftItem({
             sectionId,
@@ -2132,7 +2147,7 @@ function ChecklistDetails({
     const sectionCount = flattenedSections.length;
 
     return (
-        <div className={styles.detailsPage} tabIndex={0} onKeyDown={handleChecklistShortcutKeyDown}>
+        <div className={styles.detailsPage}>
             <div className={styles.editorHeader}>
                 <div className={styles.titleStack}>
                     <Text className={styles.eyebrow}>{checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist"}</Text>
