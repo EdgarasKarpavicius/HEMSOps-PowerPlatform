@@ -173,9 +173,9 @@ const langMap: Record<number, { code: string; name: string; isRtl: boolean }> = 
 const translations: Record<string, Record<string, string>> = {
     "en-US": {
         version: "Version",
-        loadingChecklist: "Loading checklist",
-        loadFallback: "Dataverse was not available, so the page is using local checklist data for this session.",
-        noFocusedChecklist: "No checklist matched this context.",
+        loadingChecklist: "Loading checklist version",
+        loadFallback: "Dataverse is unavailable. Local checklist data is being used for this session.",
+        noFocusedChecklist: "No checklist version was found for the current context.",
         focusedContext: "Focused context",
     },
 };
@@ -229,7 +229,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "defaultQtyExpiredToZero",
         label: "Default expired quantity to zero",
-        description: "Starts expired stock item quantities at zero during stock checks.",
+        description: "Sets expired stock item quantities to zero by default during stock checks.",
         type: "boolean",
         defaultValue: false,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STOCK],
@@ -245,7 +245,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "enableNaItemStatusOption",
         label: "Enable N/A item status",
-        description: "Allows checklist items to be marked as not applicable when they do not need assessment.",
+        description: "Allows checklist items to be marked as not applicable when assessment is not required.",
         type: "boolean",
         defaultValue: false,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD],
@@ -253,7 +253,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "enableSaveForLaterCompletion",
         label: "Enable save for later completion",
-        description: "Allows users to save an in-progress checklist and return to complete it later.",
+        description: "Allows users to save an in-progress checklist and resume completion later.",
         type: "boolean",
         defaultValue: true,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD, CHECKLIST_TYPE_STOCK],
@@ -1474,7 +1474,7 @@ function mapChecklistRecord(record: Record<string, any>): Checklist {
     const targetType = getChecklistTargetTypeLabel(record);
     return {
         id: String(getValue(record, ["int_checklistid"], "")),
-        name: String(getValue(record, ["int_name"], "Untitled checklist")),
+        name: String(getValue(record, ["int_name"], "Unnamed checklist")),
         checklistType,
         checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_type"], ""), checklistType),
         targetType,
@@ -2089,7 +2089,7 @@ function ChecklistDetails({
         setPendingDelete({
             type: "section",
             id: section.id,
-            name: section.name || "Untitled section",
+            name: section.name || "Unnamed section",
         });
     };
     const requestDeleteItem = (sectionId: string, item: ChecklistItem) => {
@@ -2097,7 +2097,7 @@ function ChecklistDetails({
             type: "item",
             sectionId,
             id: item.id,
-            name: item.name || "Untitled item",
+            name: item.name || "Unnamed item",
         });
     };
     const confirmDelete = () => {
@@ -2124,7 +2124,7 @@ function ChecklistDetails({
         >
             <Input
                 autoFocus
-                placeholder="Section name"
+                placeholder="Enter section name"
                 value={draftSection?.name || ""}
                 onChange={(_, data) =>
                     setDraftSection((current) => current ? { ...current, name: data.value } : current)
@@ -2135,7 +2135,7 @@ function ChecklistDetails({
                 }}
             />
             <Button
-                aria-label="Confirm section"
+                aria-label="Confirm section name"
                 appearance="primary"
                 icon={<CheckmarkRegular />}
                 disabled={!draftSection?.name.trim()}
@@ -2160,7 +2160,7 @@ function ChecklistDetails({
                 <Input
                     type="number"
                     min={0}
-                    placeholder="None"
+                    placeholder="Not specified"
                     value={draftItem?.quantity || ""}
                     onChange={(_, data) =>
                         setDraftItem((current) => current ? { ...current, quantity: data.value } : current)
@@ -2172,7 +2172,7 @@ function ChecklistDetails({
                 <Textarea
                     resize="vertical"
                     rows={3}
-                    placeholder="Add guidance, acceptance criteria, or notes for this item"
+                    placeholder="Enter completion guidance, acceptance criteria, or supporting notes"
                     value={draftItem?.description || ""}
                     onChange={(_, data) =>
                         setDraftItem((current) => current ? { ...current, description: data.value } : current)
@@ -2181,7 +2181,7 @@ function ChecklistDetails({
                 />
             </Field>
             <Button
-                aria-label="Confirm checklist item"
+                aria-label="Confirm item details"
                 appearance="primary"
                 className={styles.itemConfirmButton}
                 icon={<CheckmarkRegular />}
@@ -2258,7 +2258,7 @@ function ChecklistDetails({
                             <span className={styles.sectionChevron} />
                         )}
                         <Text className={styles.sectionRowText} weight={depth === 0 || selectedSectionId === section.id ? "semibold" : "regular"}>
-                            {section.name || "Untitled section"}
+                            {section.name || "Unnamed section"}
                         </Text>
                     </div>
                     <div className={styles.rowActions}>
@@ -2291,7 +2291,7 @@ function ChecklistDetails({
                             className={styles.sectionAddAnotherButton}
                             onClick={() => startNewSection(section.id)}
                         >
-                            + Add another
+                            Add another child section
                         </Button>
                     </div>
                 )}
@@ -2306,7 +2306,7 @@ function ChecklistDetails({
             const saved = await saveChecklistVersionDefinition(version, currentDefinition);
             onVersionSaved(saved);
         } catch (error) {
-            setSaveError(error instanceof Error ? error.message : "Unable to save checklist version.");
+            setSaveError(error instanceof Error ? error.message : "The checklist version could not be saved.");
         } finally {
             setIsSaving(false);
         }
@@ -2333,7 +2333,7 @@ function ChecklistDetails({
                                     {proposedChecklistName || checklist.name}
                                 </Text>
                                 <Button
-                                    aria-label="Edit checklist name"
+                                    aria-label="Edit proposed checklist name"
                                     appearance="subtle"
                                     icon={<EditRegular />}
                                     onClick={() => setIsEditingName(true)}
@@ -2378,7 +2378,7 @@ function ChecklistDetails({
                             disabled={isSaving}
                             onClick={handleSave}
                         >
-                            {isSaving ? "Saving" : "Save"}
+                            {isSaving ? "Saving..." : "Save changes"}
                         </Button>
                     )}
                 </div>
@@ -2386,7 +2386,7 @@ function ChecklistDetails({
                     <div className={styles.tabPanel}>
                         <div className={styles.formStack}>
                             <section className={styles.generalSection}>
-                                <Text className={styles.generalSectionTitle}>Version Details</Text>
+                                <Text className={styles.generalSectionTitle}>Version details</Text>
                                 <Field label="Version type">
                                     <Dropdown
                                         className={styles.controlFullWidth}
@@ -2422,11 +2422,11 @@ function ChecklistDetails({
                                 </Field>
                             </section>
                             <section className={styles.generalSection}>
-                                <Text className={styles.generalSectionTitle}>Applied To</Text>
-                                <Field label={appliesToTarget?.label || "Applied To"}>
+                                <Text className={styles.generalSectionTitle}>Applied to</Text>
+                                <Field label={appliesToTarget?.label || "Applied to"}>
                                     <Dropdown
                                         className={styles.controlFullWidth}
-                                        placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type"}
+                                        placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type is configured"}
                                         selectedOptions={appliesTo?.id ? [appliesTo.id] : []}
                                         value={appliesTo ? getAppliesToOptionText(appliesTo) : ""}
                                         disabled={!appliesToTarget}
@@ -2467,7 +2467,7 @@ function ChecklistDetails({
                                         disabled={Boolean(draftSection || draftItem)}
                                         onClick={() => startNewSection(null)}
                                     >
-                                        New Section
+                                        Add section
                                     </Button>
                                 </div>
                                 <div className={styles.contentsColumnBody}>
@@ -2475,7 +2475,7 @@ function ChecklistDetails({
                                     {draftSection?.parentId === null && renderDraftSectionRow(0)}
                                     {!flattenedSections.length && !draftSection && (
                                         <div className={styles.contentsPlaceholder}>
-                                            <Text weight="semibold">Create your first section</Text>
+                                            <Text weight="semibold">No sections have been defined.</Text>
                                         </div>
                                     )}
                                 </div>
@@ -2518,13 +2518,13 @@ function ChecklistDetails({
                                                                 weight={index === selectedSectionPath.length - 1 ? "semibold" : "regular"}
                                                                 className={index === selectedSectionPath.length - 1 ? styles.sectionPathCurrent : styles.sectionPathPart}
                                                             >
-                                                                {section.name || "Untitled section"}
+                                                                {section.name || "Unnamed section"}
                                                             </Text>
                                                         </React.Fragment>
                                                     ))}
                                                 </div>
                                                 <Button
-                                                    aria-label="Edit section name"
+                                                    aria-label="Edit selected section name"
                                                     appearance="subtle"
                                                     icon={<EditRegular />}
                                                     onClick={() => {
@@ -2552,7 +2552,7 @@ function ChecklistDetails({
                                                 disabled={Boolean(draftSection || draftItem)}
                                                 onClick={() => startNewItem(selectedSection.id)}
                                             >
-                                                New Item
+                                                Add item
                                             </Button>
                                         )}
                                     </div>
@@ -2560,17 +2560,17 @@ function ChecklistDetails({
                                 <div className={styles.itemWorkspace}>
                                     {!selectedSection ? (
                                         <div className={styles.contentsPlaceholder}>
-                                            <Text weight="semibold">Select or create a section</Text>
+                                            <Text weight="semibold">Select a section to manage its contents.</Text>
                                         </div>
                                     ) : selectedSectionHasChildren ? (
                                         <div className={styles.contentsPlaceholder}>
-                                            <Text weight="semibold">Items cannot be added to a parent section.</Text>
+                                            <Text weight="semibold">Items can only be added to sections without child sections.</Text>
                                             <Button
                                                 icon={<AddRegular />}
                                                 disabled={Boolean(draftSection || draftItem)}
                                                 onClick={() => startNewSection(selectedSection.id)}
                                             >
-                                                Add another child section
+                                                Add child section
                                             </Button>
                                         </div>
                                     ) : (
@@ -2614,14 +2614,14 @@ function ChecklistDetails({
                                                         }}
                                                     >
                                                         <div className={styles.itemReadOnlyText}>
-                                                            <Text weight="semibold">{item.name || "Untitled item"}</Text>
+                                                            <Text weight="semibold">{item.name || "Unnamed item"}</Text>
                                                             {item.description && (
                                                                 <Caption1 className={styles.mutedText}>{item.description}</Caption1>
                                                             )}
                                                         </div>
                                                         <div className={styles.rowActions}>
                                                             {item.quantity !== null && item.quantity !== undefined && (
-                                                                <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
+                                                                <Caption1 className={styles.mutedText}>{`Quantity ${item.quantity}`}</Caption1>
                                                             )}
                                                             <Button
                                                                 aria-label="Delete item"
@@ -2639,9 +2639,9 @@ function ChecklistDetails({
                                             {draftItem?.sectionId === selectedSection.id && !draftItem.itemId && renderDraftItemRow()}
                                             {selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && !draftSection && (
                                                 <div className={styles.contentsPlaceholder}>
-                                                    <Text weight="semibold">Choose how to start this section.</Text>
+                                                    <Text weight="semibold">No content has been defined for this section.</Text>
                                                     <Caption1 className={styles.mutedText}>
-                                                        Add checklist items directly, or split this section into child sections.
+                                                        Add items to this section, or define child sections to structure the checklist.
                                                     </Caption1>
                                                     <div className={styles.placeholderActions}>
                                                         <Button
@@ -2649,7 +2649,7 @@ function ChecklistDetails({
                                                             disabled={Boolean(draftSection || draftItem)}
                                                             onClick={() => startNewSection(selectedSection.id)}
                                                         >
-                                                            New Child Section
+                                                            Add child section
                                                         </Button>
                                                         <Button
                                                             appearance="primary"
@@ -2657,21 +2657,21 @@ function ChecklistDetails({
                                                             disabled={Boolean(draftSection || draftItem)}
                                                             onClick={() => startNewItem(selectedSection.id)}
                                                         >
-                                                            New Item
+                                                            Add item
                                                         </Button>
                                                     </div>
                                                 </div>
                                             )}
                                             {!selectedSection.items.length && !selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && (
                                                 <div className={styles.contentsPlaceholder}>
-                                                    <Text weight="semibold">Create the first item for this section.</Text>
+                                                    <Text weight="semibold">No items have been defined for this section.</Text>
                                                     <Button
                                                         appearance="primary"
                                                         icon={<AddRegular />}
                                                         disabled={Boolean(draftSection || draftItem)}
                                                         onClick={() => startNewItem(selectedSection.id)}
                                                     >
-                                                        New Item
+                                                        Add item
                                                     </Button>
                                                 </div>
                                             )}
@@ -2728,13 +2728,13 @@ function ChecklistDetails({
                 <DialogSurface>
                     <DialogBody>
                         <DialogTitle>
-                            {pendingDelete?.type === "item" ? "Delete checklist item?" : "Delete section?"}
+                            {pendingDelete?.type === "item" ? "Confirm item deletion" : "Confirm section deletion"}
                         </DialogTitle>
                         <DialogContent>
                             <Text>
                                 {pendingDelete?.type === "item"
-                                    ? `Delete "${pendingDelete.name}"?`
-                                    : `Delete "${pendingDelete?.name || "this section"}" and all sections/items inside it?`}
+                                    ? `This action will permanently remove "${pendingDelete.name}" from the checklist version.`
+                                    : `This action will permanently remove "${pendingDelete?.name || "this section"}" and all contained sections and items from the checklist version.`}
                             </Text>
                         </DialogContent>
                         <DialogActions>
@@ -2742,7 +2742,7 @@ function ChecklistDetails({
                                 Cancel
                             </Button>
                             <Button appearance="primary" onClick={confirmDelete}>
-                                Delete
+                                Delete Permanently
                             </Button>
                         </DialogActions>
                     </DialogBody>
