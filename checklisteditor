@@ -624,7 +624,10 @@ const useStyles = makeStyles({
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
         color: tokens.colorNeutralForeground1,
-        borderColor: tokens.colorBrandStroke1,
+        borderTopColor: tokens.colorBrandStroke1,
+        borderRightColor: tokens.colorBrandStroke1,
+        borderBottomColor: tokens.colorBrandStroke1,
+        borderLeftColor: tokens.colorBrandStroke1,
     },
     draggingRow: {
         opacity: 0.55,
@@ -907,7 +910,10 @@ function StatusPill({
     const style = color
         ? {
               backgroundColor: color,
-              borderColor: color,
+              borderTopColor: color,
+              borderRightColor: color,
+              borderBottomColor: color,
+              borderLeftColor: color,
               color: getReadableTextColor(color),
           }
         : undefined;
