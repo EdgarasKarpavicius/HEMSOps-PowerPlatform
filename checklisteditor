@@ -40,6 +40,7 @@ type ChecklistVersion = {
     versionNumber: string;
     description: string;
     versionType: number;
+    statecode: number;
     statuscode: number;
     statusLabel?: string;
     definition: ChecklistVersionDefinition;
@@ -413,10 +414,8 @@ const useStyles = makeStyles({
         gap: "14px",
         width: "100%",
         boxSizing: "border-box",
-        padding: "16px",
-        backgroundColor: tokens.colorNeutralBackground2,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
+        padding: "4px 0 18px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
     generalSectionTitle: {
         fontSize: "14px",
@@ -961,6 +960,7 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
         versionNumber: String(getValue(record, ["int_versionnumber"], "")),
         description: String(getValue(record, ["int_description"], "")),
         versionType: Number(getValue(record, ["int_versiontype"], VERSION_TYPE_MINOR)),
+        statecode: Number(getValue(record, ["statecode"], 0)),
         statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
         statusLabel: String(getDisplayValue(record, ["statuscode"], "")),
         definition: parseChecklistVersionDefinition(record, checklist),
@@ -978,7 +978,7 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
             const record = await Xrm.WebApi.retrieveRecord(
                 VERSION_TABLE_NAME,
                 versionId,
-                `?$select=int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statuscode,int_definitionjson&$expand=${relationshipName}($select=${checklistSelect})`
+                `?$select=int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statecode,statuscode,int_definitionjson&$expand=${relationshipName}($select=${checklistSelect})`
             );
             const checklist = getExpandedChecklist(record, relationshipName);
             if (checklist) return mapChecklistVersionRecord(record, checklist);
@@ -991,7 +991,7 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
     const record = await Xrm.WebApi.retrieveRecord(
         VERSION_TABLE_NAME,
         versionId,
-        "?$select=int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statuscode,int_definitionjson,_int_checklist_value"
+        "?$select=int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statecode,statuscode,int_definitionjson,_int_checklist_value"
     );
     const checklistId = getLookupId(record, [
         "_int_checklist_value",
@@ -1321,9 +1321,11 @@ function ChecklistDetails({
                             </>
                         )}
                     </div>
-                    <Caption1 block className={styles.pageSubtitle}>
-                        {`${t("version")}: ${versionNumber || "-"}`}
-                    </Caption1>
+                    {version.statecode === 1 && (
+                        <Caption1 block className={styles.pageSubtitle}>
+                            {`${t("version")}: ${versionNumber || "-"}`}
+                        </Caption1>
+                    )}
                     {checklist.targetType && (
                         <Caption1 block className={styles.pageSubtitle}>
                             {`Target Type: ${checklist.targetType}`}
