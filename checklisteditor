@@ -593,6 +593,11 @@ const useStyles = makeStyles({
         borderLeftWidth: "3px",
         borderLeftStyle: "solid",
     },
+    childSectionSeparator: {
+        borderTopColor: tokens.colorNeutralStroke2,
+        borderTopWidth: "1px",
+        borderTopStyle: "solid",
+    },
     sectionChildren: {
         display: "flex",
         flexDirection: "column",
@@ -2289,7 +2294,7 @@ function ChecklistDetails({
             />
         </div>
     );
-    const renderSectionRow = (section: ChecklistSection, depth = 0): React.ReactNode => {
+    const renderSectionRow = (section: ChecklistSection, depth = 0, siblingIndex = 0): React.ReactNode => {
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isDropBeforeTarget =
@@ -2320,6 +2325,7 @@ function ChecklistDetails({
                     className={[
                         styles.sectionRow,
                         depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
+                        depth > 0 && siblingIndex > 0 ? styles.childSectionSeparator : "",
                         selectedSectionId === section.id ? styles.selectedSectionRow : "",
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropBeforeTarget ? styles.dropBeforeRow : "",
@@ -2384,7 +2390,7 @@ function ChecklistDetails({
                 </div>
                 {hasChildren && !isCollapsed && (
                     <div className={styles.sectionChildren}>
-                        {section.sections.map((childSection) => renderSectionRow(childSection, depth + 1))}
+                        {section.sections.map((childSection, index) => renderSectionRow(childSection, depth + 1, index))}
                     </div>
                 )}
                 {canAddAnotherChild && (
