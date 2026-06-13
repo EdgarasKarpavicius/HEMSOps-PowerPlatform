@@ -584,6 +584,9 @@ const useStyles = makeStyles({
         ":hover": {
             backgroundColor: tokens.colorNeutralBackground2,
         },
+        ":hover .sectionDeleteAction": {
+            opacity: 1,
+        },
     },
     parentSectionRow: {
         backgroundColor: tokens.colorNeutralBackground2,
@@ -640,6 +643,13 @@ const useStyles = makeStyles({
         minWidth: "64px",
         textAlign: "right",
         whiteSpace: "nowrap",
+    },
+    sectionDeleteButton: {
+        color: "#b10e1c",
+        minWidth: "24px",
+        width: "24px",
+        height: "24px",
+        opacity: 0,
     },
     selectedSectionTitleRow: {
         display: "flex",
@@ -2170,9 +2180,22 @@ function ChecklistDetails({
                             {section.name || "Untitled section"}
                         </Text>
                     </div>
-                    <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
-                        {getSectionCountText(section)}
-                    </Caption1>
+                    <div className={styles.rowActions}>
+                        <Button
+                            aria-label="Delete section"
+                            appearance="subtle"
+                            className={`${styles.sectionDeleteButton} sectionDeleteAction`}
+                            icon={<DeleteRegular />}
+                            disabled={Boolean(draftSection || draftItem)}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                requestDeleteSection(section);
+                            }}
+                        />
+                        <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
+                            {getSectionCountText(section)}
+                        </Caption1>
+                    </div>
                 </div>
                 {hasChildren && !isCollapsed && (
                     <div className={styles.sectionChildren}>
@@ -2461,16 +2484,6 @@ function ChecklistDetails({
                                         )}
                                     </div>
                                     <div className={styles.contentsActions}>
-                                        {selectedSection && (
-                                            <Button
-                                                aria-label="Delete section"
-                                                appearance="subtle"
-                                                icon={<DeleteRegular />}
-                                                disabled={Boolean(draftSection || draftItem)}
-                                                style={{ color: "#b10e1c" }}
-                                                onClick={() => requestDeleteSection(selectedSection)}
-                                            />
-                                        )}
                                         {selectedSection && !selectedSectionHasChildren && !selectedSectionIsEmptyTopLevel && (
                                             <Button
                                                 appearance="primary"
