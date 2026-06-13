@@ -667,6 +667,10 @@ const useStyles = makeStyles({
         boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
     },
     selectedChildSectionRow: {
+        backgroundColor: tokens.colorBrandBackground2,
+        color: tokens.colorNeutralForeground1,
+        borderColor: tokens.colorBrandStroke1,
+        borderLeftColor: tokens.colorBrandStroke1,
         fontWeight: tokens.fontWeightSemibold,
     },
     draggingRow: {
@@ -1518,6 +1522,32 @@ function buildChecklistVersionDefinition({
     };
 }
 
+function serializeChecklistSections(sections: ChecklistSection[]): any[] {
+    return sections.map((section) => {
+        const serialized: Record<string, any> = {
+            id: section.id,
+            name: section.name,
+            bulkServiceable: section.bulkServiceable,
+        };
+        if (section.parentId) serialized.parentId = section.parentId;
+        if (section.sections.length > 0) {
+            serialized.sections = serializeChecklistSections(section.sections);
+        } else if (section.items.length > 0) {
+            serialized.items = section.items;
+        }
+        return serialized;
+    });
+}
+
+function serializeChecklistVersionDefinition(definition: ChecklistVersionDefinition): any {
+    return {
+        ...definition,
+        checklistVersionContents: {
+            sections: serializeChecklistSections(definition.checklistVersionContents.sections),
+        },
+    };
+}
+
 function stableStringify(value: any): string {
     if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
     if (value && typeof value === "object") {
@@ -1693,8 +1723,9 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
 
 async function saveChecklistVersionDefinition(version: ChecklistVersion, definition: ChecklistVersionDefinition) {
     if (!version.id) return version;
-    const definitionJson = JSON.stringify(definition);
-    const definitionHash = hashText(stableStringify(getDefinitionHashPayload(version.checklist.id, definition)));
+    const serializedDefinition = serializeChecklistVersionDefinition(definition);
+    const definitionJson = JSON.stringify(serializedDefinition);
+    const definitionHash = hashText(stableStringify(getDefinitionHashPayload(version.checklist.id, serializedDefinition)));
     const details = definition.checklistVersionDetails;
     const versionNumber = Number(details.versionNumber);
     if (Number.isNaN(versionNumber)) throw new Error("Version number must be a valid number.");
