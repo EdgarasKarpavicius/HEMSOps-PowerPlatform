@@ -136,7 +136,7 @@ type DraftItem = {
 };
 
 type DraggedItem =
-    | { type: "section"; id: string; parentId: string | null }
+    | { type: "section"; id: string }
     | { type: "item"; id: string; sectionId: string }
     | null;
 
@@ -1072,10 +1072,6 @@ function findSectionPathById(sections: ChecklistSection[], sectionId: string | n
     return [];
 }
 
-function getSectionParentIdFromPath(path: ChecklistSection[]) {
-    return path.length > 1 ? path[path.length - 2].id : null;
-}
-
 function appendSection(sections: ChecklistSection[], parentId: string | null, section: ChecklistSection): ChecklistSection[] {
     if (!parentId) return [...sections, section];
     return sections.map((candidate) => {
@@ -1206,18 +1202,19 @@ function reorderById<T extends { id: string }>(items: T[], draggedId: string, ta
     return nextItems;
 }
 
-function reorderSiblingSections(sections: ChecklistSection[], parentId: string | null, draggedId: string, targetId: string): ChecklistSection[] {
-    if (!parentId) return reorderById(sections, draggedId, targetId);
+function areSiblingSections(sections: ChecklistSection[], draggedId: string, targetId: string): boolean {
+    const sectionIds = sections.map((section) => section.id);
+    if (sectionIds.includes(draggedId) && sectionIds.includes(targetId)) return true;
+    return sections.some((section) => areSiblingSections(section.sections, draggedId, targetId));
+}
+
+function reorderSiblingSections(sections: ChecklistSection[], draggedId: string, targetId: string): ChecklistSection[] {
+    const sectionIds = sections.map((section) => section.id);
+    if (sectionIds.includes(draggedId) && sectionIds.includes(targetId)) return reorderById(sections, draggedId, targetId);
     return sections.map((candidate) => {
-        if (candidate.id === parentId) {
-            return {
-                ...candidate,
-                sections: reorderById(candidate.sections, draggedId, targetId),
-            };
-        }
         return {
             ...candidate,
-            sections: reorderSiblingSections(candidate.sections, parentId, draggedId, targetId),
+            sections: reorderSiblingSections(candidate.sections, draggedId, targetId),
         };
     });
 }
@@ -1810,7 +1807,6 @@ function ChecklistDetails({
     const [sectionNameDraft, setSectionNameDraft] = useState("");
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
     const draggedSectionIdRef = useRef("");
-    const draggedSectionParentIdRef = useRef<string | null>(null);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
@@ -1953,16 +1949,12 @@ function ChecklistDetails({
     const handleSectionDrop = (targetSection: ChecklistSection) => {
         const draggedSectionId = draggedSectionIdRef.current;
         if (!draggedSectionId) return;
-        const targetPath = findSectionPathById(sections, targetSection.id);
-        const parentId = getSectionParentIdFromPath(targetPath);
-        const draggedParentId = draggedSectionParentIdRef.current;
-        if (draggedParentId !== parentId) return;
+        if (!areSiblingSections(sections, draggedSectionId, targetSection.id)) return;
         setSections((current) =>
-            reorderSiblingSections(current, parentId, draggedSectionId, targetSection.id)
+            reorderSiblingSections(current, draggedSectionId, targetSection.id)
         );
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
-        draggedSectionParentIdRef.current = null;
         setDragOverTarget(null);
     };
     const handleItemDrop = (targetItem: ChecklistItem) => {
@@ -1976,10 +1968,7 @@ function ChecklistDetails({
     const canDropSectionOnTarget = (targetSection: ChecklistSection) => {
         const draggedSectionId = draggedSectionIdRef.current;
         if (!draggedSectionId || draggedSectionId === targetSection.id) return false;
-        const targetPath = findSectionPathById(sections, targetSection.id);
-        if (!targetPath.length) return false;
-        const draggedParentId = draggedSectionParentIdRef.current;
-        return draggedParentId === getSectionParentIdFromPath(targetPath);
+        return areSiblingSections(sections, draggedSectionId, targetSection.id);
     };
     const canDropItemOnTarget = (targetItem: ChecklistItem) =>
         Boolean(draggedItem?.type === "item" && draggedItem.sectionId === selectedSectionId && draggedItem.id !== targetItem.id);
@@ -2117,8 +2106,6 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isDropTarget = dragOverTarget?.type === "section" && dragOverTarget.id === section.id;
-        const sectionPath = findSectionPathById(sections, section.id);
-        const sectionParentId = getSectionParentIdFromPath(sectionPath);
         const selectedSectionTopParentId = selectedSectionPath[0]?.id || "";
         const canAddAnotherChild =
             depth === 0 &&
@@ -2152,8 +2139,7 @@ function ChecklistDetails({
                         event.dataTransfer.effectAllowed = "move";
                         event.dataTransfer.setData("text/plain", section.id);
                         draggedSectionIdRef.current = section.id;
-                        draggedSectionParentIdRef.current = sectionParentId;
-                        setDraggedItem({ type: "section", id: section.id, parentId: sectionParentId });
+                        setDraggedItem({ type: "section", id: section.id });
                     }}
                     onDragOver={(event) => {
                         event.stopPropagation();
@@ -2176,7 +2162,6 @@ function ChecklistDetails({
                     onDragEnd={(event) => {
                         event.stopPropagation();
                         draggedSectionIdRef.current = "";
-                        draggedSectionParentIdRef.current = null;
                         setDraggedItem(null);
                         setDragOverTarget(null);
                     }}
