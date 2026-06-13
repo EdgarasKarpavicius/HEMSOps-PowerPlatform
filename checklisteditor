@@ -402,10 +402,10 @@ const useStyles = makeStyles({
         backgroundColor: tokens.colorNeutralBackground2,
         color: tokens.colorNeutralForeground2,
     },
-    headerStatusPill: {
-        padding: "6px 14px",
-        fontSize: "14px",
-        lineHeight: "22px",
+    metadataStatusPill: {
+        padding: "5px 12px",
+        fontSize: "13px",
+        lineHeight: "20px",
     },
     versionsSurface: {
         backgroundColor: tokens.colorNeutralBackground1,
@@ -2188,12 +2188,16 @@ function ChecklistDetails({
                     )}
                 </div>
                 <div className={styles.headerAction}>
-                    <StatusPill
-                        statuscode={version.statuscode}
-                        fallbackLabel={version.statusLabel}
-                        statusOptions={statusOptions}
-                        className={`${styles.statusPill} ${styles.headerStatusPill}`}
-                    />
+                    {hasDefinitionChanges && (
+                        <Button
+                            appearance="primary"
+                            icon={<SaveRegular />}
+                            disabled={isSaving}
+                            onClick={handleSave}
+                        >
+                            {isSaving ? "Saving" : "Save"}
+                        </Button>
+                    )}
                 </div>
             </div>
             {saveError && (
@@ -2211,22 +2215,20 @@ function ChecklistDetails({
                         <Tab value="contents">Contents</Tab>
                         <Tab value="options">Options</Tab>
                     </TabList>
-                    {hasDefinitionChanges && (
-                        <Button
-                            appearance="primary"
-                            icon={<SaveRegular />}
-                            disabled={isSaving}
-                            onClick={handleSave}
-                        >
-                            {isSaving ? "Saving" : "Save"}
-                        </Button>
-                    )}
                 </div>
                 {activeTab === "general" ? (
                     <div className={styles.tabPanel}>
                         <div className={styles.formStack}>
                             <section className={styles.generalSection}>
                                 <Text className={styles.generalSectionTitle}>Version Details</Text>
+                                <Field label="Status">
+                                    <StatusPill
+                                        statuscode={version.statuscode}
+                                        fallbackLabel={version.statusLabel}
+                                        statusOptions={statusOptions}
+                                        className={`${styles.statusPill} ${styles.metadataStatusPill}`}
+                                    />
+                                </Field>
                                 <Field label="Version type">
                                     <Dropdown
                                         className={styles.controlFullWidth}
@@ -2302,7 +2304,6 @@ function ChecklistDetails({
                                         </Caption1>
                                     </div>
                                     <Button
-                                        appearance="primary"
                                         icon={<AddRegular />}
                                         disabled={Boolean(draftSection || draftItem)}
                                         onClick={() => startNewSection(null)}
