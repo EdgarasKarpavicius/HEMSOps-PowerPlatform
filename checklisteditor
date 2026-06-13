@@ -565,6 +565,7 @@ const useStyles = makeStyles({
         borderRadius: tokens.borderRadiusMedium,
         cursor: "grab",
         color: tokens.colorNeutralForeground2,
+        userSelect: "none",
         ...shorthands.border("1px", "solid", "transparent"),
         ":hover": {
             backgroundColor: tokens.colorNeutralBackground2,
@@ -702,6 +703,7 @@ const useStyles = makeStyles({
         minHeight: "40px",
         padding: "8px 10px",
         cursor: "grab",
+        userSelect: "none",
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
@@ -2017,6 +2019,8 @@ function ChecklistDetails({
         if (event.button !== 0 || draftSection || draftItem) return;
         const target = event.target as HTMLElement;
         if (target.closest("button,input,textarea,select,[role='button']")) return;
+        event.preventDefault();
+        window.getSelection?.()?.removeAllRanges();
         sectionPointerDragRef.current = {
             id: section.id,
             startX: event.clientX,
@@ -2589,6 +2593,7 @@ function ChecklistDetails({
                                                         draggable
                                                         onClick={() => startEditItem(selectedSection.id, item)}
                                                         onDragStart={(event) => {
+                                                            window.getSelection?.()?.removeAllRanges();
                                                             event.dataTransfer.effectAllowed = "move";
                                                             event.dataTransfer.setData("text/plain", item.id);
                                                             setDraggedItem({ type: "item", id: item.id, sectionId: selectedSection.id });
