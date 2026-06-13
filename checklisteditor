@@ -607,20 +607,11 @@ const useStyles = makeStyles({
         marginTop: "5px",
         marginBottom: "2px",
     },
-    inlineChildAction: {
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "8px",
-        marginLeft: "20px",
-        padding: "4px 8px",
-        color: tokens.colorNeutralForeground3,
-    },
-    inlineChildButton: {
+    sectionChildAddButton: {
         color: tokens.colorBrandForeground1,
-        fontWeight: tokens.fontWeightSemibold,
-        minWidth: "auto",
-        padding: "0",
+        minWidth: "24px",
+        width: "24px",
+        height: "24px",
     },
     sectionMain: {
         display: "flex",
@@ -2020,7 +2011,7 @@ function ChecklistDetails({
     };
     const getSectionCountText = (section: ChecklistSection) => {
         if (section.sections.length) {
-            return `${section.sections.length} ${section.sections.length === 1 ? "child" : "children"}`;
+            return `${section.sections.length} ${section.sections.length === 1 ? "section" : "sections"}`;
         }
         return `${section.items.length} ${section.items.length === 1 ? "item" : "items"}`;
     };
@@ -2097,35 +2088,11 @@ function ChecklistDetails({
             />
         </div>
     );
-    const renderInlineChildSectionAction = (section: ChecklistSection) => {
-        if (
-            selectedSectionId !== section.id ||
-            section.items.length > 0 ||
-            draftSection ||
-            draftItem
-        ) {
-            return null;
-        }
-
-        return (
-            <div className={styles.inlineChildAction}>
-                <Caption1>
-                    {section.sections.length ? "Add another child section" : "No child sections yet"}
-                </Caption1>
-                <Button
-                    appearance="subtle"
-                    className={styles.inlineChildButton}
-                    onClick={() => startNewSection(section.id)}
-                >
-                    Add Child
-                </Button>
-            </div>
-        );
-    };
     const renderSectionRow = (section: ChecklistSection, depth = 0): React.ReactNode => {
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isDropTarget = dragOverTarget?.type === "section" && dragOverTarget.id === section.id;
+        const canAddChildFromRow = depth === 0 && selectedSectionId === section.id && section.items.length === 0 && !draftSection && !draftItem;
 
         return (
             <React.Fragment key={section.id}>
@@ -2191,16 +2158,30 @@ function ChecklistDetails({
                             {section.name || "Untitled section"}
                         </Text>
                     </div>
-                    <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
-                        {getSectionCountText(section)}
-                    </Caption1>
+                    <div className={styles.rowActions}>
+                        {canAddChildFromRow && (
+                            <Button
+                                aria-label="Add child section"
+                                title="Add child section"
+                                appearance="subtle"
+                                className={styles.sectionChildAddButton}
+                                icon={<AddRegular />}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    startNewSection(section.id);
+                                }}
+                            />
+                        )}
+                        <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
+                            {getSectionCountText(section)}
+                        </Caption1>
+                    </div>
                 </div>
                 {hasChildren && !isCollapsed && (
                     <div className={styles.sectionChildren}>
                         {section.sections.map((childSection) => renderSectionRow(childSection, depth + 1))}
                     </div>
                 )}
-                {depth === 0 && renderInlineChildSectionAction(section)}
                 {draftSection?.parentId === section.id && renderDraftSectionRow(depth + 1)}
             </React.Fragment>
         );
