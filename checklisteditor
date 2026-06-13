@@ -696,9 +696,9 @@ function getChecklistTargetTypeValue(record: Record<string, any>) {
 }
 
 function getChecklistTypeLabel(record: Record<string, any>) {
-    const label = String(getDisplayValue(record, ["int_checklisttype"], ""));
+    const label = String(getDisplayValue(record, ["int_type"], ""));
     if (label && Number.isNaN(Number(label))) return label;
-    const value = Number(getValue(record, ["int_checklisttype"], 0));
+    const value = Number(getValue(record, ["int_type"], 0));
     if (value === CHECKLIST_TYPE_STOCK) return "Stock";
     if (value === CHECKLIST_TYPE_STANDARD) return "Standard";
     return "";
@@ -880,7 +880,7 @@ function mapChecklistRecord(record: Record<string, any>): Checklist {
         id: String(getValue(record, ["int_checklistid"], "")),
         name: String(getValue(record, ["int_name"], "Untitled checklist")),
         checklistType,
-        checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype"], ""), checklistType),
+        checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_type"], ""), checklistType),
         targetType,
         targetTypeValue: getChecklistTargetTypeValue(record),
         sections: [],
@@ -893,7 +893,7 @@ async function loadChecklistFromDataverse(checklistId: string): Promise<Checklis
         const record = await Xrm.WebApi.retrieveRecord(
             TABLE_NAME,
             checklistId,
-            "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype"
+            "?$select=int_checklistid,int_name,int_type,int_checklisttargettype"
         );
         return mapChecklistRecord(record);
     } catch (error) {
@@ -950,7 +950,7 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
 
 async function loadChecklistVersionFromDataverse(versionId: string): Promise<ChecklistVersion | null> {
     if (!versionId) return null;
-    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype";
+    const checklistSelect = "int_checklistid,int_name,int_type,int_checklisttargettype";
     const relationshipName = (await loadChecklistNavigationProperty()) || "int_checklist";
     let expandError = "";
     if (relationshipName) {
