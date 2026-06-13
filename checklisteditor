@@ -304,8 +304,10 @@ const useStyles = makeStyles({
         alignItems: "flex-start",
         justifyContent: "space-between",
         gap: "12px",
-        paddingBottom: "14px",
-        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+        padding: "16px 18px",
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
     },
     headerAction: {
         display: "flex",
@@ -358,6 +360,7 @@ const useStyles = makeStyles({
     tabSurface: {
         display: "flex",
         flexDirection: "column",
+        flexGrow: 1,
         minHeight: 0,
         overflow: "hidden",
     },
@@ -366,14 +369,16 @@ const useStyles = makeStyles({
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
     tabPanel: {
+        flexGrow: 1,
         minHeight: 0,
         overflow: "auto",
         padding: "14px 0 0",
     },
     formStack: {
-        display: "flex",
-        flexDirection: "column",
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
         gap: "18px",
+        alignItems: "start",
     },
     optionsList: {
         display: "flex",
@@ -409,8 +414,11 @@ const useStyles = makeStyles({
         gap: "14px",
         width: "100%",
         boxSizing: "border-box",
-        padding: "4px 0 18px",
-        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+        minHeight: "100%",
+        padding: "16px",
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
     },
     generalSectionTitle: {
         fontSize: "14px",
@@ -769,6 +777,13 @@ function getAppliesToOptionText(option: AppliesToOption) {
     return option.category ? `${option.category} / ${option.name}` : option.name;
 }
 
+function formatVersionNumber(value: unknown) {
+    const rawValue = String(value ?? "").trim();
+    if (!rawValue) return "";
+    const numericValue = Number(rawValue);
+    return Number.isFinite(numericValue) ? numericValue.toFixed(2) : rawValue;
+}
+
 async function loadAppliesToOptions(targetTypeValue: number): Promise<AppliesToOption[]> {
     if (typeof Xrm === "undefined") return [];
     const target = APPLIES_TO_TARGETS[targetTypeValue];
@@ -861,7 +876,7 @@ function parseChecklistVersionDefinition(record: Record<string, any>, checklist:
         getValue(record, ["int_proposedchecklistname"], details.proposedChecklistName || checklist.name)
     );
     const versionType = Number(getValue(record, ["int_versiontype"], details.versionType || VERSION_TYPE_MINOR));
-    const versionNumber = String(getValue(record, ["int_versionnumber"], details.versionNumber || ""));
+    const versionNumber = formatVersionNumber(getValue(record, ["int_versionnumber"], details.versionNumber || ""));
     const description = String(getValue(record, ["int_description"], details.description || ""));
     const appliesTo = details.appliesTo && typeof details.appliesTo === "object"
         ? {
@@ -952,7 +967,7 @@ async function loadChecklistNavigationProperty(): Promise<string | null> {
 function mapChecklistVersionRecord(record: Record<string, any>, checklist: Checklist): ChecklistVersion {
     return {
         id: String(getValue(record, ["int_checklistversionid"], "")),
-        versionNumber: String(getValue(record, ["int_versionnumber"], "")),
+        versionNumber: formatVersionNumber(getValue(record, ["int_versionnumber"], "")),
         description: String(getValue(record, ["int_description"], "")),
         versionType: Number(getValue(record, ["int_versiontype"], VERSION_TYPE_MINOR)),
         statecode: Number(getValue(record, ["statecode"], 0)),
@@ -1015,7 +1030,7 @@ async function saveChecklistVersionDefinition(version: ChecklistVersion, definit
     });
     return {
         ...version,
-        versionNumber: details.versionNumber,
+        versionNumber: formatVersionNumber(details.versionNumber),
         versionType: details.versionType,
         description: details.description,
         definition,
@@ -1318,7 +1333,7 @@ function ChecklistDetails({
                     </div>
                     {version.statecode === 1 && (
                         <Caption1 block className={styles.pageSubtitle}>
-                            {`${t("version")}: ${versionNumber || "-"}`}
+                            {`${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`}
                         </Caption1>
                     )}
                     {checklist.targetType && (
@@ -1383,9 +1398,10 @@ function ChecklistDetails({
                                     <Input
                                         className={styles.controlFullWidth}
                                         type="number"
-                                        step="0.1"
+                                        step="0.01"
                                         value={versionNumber}
                                         onChange={(_, data) => setVersionNumber(data.value)}
+                                        onBlur={() => setVersionNumber((current) => formatVersionNumber(current))}
                                     />
                                 </Field>
                                 <Field label="Description">
