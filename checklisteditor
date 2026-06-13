@@ -425,9 +425,11 @@ const useStyles = makeStyles({
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
     tabPanel: {
+        display: "flex",
+        flexDirection: "column",
         flexGrow: 1,
         minHeight: 0,
-        overflow: "auto",
+        overflow: "hidden",
         padding: "14px 0 0",
     },
     formStack: {
@@ -498,8 +500,10 @@ const useStyles = makeStyles({
         display: "grid",
         gridTemplateColumns: "minmax(280px, 35%) minmax(0, 1fr)",
         gap: "18px",
+        flexGrow: 1,
         height: "100%",
         minHeight: "420px",
+        overflow: "hidden",
     },
     contentsColumn: {
         display: "flex",
@@ -528,6 +532,7 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         gap: "8px",
+        flexGrow: 1,
         minHeight: 0,
         overflow: "auto",
         padding: "12px",
@@ -652,6 +657,7 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         gap: "8px",
+        minHeight: 0,
     },
     itemRow: {
         display: "grid",
@@ -697,8 +703,10 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         gap: "14px",
+        flexGrow: 1,
         padding: "14px",
         minHeight: 0,
+        overflow: "auto",
     },
     mutedText: {
         color: tokens.colorNeutralForeground3,
