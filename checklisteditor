@@ -141,7 +141,7 @@ type DraggedItem =
     | null;
 
 type DragOverTarget =
-    | { type: "section"; id: string; placement?: "before" | "child" }
+    | { type: "section"; id: string; placement?: "before" | "after" | "child" }
     | { type: "invalidSectionChild"; id: string; reason: string }
     | { type: "item"; id: string }
     | { type: "topLevelEnd" }
@@ -661,12 +661,17 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground1,
         borderColor: tokens.colorBrandStroke1,
     },
+    selectedAncestorSectionRow: {
+        backgroundColor: tokens.colorNeutralBackground2,
+        borderColor: tokens.colorNeutralStroke2,
+        boxShadow: `inset 3px 0 0 ${tokens.colorNeutralStrokeAccessible}`,
+    },
     selectedChildSectionRow: {
-        backgroundColor: tokens.colorBrandBackground2,
-        borderColor: tokens.colorBrandStroke1,
-        borderLeftColor: tokens.colorBrandStroke1,
-        borderLeftWidth: "5px",
-        boxShadow: `inset 0 0 0 1px ${tokens.colorBrandStroke1}`,
+        backgroundColor: tokens.colorNeutralBackground2,
+        borderColor: tokens.colorNeutralStrokeAccessible,
+        borderLeftColor: tokens.colorNeutralStrokeAccessible,
+        borderLeftWidth: "3px",
+        boxShadow: `inset 0 0 0 1px ${tokens.colorNeutralStroke2}`,
         fontWeight: tokens.fontWeightSemibold,
     },
     draggingRow: {
@@ -675,14 +680,18 @@ const useStyles = makeStyles({
     },
     dropBeforeRow: {
         borderTopColor: tokens.colorBrandStroke1,
-        borderTopWidth: "4px",
+        borderTopWidth: "2px",
         borderTopStyle: "solid",
-        boxShadow: `0 -2px 0 ${tokens.colorBrandStroke1}`,
+    },
+    dropAfterRow: {
+        borderBottomColor: tokens.colorBrandStroke1,
+        borderBottomWidth: "2px",
+        borderBottomStyle: "solid",
     },
     dropIntoSectionRow: {
-        backgroundColor: tokens.colorBrandBackground2,
+        backgroundColor: tokens.colorNeutralBackground2,
         borderColor: tokens.colorBrandStroke1,
-        boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
+        boxShadow: `inset 2px 0 0 ${tokens.colorBrandStroke1}`,
     },
     invalidDropSectionRow: {
         backgroundColor: tokens.colorPaletteRedBackground1,
@@ -692,13 +701,12 @@ const useStyles = makeStyles({
     topLevelEndDropTarget: {
         minHeight: "18px",
         marginTop: "2px",
-        borderTopWidth: "4px",
+        borderTopWidth: "2px",
         borderTopStyle: "solid",
         borderTopColor: "transparent",
     },
     activeTopLevelEndDropTarget: {
         borderTopColor: tokens.colorBrandStroke1,
-        boxShadow: `0 -2px 0 ${tokens.colorBrandStroke1}`,
     },
     sectionRowText: {
         overflow: "hidden",
@@ -1233,11 +1241,31 @@ function insertSectionBeforeTarget(sections: ChecklistSection[], section: Checkl
     }));
 }
 
+function insertSectionAfterTarget(sections: ChecklistSection[], section: ChecklistSection, targetId: string, parentId: string | null): ChecklistSection[] {
+    const targetIndex = sections.findIndex((candidate) => candidate.id === targetId);
+    if (targetIndex >= 0) {
+        const nextSections = [...sections];
+        nextSections.splice(targetIndex + 1, 0, { ...section, parentId });
+        return nextSections;
+    }
+    return sections.map((candidate) => ({
+        ...candidate,
+        sections: insertSectionAfterTarget(candidate.sections, section, targetId, candidate.id),
+    }));
+}
+
 function moveSectionBeforeTarget(sections: ChecklistSection[], draggedId: string, targetId: string): ChecklistSection[] {
     if (draggedId === targetId) return sections;
     const { sections: sectionsWithoutDragged, removed } = removeSectionById(sections, draggedId);
     if (!removed) return sections;
     return insertSectionBeforeTarget(sectionsWithoutDragged, removed, targetId, null);
+}
+
+function moveSectionAfterTarget(sections: ChecklistSection[], draggedId: string, targetId: string): ChecklistSection[] {
+    if (draggedId === targetId) return sections;
+    const { sections: sectionsWithoutDragged, removed } = removeSectionById(sections, draggedId);
+    if (!removed) return sections;
+    return insertSectionAfterTarget(sectionsWithoutDragged, removed, targetId, null);
 }
 
 function appendSectionToParentEnd(sections: ChecklistSection[], section: ChecklistSection, parentId: string): ChecklistSection[] {
@@ -1288,6 +1316,10 @@ function canMoveSectionBeforeTarget(sections: ChecklistSection[], draggedId: str
     if (targetPath.some((section) => section.id === draggedId)) return false;
     if (draggedPath[draggedPath.length - 1].sections.length > 0 && targetPath.length > 1) return false;
     return targetPath.length <= 2;
+}
+
+function canMoveSectionAfterTarget(sections: ChecklistSection[], draggedId: string, targetId: string): boolean {
+    return canMoveSectionBeforeTarget(sections, draggedId, targetId);
 }
 
 function canMoveSectionToParentEnd(sections: ChecklistSection[], draggedId: string, parentId: string): boolean {
@@ -2062,6 +2094,16 @@ function ChecklistDetails({
         draggedSectionIdRef.current = "";
         setDragOverTarget(null);
     };
+    const handleSectionDropAfterById = (draggedSectionId: string, targetSectionId: string) => {
+        if (!draggedSectionId || !targetSectionId) return;
+        if (!canMoveSectionAfterTarget(sections, draggedSectionId, targetSectionId)) return;
+        setSections((current) =>
+            moveSectionAfterTarget(current, draggedSectionId, targetSectionId)
+        );
+        setDraggedItem(null);
+        draggedSectionIdRef.current = "";
+        setDragOverTarget(null);
+    };
     const handleSectionChildDropById = (draggedSectionId: string, parentSectionId: string) => {
         if (!canMoveSectionToParentEnd(sections, draggedSectionId, parentSectionId)) return;
         setSections((current) =>
@@ -2129,7 +2171,8 @@ function ChecklistDetails({
                 reason: getSectionParentDropValidationMessage(sections, draggedSectionId, sectionId),
             } as DragOverTarget;
         }
-        return { type: "section", id: sectionId, placement: "before" } as DragOverTarget;
+        const verticalPlacement = rowBounds && clientY > rowBounds.top + rowBounds.height / 2 ? "after" : "before";
+        return { type: "section", id: sectionId, placement: verticalPlacement } as DragOverTarget;
     };
     const handleSectionPointerDown = (event: React.PointerEvent<HTMLDivElement>, section: ChecklistSection) => {
         if (event.button !== 0 || draftSection || draftItem) return;
@@ -2174,6 +2217,14 @@ function ChecklistDetails({
             setDragOverTarget(target);
             return;
         }
+        if (
+            target?.type === "section" &&
+            target.placement === "after" &&
+            canMoveSectionAfterTarget(sections, drag.id, target.id)
+        ) {
+            setDragOverTarget(target);
+            return;
+        }
         if (target?.type === "section" && canMoveSectionBeforeTarget(sections, drag.id, target.id)) {
             setDragOverTarget(target);
             return;
@@ -2211,6 +2262,10 @@ function ChecklistDetails({
         }
         if (target?.type === "section" && target.placement === "child") {
             handleSectionChildDropById(drag.id, target.id);
+            return;
+        }
+        if (target?.type === "section" && target.placement === "after") {
+            handleSectionDropAfterById(drag.id, target.id);
             return;
         }
         if (target?.type === "section") handleSectionDropById(drag.id, target.id);
@@ -2341,10 +2396,18 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isSelectedSection = selectedSectionId === section.id;
+        const isSelectedAncestorSection =
+            depth === 0 &&
+            selectedSectionPath.length > 1 &&
+            selectedSectionPath[0]?.id === section.id;
         const isDropBeforeTarget =
             dragOverTarget?.type === "section" &&
             dragOverTarget.id === section.id &&
             (dragOverTarget.placement || "before") === "before";
+        const isDropAfterTarget =
+            dragOverTarget?.type === "section" &&
+            dragOverTarget.id === section.id &&
+            dragOverTarget.placement === "after";
         const isDropChildTarget =
             dragOverTarget?.type === "section" &&
             dragOverTarget.id === section.id &&
@@ -2372,10 +2435,12 @@ function ChecklistDetails({
                     className={[
                         styles.sectionRow,
                         depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
+                        isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
                         isSelectedSection ? styles.selectedSectionRow : "",
                         isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropBeforeTarget ? styles.dropBeforeRow : "",
+                        isDropAfterTarget ? styles.dropAfterRow : "",
                         isDropChildTarget ? styles.dropIntoSectionRow : "",
                         isInvalidDropTarget ? styles.invalidDropSectionRow : "",
                     ].filter(Boolean).join(" ")}
