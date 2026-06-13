@@ -29,6 +29,8 @@ import {
     CheckmarkRegular,
     ChevronDownRegular,
     ChevronRightRegular,
+    DeleteRegular,
+    ReOrderDotsVerticalRegular,
     EditRegular,
     SaveRegular,
 } from "@fluentui/react-icons";
@@ -150,6 +152,11 @@ type PendingSectionPromotion = {
     sectionName: string;
     parentName: string;
 } | null;
+
+type PendingDelete =
+    | { type: "section"; id: string; name: string }
+    | { type: "item"; sectionId: string; id: string; name: string }
+    | null;
 
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
@@ -549,7 +556,7 @@ const useStyles = makeStyles({
         minHeight: "38px",
         padding: "8px 10px",
         borderRadius: tokens.borderRadiusMedium,
-        cursor: "grab",
+        cursor: "pointer",
         color: tokens.colorNeutralForeground2,
         ...shorthands.border("1px", "solid", "transparent"),
         ":hover": {
@@ -588,6 +595,18 @@ const useStyles = makeStyles({
         minWidth: "28px",
         width: "28px",
         height: "28px",
+    },
+    rowActions: {
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        flexShrink: 0,
+    },
+    dragHandle: {
+        minWidth: "28px",
+        width: "28px",
+        height: "28px",
+        cursor: "grab",
     },
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
@@ -641,7 +660,7 @@ const useStyles = makeStyles({
         gap: "12px",
         minHeight: "40px",
         padding: "8px 10px",
-        cursor: "grab",
+        cursor: "pointer",
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
@@ -1037,6 +1056,19 @@ function promoteSectionToTopLevel(sections: ChecklistSection[], sectionId: strin
     ];
 }
 
+function countSectionContents(section: ChecklistSection): { sections: number; items: number } {
+    return section.sections.reduce(
+        (totals, childSection) => {
+            const childTotals = countSectionContents(childSection);
+            return {
+                sections: totals.sections + 1 + childTotals.sections,
+                items: totals.items + childSection.items.length + childTotals.items,
+            };
+        },
+        { sections: 0, items: section.items.length }
+    );
+}
+
 function appendItemToSection(sections: ChecklistSection[], sectionId: string, item: ChecklistItem): ChecklistSection[] {
     return sections.map((candidate) => {
         if (candidate.id === sectionId) {
@@ -1048,6 +1080,21 @@ function appendItemToSection(sections: ChecklistSection[], sectionId: string, it
         return {
             ...candidate,
             sections: appendItemToSection(candidate.sections, sectionId, item),
+        };
+    });
+}
+
+function removeItemFromSection(sections: ChecklistSection[], sectionId: string, itemId: string): ChecklistSection[] {
+    return sections.map((candidate) => {
+        if (candidate.id === sectionId) {
+            return {
+                ...candidate,
+                items: candidate.items.filter((item) => item.id !== itemId),
+            };
+        }
+        return {
+            ...candidate,
+            sections: removeItemFromSection(candidate.sections, sectionId, itemId),
         };
     });
 }
@@ -1681,6 +1728,7 @@ function ChecklistDetails({
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
+    const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
     const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
@@ -1837,6 +1885,39 @@ function ChecklistDetails({
         setSelectedSectionId(pendingSectionPromotion.sectionId);
         setPendingSectionPromotion(null);
     };
+    const requestDeleteSection = (section: ChecklistSection) => {
+        const totals = countSectionContents(section);
+        const requiresConfirmation = totals.sections > 0 || totals.items > 0;
+        if (!requiresConfirmation) {
+            setSections((current) => removeSectionById(current, section.id).sections);
+            if (selectedSectionPath.some((candidate) => candidate.id === section.id)) setSelectedSectionId("");
+            return;
+        }
+        setPendingDelete({
+            type: "section",
+            id: section.id,
+            name: section.name || "Untitled section",
+        });
+    };
+    const requestDeleteItem = (sectionId: string, item: ChecklistItem) => {
+        setPendingDelete({
+            type: "item",
+            sectionId,
+            id: item.id,
+            name: item.name || "Untitled item",
+        });
+    };
+    const confirmDelete = () => {
+        if (!pendingDelete) return;
+        if (pendingDelete.type === "section") {
+            setSections((current) => removeSectionById(current, pendingDelete.id).sections);
+            if (selectedSectionPath.some((candidate) => candidate.id === pendingDelete.id)) setSelectedSectionId("");
+        } else {
+            setSections((current) => removeItemFromSection(current, pendingDelete.sectionId, pendingDelete.id));
+            if (draftItem?.itemId === pendingDelete.id) setDraftItem(null);
+        }
+        setPendingDelete(null);
+    };
     const renderDraftSectionRow = (depth = 0) => (
         <div
             className={styles.draftSectionRow}
@@ -1925,15 +2006,9 @@ function ChecklistDetails({
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropTarget ? styles.dropBeforeRow : "",
                     ].filter(Boolean).join(" ")}
-                    draggable
                     onClick={() => {
                         setSelectedSectionId(section.id);
                         setDraftItem(null);
-                    }}
-                    onDragStart={(event) => {
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("text/plain", section.id);
-                        setDraggedItem({ type: "section", id: section.id });
                     }}
                     onDragOver={(event) => {
                         if (!canDropSectionOnTarget(section)) {
@@ -1977,6 +2052,35 @@ function ChecklistDetails({
                     <Caption1 className={styles.mutedText}>
                         {hasChildren ? `${section.sections.length} child` : `${section.items.length} item`}
                     </Caption1>
+                    <div className={styles.rowActions}>
+                        <Button
+                            aria-label="Drag section to reorder"
+                            appearance="subtle"
+                            className={styles.dragHandle}
+                            draggable
+                            icon={<ReOrderDotsVerticalRegular />}
+                            onClick={(event) => event.stopPropagation()}
+                            onDragStart={(event) => {
+                                event.stopPropagation();
+                                event.dataTransfer.effectAllowed = "move";
+                                event.dataTransfer.setData("text/plain", section.id);
+                                setDraggedItem({ type: "section", id: section.id });
+                            }}
+                            onDragEnd={() => {
+                                setDraggedItem(null);
+                                setDragOverTarget(null);
+                            }}
+                        />
+                        <Button
+                            aria-label="Delete section"
+                            appearance="subtle"
+                            icon={<DeleteRegular />}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                requestDeleteSection(section);
+                            }}
+                        />
+                    </div>
                 </div>
                 {hasChildren && !isCollapsed && (
                     <div className={styles.sectionChildren}>
@@ -2265,13 +2369,7 @@ function ChecklistDetails({
                                                             dragOverTarget?.type === "item" && dragOverTarget.id === item.id ? styles.dropBeforeRow : "",
                                                         ].filter(Boolean).join(" ")}
                                                         key={item.id}
-                                                        draggable
                                                         onClick={() => startEditItem(selectedSection.id, item)}
-                                                        onDragStart={(event) => {
-                                                            event.dataTransfer.effectAllowed = "move";
-                                                            event.dataTransfer.setData("text/plain", item.id);
-                                                            setDraggedItem({ type: "item", id: item.id, sectionId: selectedSection.id });
-                                                        }}
                                                         onDragOver={(event) => {
                                                             if (!canDropItemOnTarget(item)) {
                                                                 if (dragOverTarget?.type === "item" && dragOverTarget.id === item.id) setDragOverTarget(null);
@@ -2298,9 +2396,38 @@ function ChecklistDetails({
                                                                 <Caption1 className={styles.mutedText}>{item.description}</Caption1>
                                                             )}
                                                         </div>
-                                                        {item.quantity !== null && item.quantity !== undefined && (
-                                                            <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
-                                                        )}
+                                                        <div className={styles.rowActions}>
+                                                            {item.quantity !== null && item.quantity !== undefined && (
+                                                                <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
+                                                            )}
+                                                            <Button
+                                                                aria-label="Drag item to reorder"
+                                                                appearance="subtle"
+                                                                className={styles.dragHandle}
+                                                                draggable
+                                                                icon={<ReOrderDotsVerticalRegular />}
+                                                                onClick={(event) => event.stopPropagation()}
+                                                                onDragStart={(event) => {
+                                                                    event.stopPropagation();
+                                                                    event.dataTransfer.effectAllowed = "move";
+                                                                    event.dataTransfer.setData("text/plain", item.id);
+                                                                    setDraggedItem({ type: "item", id: item.id, sectionId: selectedSection.id });
+                                                                }}
+                                                                onDragEnd={() => {
+                                                                    setDraggedItem(null);
+                                                                    setDragOverTarget(null);
+                                                                }}
+                                                            />
+                                                            <Button
+                                                                aria-label="Delete item"
+                                                                appearance="subtle"
+                                                                icon={<DeleteRegular />}
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    requestDeleteItem(selectedSection.id, item);
+                                                                }}
+                                                            />
+                                                        </div>
                                                     </div>
                                                 )
                                             ))}
@@ -2374,6 +2501,35 @@ function ChecklistDetails({
                             </Button>
                             <Button appearance="primary" onClick={confirmSectionPromotion}>
                                 Confirm
+                            </Button>
+                        </DialogActions>
+                    </DialogBody>
+                </DialogSurface>
+            </Dialog>
+            <Dialog
+                open={Boolean(pendingDelete)}
+                onOpenChange={(_, data) => {
+                    if (!data.open) setPendingDelete(null);
+                }}
+            >
+                <DialogSurface>
+                    <DialogBody>
+                        <DialogTitle>
+                            {pendingDelete?.type === "item" ? "Delete checklist item?" : "Delete section?"}
+                        </DialogTitle>
+                        <DialogContent>
+                            <Text>
+                                {pendingDelete?.type === "item"
+                                    ? `Delete "${pendingDelete.name}"?`
+                                    : `Delete "${pendingDelete?.name || "this section"}" and all sections/items inside it?`}
+                            </Text>
+                        </DialogContent>
+                        <DialogActions>
+                            <Button appearance="secondary" onClick={() => setPendingDelete(null)}>
+                                Cancel
+                            </Button>
+                            <Button appearance="primary" onClick={confirmDelete}>
+                                Delete
                             </Button>
                         </DialogActions>
                     </DialogBody>
