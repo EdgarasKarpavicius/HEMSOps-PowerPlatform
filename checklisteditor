@@ -613,15 +613,14 @@ const useStyles = makeStyles({
         justifyContent: "space-between",
         gap: "8px",
         marginLeft: "20px",
-        padding: "5px 8px",
+        padding: "4px 8px",
         color: tokens.colorNeutralForeground3,
-        backgroundColor: tokens.colorNeutralBackground1,
-        borderLeftColor: tokens.colorBrandStroke1,
-        borderLeftWidth: "3px",
-        borderLeftStyle: "solid",
-        borderTopColor: tokens.colorNeutralStroke3,
-        borderTopWidth: "1px",
-        borderTopStyle: "dashed",
+    },
+    inlineChildButton: {
+        color: tokens.colorBrandForeground1,
+        fontWeight: tokens.fontWeightSemibold,
+        minWidth: "auto",
+        padding: "0",
     },
     sectionMain: {
         display: "flex",
@@ -2115,7 +2114,7 @@ function ChecklistDetails({
                 </Caption1>
                 <Button
                     appearance="subtle"
-                    icon={<AddRegular />}
+                    className={styles.inlineChildButton}
                     onClick={() => startNewSection(section.id)}
                 >
                     Add Child
