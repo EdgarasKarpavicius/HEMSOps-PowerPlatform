@@ -496,12 +496,21 @@ const useStyles = makeStyles({
     contentsPlaceholder: {
         minHeight: "260px",
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
+        gap: "12px",
         color: tokens.colorNeutralForeground3,
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "dashed", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
+    },
+    placeholderActions: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "8px",
+        flexWrap: "wrap",
     },
     contentsLayout: {
         display: "grid",
@@ -1826,6 +1835,12 @@ function ChecklistDetails({
     const selectedSectionDepth = flattenedSections.find(({ section }) => section.id === selectedSectionId)?.depth ?? 0;
     const canAddChildSection = Boolean(selectedSection && selectedSectionDepth === 0 && selectedSection.items.length === 0);
     const selectedSectionHasChildren = Boolean(selectedSection && selectedSection.sections.length > 0);
+    const selectedSectionIsEmptyTopLevel = Boolean(
+        selectedSection &&
+        selectedSectionDepth === 0 &&
+        selectedSection.items.length === 0 &&
+        selectedSection.sections.length === 0
+    );
     const draggedSectionPath = useMemo(
         () => draggedItem?.type === "section" ? findSectionPathById(sections, draggedItem.id) : [],
         [draggedItem, sections]
@@ -2423,15 +2438,15 @@ function ChecklistDetails({
                                     <div className={styles.contentsActions}>
                                         {selectedSection && (
                                             <Button
-                                                appearance="secondary"
+                                                aria-label="Delete section"
+                                                appearance="subtle"
+                                                icon={<DeleteRegular />}
                                                 disabled={Boolean(draftSection || draftItem)}
                                                 style={{ color: "#b10e1c" }}
                                                 onClick={() => requestDeleteSection(selectedSection)}
-                                            >
-                                                Delete Section
-                                            </Button>
+                                            />
                                         )}
-                                        {selectedSection && canAddChildSection && (
+                                        {selectedSection && canAddChildSection && !selectedSectionIsEmptyTopLevel && (
                                             <Button
                                                 icon={<AddRegular />}
                                                 disabled={Boolean(draftSection || draftItem)}
@@ -2440,7 +2455,7 @@ function ChecklistDetails({
                                                 New Child Section
                                             </Button>
                                         )}
-                                        {selectedSection && !selectedSectionHasChildren && (
+                                        {selectedSection && !selectedSectionHasChildren && !selectedSectionIsEmptyTopLevel && (
                                             <Button
                                                 appearance="primary"
                                                 icon={<AddRegular />}
@@ -2525,9 +2540,34 @@ function ChecklistDetails({
                                                 )
                                             ))}
                                             {draftItem?.sectionId === selectedSection.id && !draftItem.itemId && renderDraftItemRow()}
-                                            {!selectedSection.items.length && draftItem?.sectionId !== selectedSection.id && (
+                                            {selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && !draftSection && (
                                                 <div className={styles.contentsPlaceholder}>
-                                                    <Text weight="semibold">Create the first checklist item for this section.</Text>
+                                                    <Text weight="semibold">Choose how to start this section.</Text>
+                                                    <Caption1 className={styles.mutedText}>
+                                                        Add checklist items directly, or split this section into child sections.
+                                                    </Caption1>
+                                                    <div className={styles.placeholderActions}>
+                                                        <Button
+                                                            icon={<AddRegular />}
+                                                            disabled={Boolean(draftSection || draftItem)}
+                                                            onClick={() => startNewSection(selectedSection.id)}
+                                                        >
+                                                            New Child Section
+                                                        </Button>
+                                                        <Button
+                                                            appearance="primary"
+                                                            icon={<AddRegular />}
+                                                            disabled={Boolean(draftSection || draftItem)}
+                                                            onClick={() => startNewItem(selectedSection.id)}
+                                                        >
+                                                            New Item
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {!selectedSection.items.length && !selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && (
+                                                <div className={styles.contentsPlaceholder}>
+                                                    <Text weight="semibold">Create the first item for this section.</Text>
                                                 </div>
                                             )}
                                         </div>
