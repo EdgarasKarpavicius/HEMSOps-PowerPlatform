@@ -2178,12 +2178,13 @@ function ChecklistDetails({
         }
     };
     const sectionCount = flattenedSections.length;
+    const checklistHeaderLabel = `${checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist"}${checklist.targetType ? ` - ${checklist.targetType}` : ""}`;
 
     return (
         <div className={styles.detailsPage}>
             <div className={styles.editorHeader}>
                 <div className={styles.titleStack}>
-                    <Text className={styles.eyebrow}>{checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist"}</Text>
+                    <Text className={styles.eyebrow}>{checklistHeaderLabel}</Text>
                     <div className={styles.editableTitleRow}>
                         {isEditingName ? (
                             <Input
@@ -2209,11 +2210,6 @@ function ChecklistDetails({
                     {version.statecode === 1 && (
                         <Caption1 block className={styles.pageSubtitle}>
                             {`${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`}
-                        </Caption1>
-                    )}
-                    {checklist.targetType && (
-                        <Caption1 block className={styles.pageSubtitle}>
-                            {`Target Type: ${checklist.targetType}`}
                         </Caption1>
                     )}
                 </div>
