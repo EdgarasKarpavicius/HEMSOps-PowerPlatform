@@ -2124,6 +2124,7 @@ function ChecklistDetails({
             depth === 0 &&
             selectedSectionTopParentId === section.id &&
             section.sections.length > 0 &&
+            !isCollapsed &&
             !draftSection &&
             !draftItem;
 
