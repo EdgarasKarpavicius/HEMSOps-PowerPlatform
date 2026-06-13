@@ -3,6 +3,12 @@ import {
     Button,
     Caption1,
     Checkbox,
+    Dialog,
+    DialogActions,
+    DialogBody,
+    DialogContent,
+    DialogSurface,
+    DialogTitle,
     Dropdown,
     Field,
     Input,
@@ -136,7 +142,14 @@ type DraggedItem =
 type DragOverTarget =
     | { type: "section"; id: string }
     | { type: "item"; id: string }
+    | { type: "topLevelSections" }
     | null;
+
+type PendingSectionPromotion = {
+    sectionId: string;
+    sectionName: string;
+    parentName: string;
+} | null;
 
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
@@ -511,6 +524,22 @@ const useStyles = makeStyles({
         minHeight: 0,
         overflow: "auto",
         padding: "12px",
+    },
+    promoteDropZone: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "42px",
+        padding: "8px 12px",
+        color: tokens.colorBrandForeground1,
+        backgroundColor: tokens.colorBrandBackground2,
+        ...shorthands.border("1px", "dashed", tokens.colorBrandStroke1),
+        borderRadius: tokens.borderRadiusMedium,
+    },
+    activePromoteDropZone: {
+        borderTopWidth: "4px",
+        borderTopStyle: "solid",
+        boxShadow: `0 -2px 0 ${tokens.colorBrandStroke1}`,
     },
     sectionRow: {
         display: "flex",
@@ -976,6 +1005,36 @@ function appendSection(sections: ChecklistSection[], parentId: string | null, se
             sections: appendSection(candidate.sections, parentId, section),
         };
     });
+}
+
+function removeSectionById(sections: ChecklistSection[], sectionId: string): { sections: ChecklistSection[]; removed: ChecklistSection | null } {
+    let removed: ChecklistSection | null = null;
+    const nextSections = sections.reduce<ChecklistSection[]>((acc, section) => {
+        if (section.id === sectionId) {
+            removed = section;
+            return acc;
+        }
+        const childResult = removeSectionById(section.sections, sectionId);
+        if (childResult.removed) removed = childResult.removed;
+        acc.push({
+            ...section,
+            sections: childResult.sections,
+        });
+        return acc;
+    }, []);
+    return { sections: nextSections, removed };
+}
+
+function promoteSectionToTopLevel(sections: ChecklistSection[], sectionId: string): ChecklistSection[] {
+    const { sections: nextSections, removed } = removeSectionById(sections, sectionId);
+    if (!removed) return sections;
+    return [
+        ...nextSections,
+        {
+            ...removed,
+            parentId: null,
+        },
+    ];
 }
 
 function appendItemToSection(sections: ChecklistSection[], sectionId: string, item: ChecklistItem): ChecklistSection[] {
@@ -1621,6 +1680,7 @@ function ChecklistDetails({
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
+    const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
     const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
@@ -1669,6 +1729,11 @@ function ChecklistDetails({
     const selectedSectionDepth = flattenedSections.find(({ section }) => section.id === selectedSectionId)?.depth ?? 0;
     const canAddChildSection = Boolean(selectedSection && selectedSectionDepth === 0 && selectedSection.items.length === 0);
     const selectedSectionHasChildren = Boolean(selectedSection && selectedSection.sections.length > 0);
+    const draggedSectionPath = useMemo(
+        () => draggedItem?.type === "section" ? findSectionPathById(sections, draggedItem.id) : [],
+        [draggedItem, sections]
+    );
+    const isDraggingChildSection = draggedSectionPath.length > 1;
     const startNewSection = (parentId: string | null) => {
         setDraftSection({ parentId, name: "" });
         setDraftItem(null);
@@ -1747,6 +1812,24 @@ function ChecklistDetails({
     };
     const canDropItemOnTarget = (targetItem: ChecklistItem) =>
         Boolean(draggedItem?.type === "item" && draggedItem.sectionId === selectedSectionId && draggedItem.id !== targetItem.id);
+    const handlePromoteSectionDrop = () => {
+        if (!isDraggingChildSection || draggedItem?.type !== "section") return;
+        const section = draggedSectionPath[draggedSectionPath.length - 1];
+        const parent = draggedSectionPath[draggedSectionPath.length - 2];
+        setPendingSectionPromotion({
+            sectionId: section.id,
+            sectionName: section.name || "Untitled section",
+            parentName: parent?.name || "its parent section",
+        });
+        setDraggedItem(null);
+        setDragOverTarget(null);
+    };
+    const confirmSectionPromotion = () => {
+        if (!pendingSectionPromotion) return;
+        setSections((current) => promoteSectionToTopLevel(current, pendingSectionPromotion.sectionId));
+        setSelectedSectionId(pendingSectionPromotion.sectionId);
+        setPendingSectionPromotion(null);
+    };
     const renderDraftSectionRow = (depth = 0) => (
         <div
             className={styles.draftSectionRow}
@@ -2082,6 +2165,27 @@ function ChecklistDetails({
                                     </Button>
                                 </div>
                                 <div className={styles.contentsColumnBody}>
+                                    {isDraggingChildSection && (
+                                        <div
+                                            className={[
+                                                styles.promoteDropZone,
+                                                dragOverTarget?.type === "topLevelSections" ? styles.activePromoteDropZone : "",
+                                            ].filter(Boolean).join(" ")}
+                                            onDragOver={(event) => {
+                                                event.preventDefault();
+                                                setDragOverTarget({ type: "topLevelSections" });
+                                            }}
+                                            onDragLeave={() => {
+                                                if (dragOverTarget?.type === "topLevelSections") setDragOverTarget(null);
+                                            }}
+                                            onDrop={(event) => {
+                                                event.preventDefault();
+                                                handlePromoteSectionDrop();
+                                            }}
+                                        >
+                                            <Text weight="semibold">Drop here to make this a top-level section</Text>
+                                        </div>
+                                    )}
                                     {sections.map((section) => renderSectionRow(section))}
                                     {draftSection?.parentId === null && renderDraftSectionRow(0)}
                                     {!flattenedSections.length && !draftSection && (
@@ -2252,6 +2356,31 @@ function ChecklistDetails({
                     </div>
                 )}
             </div>
+            <Dialog
+                open={Boolean(pendingSectionPromotion)}
+                onOpenChange={(_, data) => {
+                    if (!data.open) setPendingSectionPromotion(null);
+                }}
+            >
+                <DialogSurface>
+                    <DialogBody>
+                        <DialogTitle>Make section top level?</DialogTitle>
+                        <DialogContent>
+                            <Text>
+                                {`Move "${pendingSectionPromotion?.sectionName || "this section"}" out from "${pendingSectionPromotion?.parentName || "its parent section"}" and make it a top-level section?`}
+                            </Text>
+                        </DialogContent>
+                        <DialogActions>
+                            <Button appearance="secondary" onClick={() => setPendingSectionPromotion(null)}>
+                                Cancel
+                            </Button>
+                            <Button appearance="primary" onClick={confirmSectionPromotion}>
+                                Confirm
+                            </Button>
+                        </DialogActions>
+                    </DialogBody>
+                </DialogSurface>
+            </Dialog>
         </div>
     );
 }
