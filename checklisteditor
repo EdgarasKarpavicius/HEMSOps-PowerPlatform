@@ -646,10 +646,6 @@ const useStyles = makeStyles({
         minWidth: "24px",
         width: "24px",
         height: "24px",
-        opacity: 0,
-    },
-    visibleSectionDeleteButton: {
-        opacity: 1,
     },
     selectedSectionTitleRow: {
         display: "flex",
@@ -1046,6 +1042,13 @@ function flattenSections(sections: ChecklistSection[], depth = 0): FlatChecklist
     return sections.flatMap((section) => [
         { section, depth },
         ...flattenSections(section.sections, depth + 1),
+    ]);
+}
+
+function getSectionIdsWithChildren(sections: ChecklistSection[]): string[] {
+    return sections.flatMap((section) => [
+        ...(section.sections.length ? [section.id] : []),
+        ...getSectionIdsWithChildren(section.sections),
     ]);
 }
 
@@ -1812,7 +1815,9 @@ function ChecklistDetails({
     const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
     const [hoveredSectionId, setHoveredSectionId] = useState("");
-    const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(() => new Set());
+    const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
+        () => new Set(getSectionIdsWithChildren(version.definition.checklistVersionContents.sections))
+    );
 
     useEffect(() => {
         let isMounted = true;
@@ -1946,14 +1951,11 @@ function ChecklistDetails({
         if (event.key === "Escape") setDraftItem(null);
     };
     const handleSectionDrop = (targetSection: ChecklistSection) => {
-        const draggedSectionId = draggedItem?.type === "section" ? draggedItem.id : draggedSectionIdRef.current;
+        const draggedSectionId = draggedSectionIdRef.current;
         if (!draggedSectionId) return;
         const targetPath = findSectionPathById(sections, targetSection.id);
         const parentId = getSectionParentIdFromPath(targetPath);
-        const draggedParentId =
-            draggedItem?.type === "section"
-                ? draggedItem.parentId
-                : draggedSectionParentIdRef.current;
+        const draggedParentId = draggedSectionParentIdRef.current;
         if (draggedParentId !== parentId) return;
         setSections((current) =>
             reorderSiblingSections(current, parentId, draggedSectionId, targetSection.id)
@@ -1972,14 +1974,11 @@ function ChecklistDetails({
         setDragOverTarget(null);
     };
     const canDropSectionOnTarget = (targetSection: ChecklistSection) => {
-        const draggedSectionId = draggedItem?.type === "section" ? draggedItem.id : draggedSectionIdRef.current;
+        const draggedSectionId = draggedSectionIdRef.current;
         if (!draggedSectionId || draggedSectionId === targetSection.id) return false;
         const targetPath = findSectionPathById(sections, targetSection.id);
         if (!targetPath.length) return false;
-        const draggedParentId =
-            draggedItem?.type === "section"
-                ? draggedItem.parentId
-                : draggedSectionParentIdRef.current;
+        const draggedParentId = draggedSectionParentIdRef.current;
         return draggedParentId === getSectionParentIdFromPath(targetPath);
     };
     const canDropItemOnTarget = (targetItem: ChecklistItem) =>
@@ -2144,8 +2143,8 @@ function ChecklistDetails({
                         setSelectedSectionId(section.id);
                         setDraftItem(null);
                     }}
-                    onMouseEnter={() => setHoveredSectionId(section.id)}
-                    onMouseLeave={() => {
+                    onPointerEnter={() => setHoveredSectionId(section.id)}
+                    onPointerLeave={() => {
                         setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
                     }}
                     onDragStart={(event) => {
@@ -2205,11 +2204,9 @@ function ChecklistDetails({
                         <Button
                             aria-label="Delete section"
                             appearance="subtle"
-                            className={[
-                                styles.sectionDeleteButton,
-                                hoveredSectionId === section.id ? styles.visibleSectionDeleteButton : "",
-                            ].filter(Boolean).join(" ")}
+                            className={styles.sectionDeleteButton}
                             icon={<DeleteRegular />}
+                            style={{ visibility: hoveredSectionId === section.id ? "visible" : "hidden" }}
                             disabled={Boolean(draftSection || draftItem)}
                             onClick={(event) => {
                                 event.stopPropagation();
@@ -2508,7 +2505,7 @@ function ChecklistDetails({
                                         )}
                                     </div>
                                     <div className={styles.contentsActions}>
-                                        {selectedSection && !selectedSectionHasChildren && !selectedSectionIsEmptyTopLevel && (
+                                        {selectedSection && !selectedSectionHasChildren && !selectedSectionIsEmptyTopLevel && selectedSection.items.length > 0 && (
                                             <Button
                                                 appearance="primary"
                                                 icon={<AddRegular />}
