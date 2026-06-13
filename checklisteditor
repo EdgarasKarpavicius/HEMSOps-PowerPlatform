@@ -130,6 +130,11 @@ type DraggedItem =
     | { type: "item"; id: string; sectionId: string }
     | null;
 
+type DragOverTarget =
+    | { type: "section"; id: string }
+    | { type: "item"; id: string }
+    | null;
+
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
 const TEMP_DEV_CHECKLIST_VERSION_ID = "24e8d1ae-fa66-f111-ab0c-000d3a7ecf04";
@@ -557,6 +562,11 @@ const useStyles = makeStyles({
     },
     draggingRow: {
         opacity: 0.55,
+    },
+    dropBeforeRow: {
+        borderTopColor: tokens.colorBrandStroke1,
+        borderTopWidth: "3px",
+        borderTopStyle: "solid",
     },
     sectionRowText: {
         overflow: "hidden",
@@ -1555,6 +1565,7 @@ function ChecklistDetails({
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
+    const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
@@ -1650,6 +1661,7 @@ function ChecklistDetails({
             reorderSiblingSections(current, targetSection.parentId || null, draggedItem.id, targetSection.id)
         );
         setDraggedItem(null);
+        setDragOverTarget(null);
     };
     const handleItemDrop = (targetItem: ChecklistItem) => {
         if (draggedItem?.type !== "item" || draggedItem.sectionId !== selectedSectionId) return;
@@ -1657,7 +1669,15 @@ function ChecklistDetails({
             reorderSectionItems(current, selectedSectionId, draggedItem.id, targetItem.id)
         );
         setDraggedItem(null);
+        setDragOverTarget(null);
     };
+    const canDropSectionOnTarget = (targetSection: ChecklistSection) => {
+        if (draggedItem?.type !== "section" || draggedItem.id === targetSection.id) return false;
+        const draggedSection = flattenedSections.find(({ section }) => section.id === draggedItem.id)?.section;
+        return Boolean(draggedSection && (draggedSection.parentId || null) === (targetSection.parentId || null));
+    };
+    const canDropItemOnTarget = (targetItem: ChecklistItem) =>
+        Boolean(draggedItem?.type === "item" && draggedItem.sectionId === selectedSectionId && draggedItem.id !== targetItem.id);
     const renderDraftSectionRow = (depth = 0) => (
         <div
             className={styles.draftSectionRow}
@@ -1710,6 +1730,7 @@ function ChecklistDetails({
     const renderSectionRow = (section: ChecklistSection, depth = 0): React.ReactNode => {
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
+        const isDropTarget = dragOverTarget?.type === "section" && dragOverTarget.id === section.id;
 
         return (
             <React.Fragment key={section.id}>
@@ -1719,6 +1740,7 @@ function ChecklistDetails({
                         depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
                         selectedSectionId === section.id ? styles.selectedSectionRow : "",
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
+                        isDropTarget ? styles.dropBeforeRow : "",
                     ].filter(Boolean).join(" ")}
                     draggable
                     onClick={() => {
@@ -1731,13 +1753,24 @@ function ChecklistDetails({
                         setDraggedItem({ type: "section", id: section.id });
                     }}
                     onDragOver={(event) => {
-                        if (draggedItem?.type === "section") event.preventDefault();
+                        if (!canDropSectionOnTarget(section)) {
+                            if (dragOverTarget?.type === "section" && dragOverTarget.id === section.id) setDragOverTarget(null);
+                            return;
+                        }
+                        event.preventDefault();
+                        setDragOverTarget({ type: "section", id: section.id });
                     }}
                     onDrop={(event) => {
                         event.preventDefault();
                         handleSectionDrop(section);
                     }}
-                    onDragEnd={() => setDraggedItem(null)}
+                    onDragLeave={() => {
+                        if (dragOverTarget?.type === "section" && dragOverTarget.id === section.id) setDragOverTarget(null);
+                    }}
+                    onDragEnd={() => {
+                        setDraggedItem(null);
+                        setDragOverTarget(null);
+                    }}
                 >
                     <div className={styles.sectionMain}>
                         {hasChildren ? (
@@ -2019,7 +2052,11 @@ function ChecklistDetails({
                                         <div className={styles.itemList}>
                                             {selectedSection.items.map((item) => (
                                                 <div
-                                                    className={`${styles.itemRow} ${draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : ""}`}
+                                                    className={[
+                                                        styles.itemRow,
+                                                        draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
+                                                        dragOverTarget?.type === "item" && dragOverTarget.id === item.id ? styles.dropBeforeRow : "",
+                                                    ].filter(Boolean).join(" ")}
                                                     key={item.id}
                                                     draggable
                                                     onDragStart={(event) => {
@@ -2028,13 +2065,24 @@ function ChecklistDetails({
                                                         setDraggedItem({ type: "item", id: item.id, sectionId: selectedSection.id });
                                                     }}
                                                     onDragOver={(event) => {
-                                                        if (draggedItem?.type === "item") event.preventDefault();
+                                                        if (!canDropItemOnTarget(item)) {
+                                                            if (dragOverTarget?.type === "item" && dragOverTarget.id === item.id) setDragOverTarget(null);
+                                                            return;
+                                                        }
+                                                        event.preventDefault();
+                                                        setDragOverTarget({ type: "item", id: item.id });
                                                     }}
                                                     onDrop={(event) => {
                                                         event.preventDefault();
                                                         handleItemDrop(item);
                                                     }}
-                                                    onDragEnd={() => setDraggedItem(null)}
+                                                    onDragLeave={() => {
+                                                        if (dragOverTarget?.type === "item" && dragOverTarget.id === item.id) setDragOverTarget(null);
+                                                    }}
+                                                    onDragEnd={() => {
+                                                        setDraggedItem(null);
+                                                        setDragOverTarget(null);
+                                                    }}
                                                 >
                                                     <Text weight="semibold">{item.name || "Untitled item"}</Text>
                                                     <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
