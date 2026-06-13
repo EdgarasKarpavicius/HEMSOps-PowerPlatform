@@ -566,8 +566,8 @@ const useStyles = makeStyles({
         alignItems: "center",
         justifyContent: "space-between",
         gap: "8px",
-        minHeight: "38px",
-        padding: "8px 10px",
+        minHeight: "32px",
+        padding: "5px 8px",
         borderRadius: tokens.borderRadiusMedium,
         cursor: "grab",
         color: tokens.colorNeutralForeground2,
@@ -578,14 +578,14 @@ const useStyles = makeStyles({
     },
     parentSectionRow: {
         backgroundColor: tokens.colorNeutralBackground2,
-        minHeight: "46px",
-        padding: "10px 12px",
+        minHeight: "38px",
+        padding: "7px 10px",
         fontWeight: tokens.fontWeightSemibold,
     },
     childSectionRow: {
         marginLeft: "20px",
-        minHeight: "34px",
-        padding: "6px 8px",
+        minHeight: "30px",
+        padding: "4px 8px",
         backgroundColor: tokens.colorNeutralBackground1,
         borderLeftColor: tokens.colorBrandStroke1,
         borderLeftWidth: "3px",
@@ -614,6 +614,21 @@ const useStyles = makeStyles({
         alignItems: "center",
         gap: "4px",
         flexShrink: 0,
+    },
+    sectionCountText: {
+        minWidth: "64px",
+        textAlign: "right",
+        whiteSpace: "nowrap",
+    },
+    selectedSectionTitleRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        minWidth: 0,
+        flexWrap: "wrap",
+    },
+    selectedSectionNameInput: {
+        width: "min(360px, 44vw)",
     },
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
@@ -953,15 +968,18 @@ function parseOptionalQuantity(value: unknown) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
-function normalizeSections(sections: any[]): ChecklistSection[] {
-    return sections.map((section) => ({
-        id: String(section.id || makeId()),
-        name: String(section.name || ""),
-        bulkServiceable: Boolean(section.bulkServiceable),
-        parentId: section.parentId || null,
-        sections: normalizeSections(Array.isArray(section.sections) ? section.sections : []),
-        items: normalizeItems(Array.isArray(section.items) ? section.items : []),
-    }));
+function normalizeSections(sections: any[], parentId: string | null = null): ChecklistSection[] {
+    return sections.map((section) => {
+        const id = String(section.id || makeId());
+        return {
+            id,
+            name: String(section.name || ""),
+            bulkServiceable: Boolean(section.bulkServiceable),
+            parentId: section.parentId || parentId,
+            sections: normalizeSections(Array.isArray(section.sections) ? section.sections : [], id),
+            items: normalizeItems(Array.isArray(section.items) ? section.items : []),
+        };
+    });
 }
 
 function normalizeItems(items: any[]): ChecklistItem[] {
@@ -1020,6 +1038,10 @@ function findSectionPathById(sections: ChecklistSection[], sectionId: string | n
     return [];
 }
 
+function getSectionParentIdFromPath(path: ChecklistSection[]) {
+    return path.length > 1 ? path[path.length - 2].id : null;
+}
+
 function appendSection(sections: ChecklistSection[], parentId: string | null, section: ChecklistSection): ChecklistSection[] {
     if (!parentId) return [...sections, section];
     return sections.map((candidate) => {
@@ -1052,6 +1074,21 @@ function removeSectionById(sections: ChecklistSection[], sectionId: string): { s
         return acc;
     }, []);
     return { sections: nextSections, removed };
+}
+
+function updateSectionName(sections: ChecklistSection[], sectionId: string, name: string): ChecklistSection[] {
+    return sections.map((section) => {
+        if (section.id === sectionId) {
+            return {
+                ...section,
+                name: name.trim(),
+            };
+        }
+        return {
+            ...section,
+            sections: updateSectionName(section.sections, sectionId, name),
+        };
+    });
 }
 
 function promoteSectionToTopLevel(sections: ChecklistSection[], sectionId: string): ChecklistSection[] {
@@ -1735,6 +1772,8 @@ function ChecklistDetails({
     );
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
+    const [isEditingSectionName, setIsEditingSectionName] = useState(false);
+    const [sectionNameDraft, setSectionNameDraft] = useState("");
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
@@ -1792,6 +1831,10 @@ function ChecklistDetails({
         [draggedItem, sections]
     );
     const isDraggingChildSection = draggedSectionPath.length > 1;
+    useEffect(() => {
+        setSectionNameDraft(selectedSection?.name || "");
+        setIsEditingSectionName(false);
+    }, [selectedSection?.id, selectedSection?.name]);
     const startNewSection = (parentId: string | null) => {
         setDraftSection({ parentId, name: "" });
         setDraftItem(null);
@@ -1825,6 +1868,17 @@ function ChecklistDetails({
         setDraftItem({ sectionId, name: "", description: "", quantity: "" });
         setDraftSection(null);
     };
+    const confirmSelectedSectionName = () => {
+        if (!selectedSection) return;
+        const nextName = sectionNameDraft.trim();
+        if (!nextName) {
+            setSectionNameDraft(selectedSection.name || "");
+            setIsEditingSectionName(false);
+            return;
+        }
+        setSections((current) => updateSectionName(current, selectedSection.id, nextName));
+        setIsEditingSectionName(false);
+    };
     const startEditItem = (sectionId: string, item: ChecklistItem) => {
         setDraftItem({
             sectionId,
@@ -1854,10 +1908,12 @@ function ChecklistDetails({
     };
     const handleSectionDrop = (targetSection: ChecklistSection) => {
         if (draggedItem?.type !== "section") return;
-        const draggedSection = flattenedSections.find(({ section }) => section.id === draggedItem.id)?.section;
-        if (!draggedSection || (draggedSection.parentId || null) !== (targetSection.parentId || null)) return;
+        const draggedPath = findSectionPathById(sections, draggedItem.id);
+        const targetPath = findSectionPathById(sections, targetSection.id);
+        const parentId = getSectionParentIdFromPath(targetPath);
+        if (!draggedPath.length || getSectionParentIdFromPath(draggedPath) !== parentId) return;
         setSections((current) =>
-            reorderSiblingSections(current, targetSection.parentId || null, draggedItem.id, targetSection.id)
+            reorderSiblingSections(current, parentId, draggedItem.id, targetSection.id)
         );
         setDraggedItem(null);
         setDragOverTarget(null);
@@ -1872,8 +1928,13 @@ function ChecklistDetails({
     };
     const canDropSectionOnTarget = (targetSection: ChecklistSection) => {
         if (draggedItem?.type !== "section" || draggedItem.id === targetSection.id) return false;
-        const draggedSection = flattenedSections.find(({ section }) => section.id === draggedItem.id)?.section;
-        return Boolean(draggedSection && (draggedSection.parentId || null) === (targetSection.parentId || null));
+        const draggedPath = findSectionPathById(sections, draggedItem.id);
+        const targetPath = findSectionPathById(sections, targetSection.id);
+        return Boolean(
+            draggedPath.length &&
+            targetPath.length &&
+            getSectionParentIdFromPath(draggedPath) === getSectionParentIdFromPath(targetPath)
+        );
     };
     const canDropItemOnTarget = (targetItem: ChecklistItem) =>
         Boolean(draggedItem?.type === "item" && draggedItem.sectionId === selectedSectionId && draggedItem.id !== targetItem.id);
@@ -1927,6 +1988,12 @@ function ChecklistDetails({
             if (draftItem?.itemId === pendingDelete.id) setDraftItem(null);
         }
         setPendingDelete(null);
+    };
+    const getSectionCountText = (section: ChecklistSection) => {
+        if (section.sections.length) {
+            return `${section.sections.length} ${section.sections.length === 1 ? "child" : "children"}`;
+        }
+        return `${section.items.length} ${section.items.length === 1 ? "item" : "items"}`;
     };
     const renderDraftSectionRow = (depth = 0) => (
         <div
@@ -2022,26 +2089,31 @@ function ChecklistDetails({
                         setDraftItem(null);
                     }}
                     onDragStart={(event) => {
+                        event.stopPropagation();
                         event.dataTransfer.effectAllowed = "move";
                         event.dataTransfer.setData("text/plain", section.id);
                         setDraggedItem({ type: "section", id: section.id });
                     }}
                     onDragOver={(event) => {
+                        event.stopPropagation();
                         if (!canDropSectionOnTarget(section)) {
                             if (dragOverTarget?.type === "section" && dragOverTarget.id === section.id) setDragOverTarget(null);
                             return;
                         }
                         event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
                         setDragOverTarget({ type: "section", id: section.id });
                     }}
                     onDrop={(event) => {
+                        event.stopPropagation();
                         event.preventDefault();
                         handleSectionDrop(section);
                     }}
                     onDragLeave={() => {
                         if (dragOverTarget?.type === "section" && dragOverTarget.id === section.id) setDragOverTarget(null);
                     }}
-                    onDragEnd={() => {
+                    onDragEnd={(event) => {
+                        event.stopPropagation();
                         setDraggedItem(null);
                         setDragOverTarget(null);
                     }}
@@ -2065,20 +2137,9 @@ function ChecklistDetails({
                             {section.name || "Untitled section"}
                         </Text>
                     </div>
-                    <Caption1 className={styles.mutedText}>
-                        {hasChildren ? `${section.sections.length} child` : `${section.items.length} item`}
+                    <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
+                        {getSectionCountText(section)}
                     </Caption1>
-                    <div className={styles.rowActions}>
-                        <Button
-                            aria-label="Delete section"
-                            appearance="subtle"
-                            icon={<DeleteRegular />}
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                requestDeleteSection(section);
-                            }}
-                        />
-                    </div>
                 </div>
                 {hasChildren && !isCollapsed && (
                     <div className={styles.sectionChildren}>
@@ -2298,19 +2359,55 @@ function ChecklistDetails({
                             <div className={styles.contentsColumn}>
                                 <div className={styles.contentsColumnHeader}>
                                     <div>
-                                        {selectedSectionPath.length ? (
-                                            <div className={styles.sectionPathTitle}>
-                                                {selectedSectionPath.map((section, index) => (
-                                                    <React.Fragment key={section.id}>
-                                                        {index > 0 && <Text className={styles.mutedText}>{">"}</Text>}
-                                                        <Text
-                                                            weight={index === selectedSectionPath.length - 1 ? "semibold" : "regular"}
-                                                            className={index === selectedSectionPath.length - 1 ? styles.sectionPathCurrent : styles.sectionPathPart}
-                                                        >
-                                                            {section.name || "Untitled section"}
-                                                        </Text>
-                                                    </React.Fragment>
-                                                ))}
+                                        {selectedSection && isEditingSectionName ? (
+                                            <div className={styles.selectedSectionTitleRow}>
+                                                <Input
+                                                    autoFocus
+                                                    className={styles.selectedSectionNameInput}
+                                                    value={sectionNameDraft}
+                                                    onChange={(_, data) => setSectionNameDraft(data.value)}
+                                                    onKeyDown={(event) => {
+                                                        if (event.key === "Enter") confirmSelectedSectionName();
+                                                        if (event.key === "Escape") {
+                                                            setSectionNameDraft(selectedSection.name || "");
+                                                            setIsEditingSectionName(false);
+                                                        }
+                                                    }}
+                                                    onBlur={confirmSelectedSectionName}
+                                                />
+                                                <Button
+                                                    aria-label="Confirm section name"
+                                                    appearance="primary"
+                                                    icon={<CheckmarkRegular />}
+                                                    disabled={!sectionNameDraft.trim()}
+                                                    onMouseDown={(event) => event.preventDefault()}
+                                                    onClick={confirmSelectedSectionName}
+                                                />
+                                            </div>
+                                        ) : selectedSectionPath.length ? (
+                                            <div className={styles.selectedSectionTitleRow}>
+                                                <div className={styles.sectionPathTitle}>
+                                                    {selectedSectionPath.map((section, index) => (
+                                                        <React.Fragment key={section.id}>
+                                                            {index > 0 && <Text className={styles.mutedText}>{">"}</Text>}
+                                                            <Text
+                                                                weight={index === selectedSectionPath.length - 1 ? "semibold" : "regular"}
+                                                                className={index === selectedSectionPath.length - 1 ? styles.sectionPathCurrent : styles.sectionPathPart}
+                                                            >
+                                                                {section.name || "Untitled section"}
+                                                            </Text>
+                                                        </React.Fragment>
+                                                    ))}
+                                                </div>
+                                                <Button
+                                                    aria-label="Edit section name"
+                                                    appearance="subtle"
+                                                    icon={<EditRegular />}
+                                                    onClick={() => {
+                                                        setSectionNameDraft(selectedSection?.name || "");
+                                                        setIsEditingSectionName(true);
+                                                    }}
+                                                />
                                             </div>
                                         ) : (
                                             <Text block weight="semibold">Select a section</Text>
@@ -2324,6 +2421,16 @@ function ChecklistDetails({
                                         )}
                                     </div>
                                     <div className={styles.contentsActions}>
+                                        {selectedSection && (
+                                            <Button
+                                                appearance="secondary"
+                                                disabled={Boolean(draftSection || draftItem)}
+                                                style={{ color: "#b10e1c" }}
+                                                onClick={() => requestDeleteSection(selectedSection)}
+                                            >
+                                                Delete Section
+                                            </Button>
+                                        )}
                                         {selectedSection && canAddChildSection && (
                                             <Button
                                                 icon={<AddRegular />}
