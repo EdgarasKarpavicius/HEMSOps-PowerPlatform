@@ -377,6 +377,10 @@ const useStyles = makeStyles({
         overflow: "hidden",
     },
     tabHeader: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
         padding: "0 0 6px",
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
@@ -1521,14 +1525,6 @@ function ChecklistDetails({
                     )}
                 </div>
                 <div className={styles.headerAction}>
-                    <Button
-                        appearance="primary"
-                        icon={<SaveRegular />}
-                        disabled={!hasDefinitionChanges || isSaving}
-                        onClick={handleSave}
-                    >
-                        {isSaving ? "Saving" : "Save"}
-                    </Button>
                     <StatusPill
                         statuscode={version.statuscode}
                         fallbackLabel={version.statusLabel}
@@ -1552,6 +1548,16 @@ function ChecklistDetails({
                         <Tab value="contents">Contents</Tab>
                         <Tab value="options">Options</Tab>
                     </TabList>
+                    {hasDefinitionChanges && (
+                        <Button
+                            appearance="primary"
+                            icon={<SaveRegular />}
+                            disabled={isSaving}
+                            onClick={handleSave}
+                        >
+                            {isSaving ? "Saving" : "Save"}
+                        </Button>
+                    )}
                 </div>
                 {activeTab === "general" ? (
                     <div className={styles.tabPanel}>
