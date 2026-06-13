@@ -136,7 +136,7 @@ type DraftItem = {
 };
 
 type DraggedItem =
-    | { type: "section"; id: string }
+    | { type: "section"; id: string; parentId: string | null }
     | { type: "item"; id: string; sectionId: string }
     | null;
 
@@ -1807,6 +1807,7 @@ function ChecklistDetails({
     const [sectionNameDraft, setSectionNameDraft] = useState("");
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
     const draggedSectionIdRef = useRef("");
+    const draggedSectionParentIdRef = useRef<string | null>(null);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
@@ -1946,15 +1947,19 @@ function ChecklistDetails({
     const handleSectionDrop = (targetSection: ChecklistSection) => {
         const draggedSectionId = draggedItem?.type === "section" ? draggedItem.id : draggedSectionIdRef.current;
         if (!draggedSectionId) return;
-        const draggedPath = findSectionPathById(sections, draggedSectionId);
         const targetPath = findSectionPathById(sections, targetSection.id);
         const parentId = getSectionParentIdFromPath(targetPath);
-        if (!draggedPath.length || getSectionParentIdFromPath(draggedPath) !== parentId) return;
+        const draggedParentId =
+            draggedItem?.type === "section"
+                ? draggedItem.parentId
+                : draggedSectionParentIdRef.current;
+        if (draggedParentId !== parentId) return;
         setSections((current) =>
             reorderSiblingSections(current, parentId, draggedSectionId, targetSection.id)
         );
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
+        draggedSectionParentIdRef.current = null;
         setDragOverTarget(null);
     };
     const handleItemDrop = (targetItem: ChecklistItem) => {
@@ -1968,13 +1973,13 @@ function ChecklistDetails({
     const canDropSectionOnTarget = (targetSection: ChecklistSection) => {
         const draggedSectionId = draggedItem?.type === "section" ? draggedItem.id : draggedSectionIdRef.current;
         if (!draggedSectionId || draggedSectionId === targetSection.id) return false;
-        const draggedPath = findSectionPathById(sections, draggedSectionId);
         const targetPath = findSectionPathById(sections, targetSection.id);
-        return Boolean(
-            draggedPath.length &&
-            targetPath.length &&
-            getSectionParentIdFromPath(draggedPath) === getSectionParentIdFromPath(targetPath)
-        );
+        if (!targetPath.length) return false;
+        const draggedParentId =
+            draggedItem?.type === "section"
+                ? draggedItem.parentId
+                : draggedSectionParentIdRef.current;
+        return draggedParentId === getSectionParentIdFromPath(targetPath);
     };
     const canDropItemOnTarget = (targetItem: ChecklistItem) =>
         Boolean(draggedItem?.type === "item" && draggedItem.sectionId === selectedSectionId && draggedItem.id !== targetItem.id);
@@ -2112,6 +2117,8 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isDropTarget = dragOverTarget?.type === "section" && dragOverTarget.id === section.id;
+        const sectionPath = findSectionPathById(sections, section.id);
+        const sectionParentId = getSectionParentIdFromPath(sectionPath);
         const selectedSectionTopParentId = selectedSectionPath[0]?.id || "";
         const canAddAnotherChild =
             depth === 0 &&
@@ -2140,7 +2147,8 @@ function ChecklistDetails({
                         event.dataTransfer.effectAllowed = "move";
                         event.dataTransfer.setData("text/plain", section.id);
                         draggedSectionIdRef.current = section.id;
-                        setDraggedItem({ type: "section", id: section.id });
+                        draggedSectionParentIdRef.current = sectionParentId;
+                        setDraggedItem({ type: "section", id: section.id, parentId: sectionParentId });
                     }}
                     onDragOver={(event) => {
                         event.stopPropagation();
@@ -2163,6 +2171,7 @@ function ChecklistDetails({
                     onDragEnd={(event) => {
                         event.stopPropagation();
                         draggedSectionIdRef.current = "";
+                        draggedSectionParentIdRef.current = null;
                         setDraggedItem(null);
                         setDragOverTarget(null);
                     }}
