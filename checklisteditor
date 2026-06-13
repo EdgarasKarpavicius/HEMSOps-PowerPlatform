@@ -19,6 +19,8 @@ import {
     MessageBarBody,
     Option,
     Spinner,
+    Tab,
+    TabList,
     TableCellLayout,
     Text,
     Toolbar,
@@ -44,6 +46,7 @@ type Checklist = {
     name: string;
     currentVersion: string;
     checklistType: string;
+    checklistTypeValue: number;
     targetType: string;
     statuscode: number;
     sections: ChecklistSection[];
@@ -57,8 +60,28 @@ type ChecklistVersion = {
     versionNumber: string;
     statuscode: number;
     statusLabel?: string;
+    definition: ChecklistVersionDefinition;
     checklist: Checklist;
     raw?: Record<string, any>;
+};
+
+type ChecklistVersionOption = {
+    key: string;
+    value: boolean | number | string;
+};
+
+type ChecklistVersionDetails = {
+    proposedChecklistName: string;
+    versionType?: string;
+    applicableAircraftTypes: string[];
+    options: ChecklistVersionOption[];
+};
+
+type ChecklistVersionDefinition = {
+    checklistVersionDetails: ChecklistVersionDetails;
+    checklistVersionContents: {
+        sections: ChecklistSection[];
+    };
 };
 
 type ChecklistSection = {
@@ -180,7 +203,7 @@ const translations: Record<string, Record<string, string>> = {
 
 const CHECKLIST_TYPES = [
     { key: "Standard", text: "Standard" },
-    { key: "Custom", text: "Custom" },
+    { key: "Stock", text: "Stock" },
 ];
 
 const TARGET_TYPES = [
@@ -195,6 +218,61 @@ const STATUS_LABELS: Record<number, string> = {
     [STATUS_INACTIVE]: "Inactive",
     [STATUS_IN_REVIEW]: "In review",
 };
+
+const CHECKLIST_TYPE_STANDARD = 1;
+const CHECKLIST_TYPE_STOCK = 2;
+
+const CHECKLIST_OPTION_DEFINITIONS = [
+    {
+        key: "defaultQtyExpiredToZero",
+        label: "Default expired quantity to zero",
+        type: "boolean",
+        defaultValue: false,
+        appliesToChecklistTypes: [CHECKLIST_TYPE_STOCK],
+    },
+    {
+        key: "earliestExpiryDateRequired",
+        label: "Earliest expiry date required",
+        type: "boolean",
+        defaultValue: false,
+        appliesToChecklistTypes: [CHECKLIST_TYPE_STOCK],
+    },
+    {
+        key: "enableNaItemStatusOption",
+        label: "Enable N/A item status",
+        type: "boolean",
+        defaultValue: false,
+        appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD],
+    },
+    {
+        key: "enableSaveForLaterCompletion",
+        label: "Enable save for later completion",
+        type: "boolean",
+        defaultValue: true,
+        appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD, CHECKLIST_TYPE_STOCK],
+    },
+    {
+        key: "minimumParticipantCount",
+        label: "Minimum participant count",
+        type: "number",
+        defaultValue: 1,
+        appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD, CHECKLIST_TYPE_STOCK],
+    },
+    {
+        key: "signatureForSubmissionRequired",
+        label: "Signature required for submission",
+        type: "boolean",
+        defaultValue: false,
+        appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD, CHECKLIST_TYPE_STOCK],
+    },
+    {
+        key: "updatedLocationRequired",
+        label: "Updated location required",
+        type: "boolean",
+        defaultValue: false,
+        appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD],
+    },
+] as const;
 
 const EMPTY_CHECKLISTS: Checklist[] = [];
 
@@ -379,6 +457,68 @@ const useStyles = makeStyles({
         flexGrow: 1,
         minHeight: 0,
         overflow: "auto",
+    },
+    workbenchSurface: {
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        display: "grid",
+        gridTemplateRows: "auto minmax(0, 1fr)",
+        minHeight: 0,
+        overflow: "hidden",
+        boxShadow: tokens.shadow2,
+    },
+    workbenchTabs: {
+        padding: "8px 14px 0",
+        backgroundColor: tokens.colorNeutralBackground2,
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    tabPanel: {
+        minHeight: 0,
+        overflow: "auto",
+        padding: "18px",
+    },
+    generalGrid: {
+        display: "grid",
+        gridTemplateColumns: "minmax(260px, 1fr) minmax(260px, 1fr)",
+        gap: "18px",
+        alignItems: "start",
+        "@media (max-width: 900px)": {
+            gridTemplateColumns: "1fr",
+        },
+    },
+    formStack: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "14px",
+    },
+    optionsList: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+    },
+    optionRow: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+        padding: "10px 0",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    optionLabel: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "2px",
+    },
+    contentsPlaceholder: {
+        minHeight: "260px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: tokens.colorNeutralForeground3,
+        backgroundColor: tokens.colorNeutralBackground2,
+        ...shorthands.border("1px", "dashed", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
     },
     versionRow: {
         display: "grid",
@@ -802,22 +942,92 @@ function parseSections(value: unknown): ChecklistSection[] {
     if (!value || typeof value !== "string") return [];
     try {
         const parsed = JSON.parse(value);
-        const source = Array.isArray(parsed) ? parsed : parsed.sections;
+        const source = Array.isArray(parsed)
+            ? parsed
+            : parsed.checklistVersionContents?.sections || parsed.sections;
         return Array.isArray(source) ? normalizeSections(source) : [];
     } catch {
         return [];
     }
 }
 
+function inferChecklistTypeValue(value: unknown, label: string) {
+    const numericValue = Number(value);
+    if (!Number.isNaN(numericValue) && numericValue > 0) return numericValue;
+    return label.toLowerCase().includes("stock") ? CHECKLIST_TYPE_STOCK : CHECKLIST_TYPE_STANDARD;
+}
+
+function getChecklistTypeLabel(record: Record<string, any>) {
+    const label = String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], ""));
+    if (label && Number.isNaN(Number(label))) return label;
+    const value = Number(getValue(record, ["int_checklisttype", "checklisttype"], CHECKLIST_TYPE_STANDARD));
+    return value === CHECKLIST_TYPE_STOCK ? "Stock" : "Standard";
+}
+
+function getApplicableOptionDefinitions(checklistTypeValue: number) {
+    return CHECKLIST_OPTION_DEFINITIONS.filter((option) =>
+        option.appliesToChecklistTypes.some((type) => type === checklistTypeValue)
+    );
+}
+
+function normalizeApplicableOptions(options: unknown, checklistTypeValue: number): ChecklistVersionOption[] {
+    const optionValues = new Map<string, boolean | number | string>();
+    if (Array.isArray(options)) {
+        options.forEach((option) => {
+            if (option?.key) optionValues.set(String(option.key), option.value);
+        });
+    }
+
+    return getApplicableOptionDefinitions(checklistTypeValue).map((definition) => ({
+        key: definition.key,
+        value: optionValues.has(definition.key) ? optionValues.get(definition.key)! : definition.defaultValue,
+    }));
+}
+
+function parseChecklistVersionDefinition(record: Record<string, any>, checklist: Checklist): ChecklistVersionDefinition {
+    const rawDefinition = String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""));
+    let parsed: any = {};
+    if (rawDefinition) {
+        try {
+            parsed = JSON.parse(rawDefinition);
+        } catch {
+            parsed = {};
+        }
+    }
+
+    const details = parsed.checklistVersionDetails || {};
+    const contents = parsed.checklistVersionContents || {};
+    const proposedChecklistName = String(
+        getValue(record, ["int_proposedchecklistname"], details.proposedChecklistName || checklist.name)
+    );
+    const applicableAircraftTypes = Array.isArray(details.applicableAircraftTypes)
+        ? details.applicableAircraftTypes.map(String)
+        : [];
+
+    return {
+        checklistVersionDetails: {
+            proposedChecklistName,
+            versionType: details.versionType,
+            applicableAircraftTypes,
+            options: normalizeApplicableOptions(details.options, checklist.checklistTypeValue),
+        },
+        checklistVersionContents: {
+            sections: normalizeSections(Array.isArray(contents.sections) ? contents.sections : parsed.sections || checklist.sections),
+        },
+    };
+}
+
 function mapChecklistRecord(record: Record<string, any>): Checklist {
     const definitionJson = String(
         getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], "")
     );
+    const checklistType = getChecklistTypeLabel(record);
     return {
         id: String(getValue(record, ["int_checklistid", "id", "checklistid"], "")),
         name: String(getValue(record, ["int_name", "name", "int_checklistname"], "Untitled checklist")),
         currentVersion: String(getValue(record, ["int_currentversion", "int_version", "currentversion"], "1")),
-        checklistType: String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], "Standard")),
+        checklistType,
+        checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
         targetType: String(getDisplayValue(record, ["int_targettype", "targettype"], "")),
         statuscode: Number(getValue(record, ["statuscode"], 1)),
         sections: parseSections(definitionJson),
@@ -854,13 +1064,15 @@ function getExpandedChecklist(record: Record<string, any>, relationshipNames: st
 }
 
 function mapChecklistFromVersionRecord(record: Record<string, any>): Checklist {
+    const checklistType = String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], "Standard"));
     return {
         id: getLookupId(record, ["_int_checklist_value", "_int_checklistid_value", "_int_checklistid_value"]),
         name: String(
             getDisplayValue(record, ["_int_checklist_value", "_int_checklistid_value", "int_checklistid"], "Untitled checklist")
         ),
         currentVersion: String(getValue(record, ["int_versionnumber", "int_version", "versionnumber"], "")),
-        checklistType: String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], "Standard")),
+        checklistType,
+        checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
         targetType: String(getDisplayValue(record, ["int_targettype", "targettype"], "")),
         statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
         sections: parseSections(String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""))),
@@ -905,6 +1117,7 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
         versionNumber: String(getValue(record, ["int_versionnumber", "versionnumber"], "")),
         statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
         statusLabel: String(getDisplayValue(record, ["statuscode"], "")),
+        definition: parseChecklistVersionDefinition(record, checklist),
         checklist,
         raw: record,
     };
@@ -927,7 +1140,7 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
             const record = await Xrm.WebApi.retrieveRecord(
                 VERSION_TABLE_NAME,
                 versionId,
-                `?$select=int_checklistversionid,int_versionnumber,statuscode&$expand=${relationshipName}($select=${checklistSelect})`
+                `?$select=int_checklistversionid,int_versionnumber,statuscode,int_definitionjson&$expand=${relationshipName}($select=${checklistSelect})`
             );
             const checklist = getExpandedChecklist(record, relationshipNames);
             if (checklist) return mapChecklistVersionRecord(record, checklist);
@@ -1235,6 +1448,21 @@ function ChecklistDetails({
 }) {
     const styles = useStyles();
     const checklist = version.checklist;
+    const [activeTab, setActiveTab] = useState("general");
+    const [proposedChecklistName, setProposedChecklistName] = useState(
+        version.definition.checklistVersionDetails.proposedChecklistName || checklist.name
+    );
+    const [applicableAircraftTypes, setApplicableAircraftTypes] = useState(
+        version.definition.checklistVersionDetails.applicableAircraftTypes
+    );
+    const [options, setOptions] = useState(version.definition.checklistVersionDetails.options);
+
+    const updateOption = (key: string, value: boolean | number | string) => {
+        setOptions((current) =>
+            current.map((option) => (option.key === key ? { ...option, value } : option))
+        );
+    };
+    const sectionCount = version.definition.checklistVersionContents.sections.length;
 
     return (
         <div className={styles.detailsPage}>
@@ -1262,7 +1490,85 @@ function ChecklistDetails({
                     />
                 </div>
             </div>
-            <div className={styles.versionsSurface} aria-hidden="true" />
+            <div className={styles.workbenchSurface}>
+                <div className={styles.workbenchTabs}>
+                    <TabList
+                        selectedValue={activeTab}
+                        onTabSelect={(_, data) => setActiveTab(String(data.value))}
+                    >
+                        <Tab value="general">General</Tab>
+                        <Tab value="contents">Contents</Tab>
+                    </TabList>
+                </div>
+                {activeTab === "general" ? (
+                    <div className={styles.tabPanel}>
+                        <div className={styles.generalGrid}>
+                            <div className={styles.formStack}>
+                                <Field label="Checklist name">
+                                    <Input
+                                        value={proposedChecklistName}
+                                        onChange={(_, data) => setProposedChecklistName(data.value)}
+                                    />
+                                </Field>
+                                <Field label="Applicable aircraft types">
+                                    <Input
+                                        value={applicableAircraftTypes.join(", ")}
+                                        onChange={(_, data) =>
+                                            setApplicableAircraftTypes(
+                                                data.value
+                                                    .split(",")
+                                                    .map((value) => value.trim())
+                                                    .filter(Boolean)
+                                            )
+                                        }
+                                    />
+                                </Field>
+                            </div>
+                            <div className={styles.formStack}>
+                                <Text weight="semibold">Options</Text>
+                                <div className={styles.optionsList}>
+                                    {options.map((option) => {
+                                        const definition = CHECKLIST_OPTION_DEFINITIONS.find(
+                                            (candidate) => candidate.key === option.key
+                                        );
+                                        if (!definition) return null;
+
+                                        return (
+                                            <div className={styles.optionRow} key={option.key}>
+                                                <div className={styles.optionLabel}>
+                                                    <Text weight="semibold">{definition.label}</Text>
+                                                </div>
+                                                {definition.type === "number" ? (
+                                                    <Input
+                                                        type="number"
+                                                        min={1}
+                                                        value={String(option.value || 1)}
+                                                        onChange={(_, data) =>
+                                                            updateOption(option.key, Math.max(1, Number(data.value) || 1))
+                                                        }
+                                                        style={{ width: 96 }}
+                                                    />
+                                                ) : (
+                                                    <Checkbox
+                                                        checked={Boolean(option.value)}
+                                                        onChange={(_, data) => updateOption(option.key, Boolean(data.checked))}
+                                                    />
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className={styles.tabPanel}>
+                        <div className={styles.contentsPlaceholder}>
+                            <Text weight="semibold">{`${sectionCount} section${sectionCount === 1 ? "" : "s"}`}</Text>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
