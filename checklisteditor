@@ -607,11 +607,17 @@ const useStyles = makeStyles({
         marginTop: "5px",
         marginBottom: "2px",
     },
-    sectionChildAddButton: {
+    sectionAddAnotherRow: {
+        display: "flex",
+        justifyContent: "flex-start",
+        marginLeft: "20px",
+        padding: "4px 8px 2px",
+    },
+    sectionAddAnotherButton: {
         color: tokens.colorBrandForeground1,
-        minWidth: "24px",
-        width: "24px",
-        height: "24px",
+        fontWeight: tokens.fontWeightSemibold,
+        minWidth: "auto",
+        padding: "0",
     },
     sectionMain: {
         display: "flex",
@@ -2092,7 +2098,7 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isDropTarget = dragOverTarget?.type === "section" && dragOverTarget.id === section.id;
-        const canAddChildFromRow = depth === 0 && selectedSectionId === section.id && section.items.length === 0 && !draftSection && !draftItem;
+        const canAddAnotherChild = depth === 0 && selectedSectionId === section.id && section.sections.length > 0 && !draftSection && !draftItem;
 
         return (
             <React.Fragment key={section.id}>
@@ -2158,28 +2164,24 @@ function ChecklistDetails({
                             {section.name || "Untitled section"}
                         </Text>
                     </div>
-                    <div className={styles.rowActions}>
-                        {canAddChildFromRow && (
-                            <Button
-                                aria-label="Add child section"
-                                title="Add child section"
-                                appearance="subtle"
-                                className={styles.sectionChildAddButton}
-                                icon={<AddRegular />}
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    startNewSection(section.id);
-                                }}
-                            />
-                        )}
-                        <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
-                            {getSectionCountText(section)}
-                        </Caption1>
-                    </div>
+                    <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
+                        {getSectionCountText(section)}
+                    </Caption1>
                 </div>
                 {hasChildren && !isCollapsed && (
                     <div className={styles.sectionChildren}>
                         {section.sections.map((childSection) => renderSectionRow(childSection, depth + 1))}
+                    </div>
+                )}
+                {canAddAnotherChild && (
+                    <div className={styles.sectionAddAnotherRow}>
+                        <Button
+                            appearance="subtle"
+                            className={styles.sectionAddAnotherButton}
+                            onClick={() => startNewSection(section.id)}
+                        >
+                            + Add another
+                        </Button>
                     </div>
                 )}
                 {draftSection?.parentId === section.id && renderDraftSectionRow(depth + 1)}
@@ -2483,6 +2485,13 @@ function ChecklistDetails({
                                     ) : selectedSectionHasChildren ? (
                                         <div className={styles.contentsPlaceholder}>
                                             <Text weight="semibold">Items cannot be added to a parent section.</Text>
+                                            <Button
+                                                icon={<AddRegular />}
+                                                disabled={Boolean(draftSection || draftItem)}
+                                                onClick={() => startNewSection(selectedSection.id)}
+                                            >
+                                                Add another child section
+                                            </Button>
                                         </div>
                                     ) : (
                                         <div className={styles.itemList}>
@@ -2550,11 +2559,18 @@ function ChecklistDetails({
                                             {draftItem?.sectionId === selectedSection.id && !draftItem.itemId && renderDraftItemRow()}
                                             {selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && !draftSection && (
                                                 <div className={styles.contentsPlaceholder}>
-                                                    <Text weight="semibold">Create the first item for this section.</Text>
+                                                    <Text weight="semibold">Choose how to start this section.</Text>
                                                     <Caption1 className={styles.mutedText}>
-                                                        Child sections can be added from the section tree.
+                                                        Add checklist items directly, or split this section into child sections.
                                                     </Caption1>
                                                     <div className={styles.placeholderActions}>
+                                                        <Button
+                                                            icon={<AddRegular />}
+                                                            disabled={Boolean(draftSection || draftItem)}
+                                                            onClick={() => startNewSection(selectedSection.id)}
+                                                        >
+                                                            New Child Section
+                                                        </Button>
                                                         <Button
                                                             appearance="primary"
                                                             icon={<AddRegular />}
