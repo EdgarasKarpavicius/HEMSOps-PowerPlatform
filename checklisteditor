@@ -118,6 +118,11 @@ type DraftSection = {
     name: string;
 };
 
+type DraftItem = {
+    sectionId: string;
+    name: string;
+};
+
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
 const TEMP_DEV_CHECKLIST_VERSION_ID = "24e8d1ae-fa66-f111-ab0c-000d3a7ecf04";
@@ -478,6 +483,12 @@ const useStyles = makeStyles({
         padding: "12px 14px",
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
+    contentsActions: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        flexShrink: 0,
+    },
     contentsColumnBody: {
         display: "flex",
         flexDirection: "column",
@@ -516,6 +527,22 @@ const useStyles = makeStyles({
         alignItems: "center",
         padding: "7px 10px",
         backgroundColor: tokens.colorNeutralBackground2,
+        borderRadius: tokens.borderRadiusMedium,
+    },
+    itemList: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+    },
+    itemRow: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+        minHeight: "38px",
+        padding: "8px 10px",
+        backgroundColor: tokens.colorNeutralBackground2,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
     },
     itemWorkspace: {
@@ -793,6 +820,15 @@ function createEmptySection(name: string, parentId: string | null): ChecklistSec
     };
 }
 
+function createEmptyItem(name: string): ChecklistItem {
+    return {
+        id: makeId(),
+        name: name.trim(),
+        description: "",
+        quantity: 1,
+    };
+}
+
 function flattenSections(sections: ChecklistSection[], depth = 0): FlatChecklistSection[] {
     return sections.flatMap((section) => [
         { section, depth },
@@ -822,6 +858,21 @@ function appendSection(sections: ChecklistSection[], parentId: string | null, se
         return {
             ...candidate,
             sections: appendSection(candidate.sections, parentId, section),
+        };
+    });
+}
+
+function appendItemToSection(sections: ChecklistSection[], sectionId: string, item: ChecklistItem): ChecklistSection[] {
+    return sections.map((candidate) => {
+        if (candidate.id === sectionId) {
+            return {
+                ...candidate,
+                items: [...candidate.items, item],
+            };
+        }
+        return {
+            ...candidate,
+            sections: appendItemToSection(candidate.sections, sectionId, item),
         };
     });
 }
@@ -1394,6 +1445,7 @@ function ChecklistDetails({
         flattenSections(version.definition.checklistVersionContents.sections)[0]?.section.id || ""
     );
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
+    const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
 
     useEffect(() => {
         let isMounted = true;
@@ -1438,6 +1490,7 @@ function ChecklistDetails({
     const selectedSectionHasChildren = Boolean(selectedSection && selectedSection.sections.length > 0);
     const startNewSection = (parentId: string | null) => {
         setDraftSection({ parentId, name: "" });
+        setDraftItem(null);
     };
     const confirmDraftSection = () => {
         if (!draftSection?.name.trim()) return;
@@ -1445,6 +1498,16 @@ function ChecklistDetails({
         setSections((current) => appendSection(current, draftSection.parentId, newSection));
         setSelectedSectionId(newSection.id);
         setDraftSection(null);
+    };
+    const startNewItem = (sectionId: string) => {
+        setDraftItem({ sectionId, name: "" });
+        setDraftSection(null);
+    };
+    const confirmDraftItem = () => {
+        if (!draftItem?.name.trim()) return;
+        const newItem = createEmptyItem(draftItem.name);
+        setSections((current) => appendItemToSection(current, draftItem.sectionId, newItem));
+        setDraftItem(null);
     };
     const renderDraftSectionRow = (depth = 0) => (
         <div
@@ -1469,6 +1532,29 @@ function ChecklistDetails({
                 icon={<CheckmarkRegular />}
                 disabled={!draftSection?.name.trim()}
                 onClick={confirmDraftSection}
+            />
+        </div>
+    );
+    const renderDraftItemRow = () => (
+        <div className={styles.draftSectionRow}>
+            <Input
+                autoFocus
+                placeholder="Checklist item name"
+                value={draftItem?.name || ""}
+                onChange={(_, data) =>
+                    setDraftItem((current) => current ? { ...current, name: data.value } : current)
+                }
+                onKeyDown={(event) => {
+                    if (event.key === "Enter") confirmDraftItem();
+                    if (event.key === "Escape") setDraftItem(null);
+                }}
+            />
+            <Button
+                aria-label="Confirm checklist item"
+                appearance="primary"
+                icon={<CheckmarkRegular />}
+                disabled={!draftItem?.name.trim()}
+                onClick={confirmDraftItem}
             />
         </div>
     );
@@ -1641,7 +1727,7 @@ function ChecklistDetails({
                                     <Button
                                         appearance="primary"
                                         icon={<AddRegular />}
-                                        disabled={Boolean(draftSection)}
+                                        disabled={Boolean(draftSection || draftItem)}
                                         onClick={() => startNewSection(null)}
                                     >
                                         New Section
@@ -1653,7 +1739,10 @@ function ChecklistDetails({
                                             <div
                                                 className={`${styles.sectionRow} ${selectedSectionId === section.id ? styles.selectedSectionRow : ""}`}
                                                 style={{ marginLeft: depth * 18 }}
-                                                onClick={() => setSelectedSectionId(section.id)}
+                                                onClick={() => {
+                                                    setSelectedSectionId(section.id);
+                                                    setDraftItem(null);
+                                                }}
                                             >
                                                 <Text className={styles.sectionRowText} weight={selectedSectionId === section.id ? "semibold" : "regular"}>
                                                     {section.name || "Untitled section"}
@@ -1687,15 +1776,27 @@ function ChecklistDetails({
                                             </Caption1>
                                         )}
                                     </div>
-                                    {selectedSection && canAddChildSection && (
-                                        <Button
-                                            icon={<AddRegular />}
-                                            disabled={Boolean(draftSection)}
-                                            onClick={() => startNewSection(selectedSection.id)}
-                                        >
-                                            New Child Section
-                                        </Button>
-                                    )}
+                                    <div className={styles.contentsActions}>
+                                        {selectedSection && canAddChildSection && (
+                                            <Button
+                                                icon={<AddRegular />}
+                                                disabled={Boolean(draftSection || draftItem)}
+                                                onClick={() => startNewSection(selectedSection.id)}
+                                            >
+                                                New Child Section
+                                            </Button>
+                                        )}
+                                        {selectedSection && !selectedSectionHasChildren && (
+                                            <Button
+                                                appearance="primary"
+                                                icon={<AddRegular />}
+                                                disabled={Boolean(draftSection || draftItem)}
+                                                onClick={() => startNewItem(selectedSection.id)}
+                                            >
+                                                New Item
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className={styles.itemWorkspace}>
                                     {!selectedSection ? (
@@ -1707,8 +1808,19 @@ function ChecklistDetails({
                                             <Text weight="semibold">Items cannot be added to a parent section.</Text>
                                         </div>
                                     ) : (
-                                        <div className={styles.contentsPlaceholder}>
-                                            <Text weight="semibold">Checklist items for this section will be added here.</Text>
+                                        <div className={styles.itemList}>
+                                            {selectedSection.items.map((item) => (
+                                                <div className={styles.itemRow} key={item.id}>
+                                                    <Text weight="semibold">{item.name || "Untitled item"}</Text>
+                                                    <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
+                                                </div>
+                                            ))}
+                                            {draftItem?.sectionId === selectedSection.id && renderDraftItemRow()}
+                                            {!selectedSection.items.length && draftItem?.sectionId !== selectedSection.id && (
+                                                <div className={styles.contentsPlaceholder}>
+                                                    <Text weight="semibold">Create the first checklist item for this section.</Text>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
