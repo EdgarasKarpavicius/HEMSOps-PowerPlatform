@@ -637,10 +637,10 @@ const useStyles = makeStyles({
     itemRow: {
         display: "grid",
         gridTemplateColumns: "minmax(0, 1fr) auto",
-        alignItems: "start",
+        alignItems: "center",
         gap: "12px",
-        minHeight: "52px",
-        padding: "10px 12px",
+        minHeight: "40px",
+        padding: "8px 10px",
         cursor: "grab",
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
@@ -655,9 +655,9 @@ const useStyles = makeStyles({
     itemEditCard: {
         display: "grid",
         gridTemplateColumns: "minmax(0, 1fr) 120px auto",
-        gap: "10px",
+        gap: "8px",
         alignItems: "end",
-        padding: "12px",
+        padding: "10px",
         backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
         borderRadius: tokens.borderRadiusMedium,
@@ -1787,6 +1787,13 @@ function ChecklistDetails({
         );
         setDraftItem(null);
     };
+    const handleItemEditKeyDown = (event: React.KeyboardEvent, allowShiftEnter = false) => {
+        if (event.key === "Enter" && (!allowShiftEnter || !event.shiftKey)) {
+            event.preventDefault();
+            confirmDraftItem();
+        }
+        if (event.key === "Escape") setDraftItem(null);
+    };
     const handleSectionDrop = (targetSection: ChecklistSection) => {
         if (draggedItem?.type !== "section") return;
         const draggedSection = flattenedSections.find(({ section }) => section.id === draggedItem.id)?.section;
@@ -1861,45 +1868,36 @@ function ChecklistDetails({
             <Field label="Name" className={styles.itemNameField}>
                 <Input
                     autoFocus
-                    placeholder="Checklist item name"
+                    placeholder="Enter item name"
                     value={draftItem?.name || ""}
                     onChange={(_, data) =>
                         setDraftItem((current) => current ? { ...current, name: data.value } : current)
                     }
-                    onKeyDown={(event) => {
-                        if (event.key === "Enter" && event.metaKey) confirmDraftItem();
-                        if (event.key === "Escape") setDraftItem(null);
-                    }}
+                    onKeyDown={(event) => handleItemEditKeyDown(event)}
                 />
             </Field>
             <Field label="Quantity" className={styles.itemQuantityField}>
                 <Input
                     type="number"
                     min={0}
-                    placeholder="Blank"
+                    placeholder="None"
                     value={draftItem?.quantity || ""}
                     onChange={(_, data) =>
                         setDraftItem((current) => current ? { ...current, quantity: data.value } : current)
                     }
-                    onKeyDown={(event) => {
-                        if (event.key === "Enter" && event.metaKey) confirmDraftItem();
-                        if (event.key === "Escape") setDraftItem(null);
-                    }}
+                    onKeyDown={(event) => handleItemEditKeyDown(event)}
                 />
             </Field>
             <Field label="Description" className={styles.itemDescriptionField}>
                 <Textarea
                     resize="vertical"
                     rows={3}
-                    placeholder="Description"
+                    placeholder="Add guidance, acceptance criteria, or notes for this item"
                     value={draftItem?.description || ""}
                     onChange={(_, data) =>
                         setDraftItem((current) => current ? { ...current, description: data.value } : current)
                     }
-                    onKeyDown={(event) => {
-                        if (event.key === "Enter" && event.metaKey) confirmDraftItem();
-                        if (event.key === "Escape") setDraftItem(null);
-                    }}
+                    onKeyDown={(event) => handleItemEditKeyDown(event, true)}
                 />
             </Field>
             <Button
