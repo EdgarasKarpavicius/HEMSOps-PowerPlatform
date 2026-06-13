@@ -389,6 +389,19 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground3,
         fontSize: "12px",
     },
+    generalSection: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        maxWidth: "620px",
+        paddingBottom: "18px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    generalSectionTitle: {
+        fontSize: "14px",
+        lineHeight: "20px",
+        fontWeight: tokens.fontWeightSemibold,
+    },
     contentsPlaceholder: {
         minHeight: "260px",
         display: "flex",
@@ -668,14 +681,9 @@ function inferChecklistTypeValue(value: unknown, label: string) {
     return label.toLowerCase().includes("stock") ? CHECKLIST_TYPE_STOCK : CHECKLIST_TYPE_STANDARD;
 }
 
-function inferChecklistTargetTypeValue(value: unknown, label: string) {
-    const numericValue = Number(value);
-    if (!Number.isNaN(numericValue) && numericValue > 0) return numericValue;
-    const normalized = label.toLowerCase();
-    if (normalized.includes("equipment")) return CHECKLIST_TARGET_EQUIPMENT;
-    if (normalized.includes("vehicle")) return CHECKLIST_TARGET_VEHICLE;
-    if (normalized.includes("base") || normalized.includes("site")) return CHECKLIST_TARGET_BASE_SITE;
-    return CHECKLIST_TARGET_AIRCRAFT;
+function getChecklistTargetTypeValue(record: Record<string, any>) {
+    const value = Number(getValue(record, ["int_checklisttargettype"], 0));
+    return Number.isNaN(value) ? 0 : value;
 }
 
 function getChecklistTypeLabel(record: Record<string, any>) {
@@ -686,15 +694,14 @@ function getChecklistTypeLabel(record: Record<string, any>) {
 }
 
 function getChecklistTargetTypeLabel(record: Record<string, any>) {
-    const label = String(getDisplayValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], ""));
+    const label = String(getDisplayValue(record, ["int_checklisttargettype"], ""));
     if (label && Number.isNaN(Number(label))) return label;
-    const value = Number(
-        getValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], CHECKLIST_TARGET_AIRCRAFT)
-    );
+    const value = getChecklistTargetTypeValue(record);
     if (value === CHECKLIST_TARGET_EQUIPMENT) return "Equipment";
     if (value === CHECKLIST_TARGET_VEHICLE) return "Vehicle";
     if (value === CHECKLIST_TARGET_BASE_SITE) return "Base Site";
-    return "Aircraft";
+    if (value === CHECKLIST_TARGET_AIRCRAFT) return "Aircraft";
+    return "";
 }
 
 function getApplicableOptionDefinitions(checklistTypeValue: number) {
@@ -856,10 +863,7 @@ function mapChecklistRecord(record: Record<string, any>): Checklist {
         checklistType,
         checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
         targetType,
-        targetTypeValue: inferChecklistTargetTypeValue(
-            getValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], ""),
-            targetType
-        ),
+        targetTypeValue: getChecklistTargetTypeValue(record),
         sections: parseSections(definitionJson),
     };
 }
@@ -870,7 +874,7 @@ async function loadChecklistFromDataverse(checklistId: string): Promise<Checklis
         const record = await Xrm.WebApi.retrieveRecord(
             TABLE_NAME,
             checklistId,
-            "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype,int_targettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion"
+            "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion"
         );
         return mapChecklistRecord(record);
     } catch {
@@ -896,10 +900,7 @@ function mapChecklistFromVersionRecord(record: Record<string, any>): Checklist {
         checklistType,
         checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
         targetType,
-        targetTypeValue: inferChecklistTargetTypeValue(
-            getValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], ""),
-            targetType
-        ),
+        targetTypeValue: getChecklistTargetTypeValue(record),
         sections: parseSections(String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""))),
     };
 }
@@ -946,7 +947,7 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
 
 async function loadChecklistVersionFromDataverse(versionId: string): Promise<ChecklistVersion | null> {
     if (!versionId) return null;
-    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype,int_targettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion";
+    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion";
     const metadataNavigationName = await loadChecklistNavigationProperty();
     const relationshipNames = [
         metadataNavigationName,
@@ -1326,42 +1327,48 @@ function ChecklistDetails({
                 {activeTab === "general" ? (
                     <div className={styles.tabPanel}>
                         <div className={styles.formStack}>
-                            <Field label="Version type">
-                                <Dropdown
-                                    selectedOptions={[String(versionType)]}
-                                    value={VERSION_TYPES.find((item) => item.key === versionType)?.text || ""}
-                                    onOptionSelect={(_, data) => setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR)}
-                                >
-                                    {VERSION_TYPES.map((item) => (
-                                        <Option key={item.key} value={String(item.key)}>
-                                            {item.text}
-                                        </Option>
-                                    ))}
-                                </Dropdown>
-                            </Field>
-                            <Field label="Applies To">
-                                <Dropdown
-                                    placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type"}
-                                    selectedOptions={appliesTo?.id ? [appliesTo.id] : []}
-                                    value={appliesTo ? getAppliesToOptionText(appliesTo) : ""}
-                                    disabled={!appliesToTarget}
-                                    onOptionSelect={(_, data) => {
-                                        const selected = appliesToOptions.find((item) => item.id === data.optionValue) || null;
-                                        setAppliesTo(selected);
-                                    }}
-                                >
-                                    {appliesToOptions.map((item) => (
-                                        <Option key={item.id} value={item.id}>
-                                            <span>
-                                                {item.category && (
-                                                    <span className={styles.optionGroupText}>{`${item.category} / `}</span>
-                                                )}
-                                                {item.name}
-                                            </span>
-                                        </Option>
-                                    ))}
-                                </Dropdown>
-                            </Field>
+                            <section className={styles.generalSection}>
+                                <Text className={styles.generalSectionTitle}>Version Details</Text>
+                                <Field label="Version type">
+                                    <Dropdown
+                                        selectedOptions={[String(versionType)]}
+                                        value={VERSION_TYPES.find((item) => item.key === versionType)?.text || ""}
+                                        onOptionSelect={(_, data) => setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR)}
+                                    >
+                                        {VERSION_TYPES.map((item) => (
+                                            <Option key={item.key} value={String(item.key)}>
+                                                {item.text}
+                                            </Option>
+                                        ))}
+                                    </Dropdown>
+                                </Field>
+                            </section>
+                            <section className={styles.generalSection}>
+                                <Text className={styles.generalSectionTitle}>Applied To</Text>
+                                <Field label={appliesToTarget?.label || "Applied To"}>
+                                    <Dropdown
+                                        placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type"}
+                                        selectedOptions={appliesTo?.id ? [appliesTo.id] : []}
+                                        value={appliesTo ? getAppliesToOptionText(appliesTo) : ""}
+                                        disabled={!appliesToTarget}
+                                        onOptionSelect={(_, data) => {
+                                            const selected = appliesToOptions.find((item) => item.id === data.optionValue) || null;
+                                            setAppliesTo(selected);
+                                        }}
+                                    >
+                                        {appliesToOptions.map((item) => (
+                                            <Option key={item.id} value={item.id}>
+                                                <span>
+                                                    {item.category && (
+                                                        <span className={styles.optionGroupText}>{`${item.category} / `}</span>
+                                                    )}
+                                                    {item.name}
+                                                </span>
+                                            </Option>
+                                        ))}
+                                    </Dropdown>
+                                </Field>
+                            </section>
                         </div>
                     </div>
                 ) : activeTab === "contents" ? (
