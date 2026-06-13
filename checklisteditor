@@ -19,6 +19,8 @@ import {
     tokens,
 } from "@fluentui/react-components";
 import {
+    AddRegular,
+    CheckmarkRegular,
     EditRegular,
     SaveRegular,
 } from "@fluentui/react-icons";
@@ -105,6 +107,16 @@ type StatusOption = {
 };
 
 type AppliesToOption = AppliesToSelection;
+
+type FlatChecklistSection = {
+    section: ChecklistSection;
+    depth: number;
+};
+
+type DraftSection = {
+    parentId: string | null;
+    name: string;
+};
 
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
@@ -438,6 +450,80 @@ const useStyles = makeStyles({
         ...shorthands.border("1px", "dashed", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
     },
+    contentsLayout: {
+        display: "grid",
+        gridTemplateColumns: "minmax(280px, 35%) minmax(0, 1fr)",
+        gap: "18px",
+        height: "100%",
+        minHeight: "420px",
+    },
+    contentsColumn: {
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+        overflow: "hidden",
+    },
+    contentsColumnHeader: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+        padding: "12px 14px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    contentsColumnBody: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        minHeight: 0,
+        overflow: "auto",
+        padding: "12px",
+    },
+    sectionRow: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "8px",
+        minHeight: "36px",
+        padding: "7px 10px",
+        borderRadius: tokens.borderRadiusMedium,
+        cursor: "pointer",
+        color: tokens.colorNeutralForeground2,
+        ":hover": {
+            backgroundColor: tokens.colorNeutralBackground2,
+        },
+    },
+    selectedSectionRow: {
+        backgroundColor: tokens.colorBrandBackground2,
+        color: tokens.colorNeutralForeground1,
+    },
+    sectionRowText: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+    },
+    draftSectionRow: {
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        gap: "8px",
+        alignItems: "center",
+        padding: "7px 10px",
+        backgroundColor: tokens.colorNeutralBackground2,
+        borderRadius: tokens.borderRadiusMedium,
+    },
+    itemWorkspace: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "14px",
+        padding: "14px",
+        minHeight: 0,
+    },
+    mutedText: {
+        color: tokens.colorNeutralForeground3,
+    },
     emptyVersionPlaceholder: {
         minHeight: "100%",
         display: "flex",
@@ -690,6 +776,50 @@ function normalizeItems(items: any[]): ChecklistItem[] {
         description: String(item.description || ""),
         quantity: Number(item.quantity || 1),
     }));
+}
+
+function createEmptySection(name: string, parentId: string | null): ChecklistSection {
+    return {
+        id: makeId(),
+        name: name.trim(),
+        bulkServiceable: false,
+        parentId,
+        sections: [],
+        items: [],
+    };
+}
+
+function flattenSections(sections: ChecklistSection[], depth = 0): FlatChecklistSection[] {
+    return sections.flatMap((section) => [
+        { section, depth },
+        ...flattenSections(section.sections, depth + 1),
+    ]);
+}
+
+function findSectionById(sections: ChecklistSection[], sectionId: string | null): ChecklistSection | null {
+    if (!sectionId) return null;
+    for (const section of sections) {
+        if (section.id === sectionId) return section;
+        const childMatch = findSectionById(section.sections, sectionId);
+        if (childMatch) return childMatch;
+    }
+    return null;
+}
+
+function appendSection(sections: ChecklistSection[], parentId: string | null, section: ChecklistSection): ChecklistSection[] {
+    if (!parentId) return [...sections, section];
+    return sections.map((candidate) => {
+        if (candidate.id === parentId) {
+            return {
+                ...candidate,
+                sections: [...candidate.sections, section],
+            };
+        }
+        return {
+            ...candidate,
+            sections: appendSection(candidate.sections, parentId, section),
+        };
+    });
 }
 
 function parseSections(value: unknown): ChecklistSection[] {
@@ -1255,6 +1385,11 @@ function ChecklistDetails({
     );
     const [appliesTo, setAppliesTo] = useState<AppliesToSelection | null>(version.definition.checklistVersionDetails.appliesTo);
     const [options, setOptions] = useState(version.definition.checklistVersionDetails.options);
+    const [sections, setSections] = useState(version.definition.checklistVersionContents.sections);
+    const [selectedSectionId, setSelectedSectionId] = useState(
+        flattenSections(version.definition.checklistVersionContents.sections)[0]?.section.id || ""
+    );
+    const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
 
     useEffect(() => {
         let isMounted = true;
@@ -1276,9 +1411,9 @@ function ChecklistDetails({
                 description,
                 appliesTo,
                 options,
-                sections: version.definition.checklistVersionContents.sections,
+                sections,
             }),
-        [appliesTo, checklist, description, options, proposedChecklistName, version.definition.checklistVersionContents.sections, versionNumber, versionType]
+        [appliesTo, checklist, description, options, proposedChecklistName, sections, versionNumber, versionType]
     );
     const originalDefinitionText = useMemo(() => stableStringify(version.definition), [version.definition]);
     const currentDefinitionText = useMemo(() => stableStringify(currentDefinition), [currentDefinition]);
@@ -1290,6 +1425,49 @@ function ChecklistDetails({
             current.map((option) => (option.key === key ? { ...option, value } : option))
         );
     };
+    const flattenedSections = useMemo(() => flattenSections(sections), [sections]);
+    const selectedSection = useMemo(
+        () => findSectionById(sections, selectedSectionId),
+        [sections, selectedSectionId]
+    );
+    const canAddChildSection = Boolean(selectedSection && selectedSection.items.length === 0);
+    const selectedSectionHasChildren = Boolean(selectedSection && selectedSection.sections.length > 0);
+    const startNewSection = (parentId: string | null) => {
+        setDraftSection({ parentId, name: "" });
+    };
+    const confirmDraftSection = () => {
+        if (!draftSection?.name.trim()) return;
+        const newSection = createEmptySection(draftSection.name, draftSection.parentId);
+        setSections((current) => appendSection(current, draftSection.parentId, newSection));
+        setSelectedSectionId(newSection.id);
+        setDraftSection(null);
+    };
+    const renderDraftSectionRow = (depth = 0) => (
+        <div
+            className={styles.draftSectionRow}
+            style={{ marginLeft: depth * 18 }}
+        >
+            <Input
+                autoFocus
+                placeholder="Section name"
+                value={draftSection?.name || ""}
+                onChange={(_, data) =>
+                    setDraftSection((current) => current ? { ...current, name: data.value } : current)
+                }
+                onKeyDown={(event) => {
+                    if (event.key === "Enter") confirmDraftSection();
+                    if (event.key === "Escape") setDraftSection(null);
+                }}
+            />
+            <Button
+                aria-label="Confirm section"
+                appearance="primary"
+                icon={<CheckmarkRegular />}
+                disabled={!draftSection?.name.trim()}
+                onClick={confirmDraftSection}
+            />
+        </div>
+    );
     const handleSave = async () => {
         setSaveError("");
         setIsSaving(true);
@@ -1302,7 +1480,7 @@ function ChecklistDetails({
             setIsSaving(false);
         }
     };
-    const sectionCount = version.definition.checklistVersionContents.sections.length;
+    const sectionCount = flattenedSections.length;
 
     return (
         <div className={styles.detailsPage}>
@@ -1445,8 +1623,90 @@ function ChecklistDetails({
                     </div>
                 ) : activeTab === "contents" ? (
                     <div className={styles.tabPanel}>
-                        <div className={styles.contentsPlaceholder}>
-                            <Text weight="semibold">{`${sectionCount} section${sectionCount === 1 ? "" : "s"}`}</Text>
+                        <div className={styles.contentsLayout}>
+                            <div className={styles.contentsColumn}>
+                                <div className={styles.contentsColumnHeader}>
+                                    <div>
+                                        <Text block weight="semibold">Sections</Text>
+                                        <Caption1 className={styles.mutedText}>
+                                            {`${sectionCount} section${sectionCount === 1 ? "" : "s"}`}
+                                        </Caption1>
+                                    </div>
+                                    <Button
+                                        appearance="primary"
+                                        icon={<AddRegular />}
+                                        disabled={Boolean(draftSection)}
+                                        onClick={() => startNewSection(null)}
+                                    >
+                                        New Section
+                                    </Button>
+                                </div>
+                                <div className={styles.contentsColumnBody}>
+                                    {flattenedSections.map(({ section, depth }) => (
+                                        <React.Fragment key={section.id}>
+                                            <div
+                                                className={`${styles.sectionRow} ${selectedSectionId === section.id ? styles.selectedSectionRow : ""}`}
+                                                style={{ marginLeft: depth * 18 }}
+                                                onClick={() => setSelectedSectionId(section.id)}
+                                            >
+                                                <Text className={styles.sectionRowText} weight={selectedSectionId === section.id ? "semibold" : "regular"}>
+                                                    {section.name || "Untitled section"}
+                                                </Text>
+                                                <Caption1 className={styles.mutedText}>
+                                                    {section.sections.length ? `${section.sections.length} child` : `${section.items.length} item`}
+                                                </Caption1>
+                                            </div>
+                                            {draftSection?.parentId === section.id && renderDraftSectionRow(depth + 1)}
+                                        </React.Fragment>
+                                    ))}
+                                    {draftSection?.parentId === null && renderDraftSectionRow(0)}
+                                    {!flattenedSections.length && !draftSection && (
+                                        <div className={styles.contentsPlaceholder}>
+                                            <Text weight="semibold">Create your first section</Text>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className={styles.contentsColumn}>
+                                <div className={styles.contentsColumnHeader}>
+                                    <div>
+                                        <Text block weight="semibold">
+                                            {selectedSection?.name || "Select a section"}
+                                        </Text>
+                                        {selectedSection && (
+                                            <Caption1 className={styles.mutedText}>
+                                                {selectedSectionHasChildren
+                                                    ? "Contains child sections"
+                                                    : `${selectedSection.items.length} item${selectedSection.items.length === 1 ? "" : "s"}`}
+                                            </Caption1>
+                                        )}
+                                    </div>
+                                    {selectedSection && canAddChildSection && (
+                                        <Button
+                                            icon={<AddRegular />}
+                                            disabled={Boolean(draftSection)}
+                                            onClick={() => startNewSection(selectedSection.id)}
+                                        >
+                                            New Child Section
+                                        </Button>
+                                    )}
+                                </div>
+                                <div className={styles.itemWorkspace}>
+                                    {!selectedSection ? (
+                                        <div className={styles.contentsPlaceholder}>
+                                            <Text weight="semibold">Select or create a section</Text>
+                                        </div>
+                                    ) : selectedSectionHasChildren ? (
+                                        <div className={styles.contentsPlaceholder}>
+                                            <Text weight="semibold">Items cannot be added to a parent section.</Text>
+                                        </div>
+                                    ) : (
+                                        <div className={styles.contentsPlaceholder}>
+                                            <Text weight="semibold">Checklist items for this section will be added here.</Text>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 ) : (
