@@ -1486,7 +1486,8 @@ function ChecklistDetails({
         () => findSectionById(sections, selectedSectionId),
         [sections, selectedSectionId]
     );
-    const canAddChildSection = Boolean(selectedSection && selectedSection.items.length === 0);
+    const selectedSectionDepth = flattenedSections.find(({ section }) => section.id === selectedSectionId)?.depth ?? 0;
+    const canAddChildSection = Boolean(selectedSection && selectedSectionDepth === 0 && selectedSection.items.length === 0);
     const selectedSectionHasChildren = Boolean(selectedSection && selectedSection.sections.length > 0);
     const startNewSection = (parentId: string | null) => {
         setDraftSection({ parentId, name: "" });
