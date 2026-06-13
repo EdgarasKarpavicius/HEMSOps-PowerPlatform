@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Button,
     Caption1,
@@ -1806,6 +1806,7 @@ function ChecklistDetails({
     const [isEditingSectionName, setIsEditingSectionName] = useState(false);
     const [sectionNameDraft, setSectionNameDraft] = useState("");
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
+    const draggedSectionIdRef = useRef("");
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
@@ -1943,15 +1944,17 @@ function ChecklistDetails({
         if (event.key === "Escape") setDraftItem(null);
     };
     const handleSectionDrop = (targetSection: ChecklistSection) => {
-        if (draggedItem?.type !== "section") return;
-        const draggedPath = findSectionPathById(sections, draggedItem.id);
+        const draggedSectionId = draggedItem?.type === "section" ? draggedItem.id : draggedSectionIdRef.current;
+        if (!draggedSectionId) return;
+        const draggedPath = findSectionPathById(sections, draggedSectionId);
         const targetPath = findSectionPathById(sections, targetSection.id);
         const parentId = getSectionParentIdFromPath(targetPath);
         if (!draggedPath.length || getSectionParentIdFromPath(draggedPath) !== parentId) return;
         setSections((current) =>
-            reorderSiblingSections(current, parentId, draggedItem.id, targetSection.id)
+            reorderSiblingSections(current, parentId, draggedSectionId, targetSection.id)
         );
         setDraggedItem(null);
+        draggedSectionIdRef.current = "";
         setDragOverTarget(null);
     };
     const handleItemDrop = (targetItem: ChecklistItem) => {
@@ -1963,8 +1966,9 @@ function ChecklistDetails({
         setDragOverTarget(null);
     };
     const canDropSectionOnTarget = (targetSection: ChecklistSection) => {
-        if (draggedItem?.type !== "section" || draggedItem.id === targetSection.id) return false;
-        const draggedPath = findSectionPathById(sections, draggedItem.id);
+        const draggedSectionId = draggedItem?.type === "section" ? draggedItem.id : draggedSectionIdRef.current;
+        if (!draggedSectionId || draggedSectionId === targetSection.id) return false;
+        const draggedPath = findSectionPathById(sections, draggedSectionId);
         const targetPath = findSectionPathById(sections, targetSection.id);
         return Boolean(
             draggedPath.length &&
@@ -2135,6 +2139,7 @@ function ChecklistDetails({
                         event.stopPropagation();
                         event.dataTransfer.effectAllowed = "move";
                         event.dataTransfer.setData("text/plain", section.id);
+                        draggedSectionIdRef.current = section.id;
                         setDraggedItem({ type: "section", id: section.id });
                     }}
                     onDragOver={(event) => {
@@ -2157,6 +2162,7 @@ function ChecklistDetails({
                     }}
                     onDragEnd={(event) => {
                         event.stopPropagation();
+                        draggedSectionIdRef.current = "";
                         setDraggedItem(null);
                         setDragOverTarget(null);
                     }}
