@@ -175,6 +175,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "defaultQtyExpiredToZero",
         label: "Default expired quantity to zero",
+        description: "Starts expired stock item quantities at zero during stock checks.",
         type: "boolean",
         defaultValue: false,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STOCK],
@@ -182,6 +183,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "earliestExpiryDateRequired",
         label: "Earliest expiry date required",
+        description: "Requires users to capture the earliest expiry date for applicable stock items.",
         type: "boolean",
         defaultValue: false,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STOCK],
@@ -189,6 +191,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "enableNaItemStatusOption",
         label: "Enable N/A item status",
+        description: "Allows checklist items to be marked as not applicable when they do not need assessment.",
         type: "boolean",
         defaultValue: false,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD],
@@ -196,6 +199,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "enableSaveForLaterCompletion",
         label: "Enable save for later completion",
+        description: "Allows users to save an in-progress checklist and return to complete it later.",
         type: "boolean",
         defaultValue: true,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD, CHECKLIST_TYPE_STOCK],
@@ -203,6 +207,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "minimumParticipantCount",
         label: "Minimum participant count",
+        description: "Sets the minimum number of participants required before the checklist can be submitted.",
         type: "number",
         defaultValue: 1,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD, CHECKLIST_TYPE_STOCK],
@@ -210,6 +215,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "signatureForSubmissionRequired",
         label: "Signature required for submission",
+        description: "Requires a signature before users can submit the completed checklist.",
         type: "boolean",
         defaultValue: false,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD, CHECKLIST_TYPE_STOCK],
@@ -217,6 +223,7 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     {
         key: "updatedLocationRequired",
         label: "Updated location required",
+        description: "Requires users to confirm or update the location while completing the checklist.",
         type: "boolean",
         defaultValue: false,
         appliesToChecklistTypes: [CHECKLIST_TYPE_STANDARD],
@@ -388,6 +395,12 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         gap: "2px",
+    },
+    optionDescription: {
+        color: tokens.colorNeutralForeground3,
+        fontSize: "12px",
+        lineHeight: "16px",
+        maxWidth: "560px",
     },
     optionGroupText: {
         color: tokens.colorNeutralForeground3,
@@ -1423,6 +1436,7 @@ function ChecklistDetails({
                                     <div className={styles.optionRow} key={option.key}>
                                         <div className={styles.optionLabel}>
                                             <Text weight="semibold">{definition.label}</Text>
+                                            <Text className={styles.optionDescription}>{definition.description}</Text>
                                         </div>
                                         {definition.type === "number" ? (
                                             <Input
