@@ -2,16 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
     Button,
     Caption1,
-    Card,
-    CardHeader,
     Checkbox,
-    DataGrid,
-    DataGridBody,
-    DataGridCell,
-    DataGridHeader,
-    DataGridHeaderCell,
-    DataGridRow,
-    Divider,
     Dropdown,
     Field,
     Input,
@@ -21,21 +12,13 @@ import {
     Spinner,
     Tab,
     TabList,
-    TableCellLayout,
     Text,
-    Toolbar,
-    ToolbarButton,
-    createTableColumn,
     makeStyles,
     shorthands,
     tokens,
 } from "@fluentui/react-components";
 import {
-    AddRegular,
-    ArrowLeftRegular,
-    DeleteRegular,
     EditRegular,
-    EyeRegular,
     SaveRegular,
 } from "@fluentui/react-icons";
 
@@ -44,16 +27,11 @@ declare const Xrm: any;
 type Checklist = {
     id?: string;
     name: string;
-    currentVersion: string;
     checklistType: string;
     checklistTypeValue: number;
     targetType: string;
     targetTypeValue: number;
-    statuscode: number;
     sections: ChecklistSection[];
-    definitionJson?: string;
-    definitionHash?: string;
-    raw?: Record<string, any>;
 };
 
 type ChecklistVersion = {
@@ -63,7 +41,6 @@ type ChecklistVersion = {
     statusLabel?: string;
     definition: ChecklistVersionDefinition;
     checklist: Checklist;
-    raw?: Record<string, any>;
 };
 
 type ChecklistVersionOption = {
@@ -125,7 +102,6 @@ type AppliesToOption = AppliesToSelection;
 
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
-const REQUIRE_REVIEW_SETTING_NAME = "int_RequireChecklistVersionReview";
 const TEMP_DEV_CHECKLIST_VERSION_ID = "24e8d1ae-fa66-f111-ab0c-000d3a7ecf04";
 const STATUS_DRAFT = 1;
 const STATUS_PUBLISHED = 2;
@@ -138,89 +114,13 @@ const langMap: Record<number, { code: string; name: string; isRtl: boolean }> = 
 
 const translations: Record<string, Record<string, string>> = {
     "en-US": {
-        checklistBuilder: "Checklist Builder",
-        filterByType: "Filter by checklist type",
-        filterByTarget: "Filter by target type",
-        clearFilters: "Clear filters",
-        checklistName: "Checklist name",
-        currentVersion: "Version",
-        checklistType: "Checklist type",
-        checklistTargetType: "Target type",
-        status: "Status",
-        actions: "Actions",
-        addChecklist: "Add checklist",
-        view: "View",
-        edit: "Edit",
-        editNextVersion: "Edit next version",
-        editChecklistVersion: "Edit checklist",
-        confirmEditTitle: "Create draft version?",
-        confirmEditBody:
-            "Editing this checklist creates a new version in Draft mode. It will remain Draft until it is submitted for review or published.",
-        requireReviewSetting: "Review required for new versions",
-        createNewVersion: "Create new version",
-        noVersionsTitle: "No checklist versions",
-        noVersionsBody: "Create a new version to start managing this checklist lifecycle.",
-        versions: "Versions",
         version: "Version",
-        versionStatus: "Version status",
-        submitForReview: "Submit for review",
-        publishChecklist: "Publish checklist",
-        saveDraft: "Save draft",
-        inReview: "In review",
-        back: "Back",
-        save: "Save",
-        sectionName: "Section name",
-        sectionBulkServiceable: "Bulk mark fully serviceable",
-        addSection: "Add section",
-        addChildSection: "Add child section",
-        newTopLevelSection: "New top level section",
-        newChildSection: "New child section",
-        addItem: "Add item",
-        itemName: "Item name",
-        itemDescription: "Description",
-        itemQuantity: "Qty",
-        remove: "Remove",
-        noItemsAllowed: "Parent sections cannot contain items",
-        saveChecklist: "Save checklist",
-        cancel: "Cancel",
-        versionNote: "Saving an existing checklist creates the next version.",
-        checklistEditor: "Checklist Editor",
-        sections: "Sections",
-        items: "Items",
-        draft: "Draft",
-        published: "Published",
-        inactive: "Inactive",
-        noChecklists: "No checklists found.",
-        noSections: "No sections yet.",
-        noItems: "No items yet.",
         loadingChecklist: "Loading checklist",
-        editChecklist: "Edit checklist",
-        viewChecklist: "View checklist",
-        createChecklist: "Create checklist",
-        loading: "Loading checklists",
         loadFallback: "Dataverse was not available, so the page is using local checklist data for this session.",
-        saveFallback: "This save stayed local because Dataverse save was not available.",
         noFocusedChecklist: "No checklist matched this context.",
         focusedContext: "Focused context",
-        details: "Details",
-        definition: "Items",
-        allTypes: "All checklist types",
-        allTargets: "All targets",
-        selectSection: "Select a section to view or edit its items.",
-        previewBeforeEdit: "Preview the existing checklist before creating a new version.",
     },
 };
-
-const CHECKLIST_TYPES = [
-    { key: "Standard", text: "Standard" },
-    { key: "Stock", text: "Stock" },
-];
-
-const TARGET_TYPES = [
-    { key: "Aircraft", text: "Aircraft" },
-    { key: "Vehicle", text: "Vehicle" },
-    { key: "Facility", text: "Facility" },
-];
 
 const STATUS_LABELS: Record<number, string> = {
     [STATUS_DRAFT]: "Draft",
@@ -319,8 +219,6 @@ const CHECKLIST_OPTION_DEFINITIONS = [
     },
 ] as const;
 
-const EMPTY_CHECKLISTS: Checklist[] = [];
-
 const useStyles = makeStyles({
     page: {
         width: "100%",
@@ -381,40 +279,12 @@ const useStyles = makeStyles({
         fontSize: "12px",
         lineHeight: "18px",
     },
-    filters: {
-        display: "flex",
-        alignItems: "center",
-        gap: "12px",
-        flexWrap: "wrap",
-        backgroundColor: tokens.colorNeutralBackground1,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        padding: "8px 10px",
-    },
-    gridSurface: {
-        backgroundColor: tokens.colorNeutralBackground1,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        flexGrow: 1,
-        minHeight: 0,
-        overflow: "auto",
-        boxShadow: tokens.shadow2,
-    },
     empty: {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         minHeight: "220px",
         color: tokens.colorNeutralForeground3,
-    },
-    editor: {
-        display: "grid",
-        gridTemplateRows: "auto auto minmax(0, 1fr) auto",
-        flexGrow: 1,
-        height: "100%",
-        minHeight: 0,
-        rowGap: "16px",
-        overflow: "hidden",
     },
     editorHeader: {
         display: "flex",
@@ -439,22 +309,6 @@ const useStyles = makeStyles({
         rowGap: "16px",
         overflow: "hidden",
     },
-    detailsGrid: {
-        display: "grid",
-        gridTemplateColumns: "minmax(240px, 1.6fr) repeat(3, minmax(160px, 1fr))",
-        gap: "16px",
-        "@media (max-width: 900px)": {
-            gridTemplateColumns: "1fr 1fr",
-        },
-        "@media (max-width: 620px)": {
-            gridTemplateColumns: "1fr",
-        },
-    },
-    detailValue: {
-        fontSize: "14px",
-        lineHeight: "20px",
-        color: tokens.colorNeutralForeground1,
-    },
     statusPill: {
         display: "inline-flex",
         alignItems: "center",
@@ -478,17 +332,6 @@ const useStyles = makeStyles({
         fontSize: "14px",
         lineHeight: "22px",
     },
-    detailsStack: {
-        display: "flex",
-        flexDirection: "column",
-        gap: "16px",
-        padding: "0 12px 12px",
-    },
-    versionsList: {
-        display: "flex",
-        flexDirection: "column",
-        gap: "8px",
-    },
     versionsSurface: {
         backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
@@ -498,20 +341,6 @@ const useStyles = makeStyles({
         minHeight: 0,
         overflow: "hidden",
         boxShadow: tokens.shadow2,
-    },
-    versionsHeader: {
-        padding: "14px 16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "12px",
-        backgroundColor: tokens.colorNeutralBackground2,
-        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
-    },
-    versionsGrid: {
-        flexGrow: 1,
-        minHeight: 0,
-        overflow: "auto",
     },
     workbenchSurface: {
         backgroundColor: tokens.colorNeutralBackground1,
@@ -532,15 +361,6 @@ const useStyles = makeStyles({
         minHeight: 0,
         overflow: "auto",
         padding: "18px",
-    },
-    generalGrid: {
-        display: "grid",
-        gridTemplateColumns: "minmax(260px, 1fr) minmax(260px, 1fr)",
-        gap: "18px",
-        alignItems: "start",
-        "@media (max-width: 900px)": {
-            gridTemplateColumns: "1fr",
-        },
     },
     formStack: {
         display: "flex",
@@ -579,19 +399,6 @@ const useStyles = makeStyles({
         ...shorthands.border("1px", "dashed", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
     },
-    versionRow: {
-        display: "grid",
-        gridTemplateColumns: "96px minmax(140px, 1fr) minmax(140px, 1fr) auto",
-        alignItems: "center",
-        gap: "12px",
-        padding: "10px",
-        backgroundColor: tokens.colorNeutralBackground2,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        "@media (max-width: 760px)": {
-            gridTemplateColumns: "1fr 1fr",
-        },
-    },
     emptyVersionPlaceholder: {
         minHeight: "100%",
         display: "flex",
@@ -600,137 +407,6 @@ const useStyles = makeStyles({
         textAlign: "center",
         color: tokens.colorNeutralForeground3,
         padding: "32px",
-    },
-    editorCanvas: {
-        display: "grid",
-        gridTemplateColumns: "minmax(280px, 0.42fr) 8px minmax(420px, 1fr)",
-        minHeight: 0,
-        overflow: "hidden",
-        "@media (max-width: 900px)": {
-            gridTemplateColumns: "1fr",
-            rowGap: "8px",
-        },
-    },
-    sectionPane: {
-        backgroundColor: tokens.colorNeutralBackground1,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-        overflow: "hidden",
-    },
-    panelGap: {
-        backgroundColor: tokens.colorNeutralStroke3,
-        borderRadius: tokens.borderRadiusSmall,
-        margin: "0 3px",
-        "@media (max-width: 900px)": {
-            height: "8px",
-            margin: "0",
-        },
-    },
-    paneHeader: {
-        padding: "12px 14px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "8px",
-        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
-    },
-    sectionList: {
-        padding: "12px",
-        overflow: "auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: "10px",
-    },
-    footer: {
-        backgroundColor: tokens.colorNeutralBackground1,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "12px",
-        padding: "12px 16px",
-        flexShrink: 0,
-    },
-    sectionCard: {
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        backgroundColor: tokens.colorNeutralBackground1,
-        boxShadow: tokens.shadow2,
-    },
-    selectedSectionCard: {
-        ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
-        boxShadow: tokens.shadow4,
-    },
-    previewSectionButton: {
-        width: "100%",
-        justifyContent: "flex-start",
-    },
-    sectionBody: {
-        display: "grid",
-        gridTemplateColumns: "minmax(180px, 1fr) auto auto",
-        gap: "8px",
-        alignItems: "end",
-        padding: "12px",
-        "@media (max-width: 760px)": {
-            gridTemplateColumns: "1fr",
-        },
-    },
-    itemPane: {
-        backgroundColor: tokens.colorNeutralBackground1,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-        overflow: "hidden",
-    },
-    itemList: {
-        padding: "12px",
-        overflow: "auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: "8px",
-    },
-    itemRow: {
-        display: "grid",
-        gridTemplateColumns: "minmax(160px, 1.2fr) minmax(180px, 1.6fr) 72px auto",
-        alignItems: "end",
-        gap: "8px",
-        padding: "10px",
-        backgroundColor: tokens.colorNeutralBackground2,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        "@media (max-width: 920px)": {
-            gridTemplateColumns: "1fr 1fr",
-        },
-    },
-    previewItemRow: {
-        display: "grid",
-        gridTemplateColumns: "minmax(160px, 1.2fr) minmax(180px, 1.6fr) 72px",
-        alignItems: "start",
-        gap: "8px",
-        padding: "10px",
-        backgroundColor: tokens.colorNeutralBackground2,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        "@media (max-width: 920px)": {
-            gridTemplateColumns: "1fr 1fr",
-        },
-    },
-    sectionChildren: {
-        padding: "0 12px 12px 22px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "10px",
-        ...shorthands.borderLeft("2px", "solid", tokens.colorBrandStroke2),
-        marginLeft: "12px",
-    },
-    childSectionAction: {
-        padding: "0 12px 12px 22px",
     },
 });
 
@@ -756,30 +432,6 @@ function getTranslationFn(language: string) {
 
 function hasDataverse() {
     return typeof Xrm !== "undefined" && !!Xrm.WebApi?.retrieveMultipleRecords;
-}
-
-function canSaveDataverse() {
-    return typeof Xrm !== "undefined" && !!Xrm.WebApi?.createRecord && !!Xrm.WebApi?.updateRecord;
-}
-
-function parseBooleanSetting(value: unknown, fallback: boolean) {
-    if (value === undefined || value === null || value === "") return fallback;
-    const normalized = String(value).trim().toLowerCase();
-    if (["true", "yes", "y", "1"].includes(normalized)) return true;
-    if (["false", "no", "n", "0"].includes(normalized)) return false;
-    return fallback;
-}
-
-async function loadRequireReviewForNewVersions(): Promise<boolean> {
-    if (typeof Xrm === "undefined") return true;
-
-    try {
-        const globalContext = Xrm.Utility?.getGlobalContext?.();
-        const appSettingValue = globalContext?.getCurrentAppSetting?.(REQUIRE_REVIEW_SETTING_NAME);
-        return parseBooleanSetting(appSettingValue, true);
-    } catch {
-        return true;
-    }
 }
 
 function getCollectionItems(collection: any): any[] {
@@ -1201,7 +853,6 @@ function mapChecklistRecord(record: Record<string, any>): Checklist {
     return {
         id: String(getValue(record, ["int_checklistid", "id", "checklistid"], "")),
         name: String(getValue(record, ["int_name", "name", "int_checklistname"], "Untitled checklist")),
-        currentVersion: String(getValue(record, ["int_currentversion", "int_version", "currentversion"], "1")),
         checklistType,
         checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
         targetType,
@@ -1209,17 +860,8 @@ function mapChecklistRecord(record: Record<string, any>): Checklist {
             getValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], ""),
             targetType
         ),
-        statuscode: Number(getValue(record, ["statuscode"], 1)),
         sections: parseSections(definitionJson),
-        definitionJson,
-        definitionHash: String(getValue(record, ["int_definitionhash", "definitionhash"], "")),
-        raw: record,
     };
-}
-
-async function loadChecklistsFromDataverse(): Promise<Checklist[]> {
-    const result = await Xrm.WebApi.retrieveMultipleRecords(TABLE_NAME, "?$top=5000");
-    return (result.entities || []).map(mapChecklistRecord);
 }
 
 async function loadChecklistFromDataverse(checklistId: string): Promise<Checklist | null> {
@@ -1251,7 +893,6 @@ function mapChecklistFromVersionRecord(record: Record<string, any>): Checklist {
         name: String(
             getDisplayValue(record, ["_int_checklist_value", "_int_checklistid_value", "int_checklistid"], "Untitled checklist")
         ),
-        currentVersion: String(getValue(record, ["int_versionnumber", "int_version", "versionnumber"], "")),
         checklistType,
         checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
         targetType,
@@ -1259,11 +900,7 @@ function mapChecklistFromVersionRecord(record: Record<string, any>): Checklist {
             getValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], ""),
             targetType
         ),
-        statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
         sections: parseSections(String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""))),
-        definitionJson: String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], "")),
-        definitionHash: String(getValue(record, ["int_definitionhash", "definitionhash"], "")),
-        raw: record,
     };
 }
 
@@ -1304,7 +941,6 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
         statusLabel: String(getDisplayValue(record, ["statuscode"], "")),
         definition: parseChecklistVersionDefinition(record, checklist),
         checklist,
-        raw: record,
     };
 }
 
@@ -1345,29 +981,6 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
     return mapChecklistVersionRecord(record, checklist);
 }
 
-function buildDataversePayload(checklist: Checklist) {
-    const definitionJson = checklist.definitionJson || JSON.stringify({ sections: checklist.sections });
-    return {
-        int_name: checklist.name,
-        int_currentversion: checklist.currentVersion,
-        int_checklisttype: checklist.checklistType,
-        int_targettype: checklist.targetType,
-        statuscode: checklist.statuscode,
-        int_definitionjson: definitionJson,
-        int_definitionhash: checklist.definitionHash || hashText(definitionJson),
-    };
-}
-
-async function saveChecklistToDataverse(checklist: Checklist, createNewRecord: boolean) {
-    const payload = buildDataversePayload(checklist);
-    if (checklist.id && !createNewRecord) {
-        await Xrm.WebApi.updateRecord(TABLE_NAME, checklist.id, payload);
-        return checklist;
-    }
-    const created = await Xrm.WebApi.createRecord(TABLE_NAME, payload);
-    return { ...checklist, id: created.id };
-}
-
 async function saveChecklistVersionDefinition(version: ChecklistVersion, definition: ChecklistVersionDefinition) {
     if (!version.id) return version;
     const definitionJson = JSON.stringify(definition);
@@ -1379,11 +992,6 @@ async function saveChecklistVersionDefinition(version: ChecklistVersion, definit
     return {
         ...version,
         definition,
-        raw: {
-            ...(version.raw || {}),
-            int_definitionjson: definitionJson,
-            int_definitionhash: definitionHash,
-        },
     };
 }
 
@@ -1394,17 +1002,6 @@ function hashText(text: string) {
         hash |= 0;
     }
     return Math.abs(hash).toString(16);
-}
-
-function getChecklistFamilyKey(checklist: Checklist) {
-    return [checklist.name.trim().toLowerCase(), checklist.checklistType, checklist.targetType || ""].join("|");
-}
-
-function getChecklistVersions(checklists: Checklist[], checklist: Checklist) {
-    const familyKey = getChecklistFamilyKey(checklist);
-    return checklists
-        .filter((candidate) => getChecklistFamilyKey(candidate) === familyKey)
-        .sort((a, b) => Number(b.currentVersion) - Number(a.currentVersion));
 }
 
 function normalizeLookupValue(value: unknown) {
@@ -1461,62 +1058,6 @@ function getGenerativePageInput(): GenerativePageInput {
             ...inputData,
         },
     };
-}
-
-function getLatestChecklists(checklists: Checklist[]) {
-    const latestByFamily = new Map<string, Checklist>();
-    checklists.forEach((checklist) => {
-        const familyKey = getChecklistFamilyKey(checklist);
-        const currentLatest = latestByFamily.get(familyKey);
-        if (!currentLatest || Number(checklist.currentVersion) > Number(currentLatest.currentVersion)) {
-            latestByFamily.set(familyKey, checklist);
-        }
-    });
-    return Array.from(latestByFamily.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function resolveFocusedChecklist(checklists: Checklist[], pageInput: GenerativePageInput) {
-    const data = pageInput.data || {};
-    const checklistId = normalizeLookupValue(data.checklistId || data.int_checklistid);
-    const checklistName = normalizeLookupValue(data.checklistName || data.name);
-    const recordId = normalizeLookupValue(pageInput.recordId || data.recordId);
-    const targetCandidates = [
-        data.targetType,
-        data.target,
-        data.entityName,
-        pageInput.entityName,
-    ].map(normalizeLookupValue).filter(Boolean);
-    const activeOnly = normalizeLookupValue(data.filter) === "active";
-
-    const matches = checklists.filter((checklist) => {
-        if (activeOnly && checklist.statuscode === STATUS_INACTIVE) return false;
-        if (checklistId || recordId) return [checklistId, recordId].includes(normalizeLookupValue(checklist.id));
-        if (checklistName && normalizeLookupValue(checklist.name) !== checklistName) return false;
-        if (targetCandidates.length === 0) return true;
-        const checklistTarget = normalizeLookupValue(checklist.targetType || checklist.raw?.int_targettype);
-        return targetCandidates.includes(checklistTarget);
-    });
-
-    return getLatestChecklists(matches)[0] || null;
-}
-
-function findSectionById(sections: ChecklistSection[], sectionId?: string): ChecklistSection | undefined {
-    if (!sectionId) return undefined;
-    for (const section of sections) {
-        if (section.id === sectionId) return section;
-        const child = findSectionById(section.sections, sectionId);
-        if (child) return child;
-    }
-    return undefined;
-}
-
-function findFirstLeafSection(sections: ChecklistSection[]): ChecklistSection | undefined {
-    for (const section of sections) {
-        const childLeaf = findFirstLeafSection(section.sections);
-        if (childLeaf) return childLeaf;
-        if (section.sections.length === 0) return section;
-    }
-    return undefined;
 }
 
 const GeneratedComponent = () => {
@@ -1867,487 +1408,6 @@ function ChecklistDetails({
                 )}
             </div>
         </div>
-    );
-}
-
-function ChecklistEditor({
-    checklist,
-    onBack,
-    onSave,
-    requireReviewForNewVersion,
-    statusOptions,
-    t,
-}: {
-    checklist: Checklist | null;
-    onBack: () => void;
-    onSave: (c: Checklist, isNew: boolean, publishAction: "draft" | "submit") => void;
-    requireReviewForNewVersion: boolean;
-    statusOptions: Record<number, StatusOption>;
-    t: (key: string) => string;
-}) {
-    const styles = useStyles();
-    const isNew = !checklist;
-    const [name, setName] = useState(checklist?.name || "");
-    const [checklistType, setChecklistType] = useState(checklist?.checklistType || "Standard");
-    const [targetType, setTargetType] = useState(checklist?.targetType || "");
-    const statuscode = STATUS_DRAFT;
-    const [sections, setSections] = useState<ChecklistSection[]>(checklist?.sections || []);
-    const [selectedSectionId, setSelectedSectionId] = useState<string | undefined>(
-        () => findFirstLeafSection(checklist?.sections || [])?.id
-    );
-    const [currentVersion] = useState(checklist?.currentVersion || "1");
-
-    useEffect(() => {
-        const selectedSection = findSectionById(sections, selectedSectionId);
-        const selectedLeaf = selectedSection && selectedSection.sections.length === 0 ? selectedSection : undefined;
-        if (selectedLeaf) return;
-        setSelectedSectionId(findFirstLeafSection(sections)?.id);
-    }, [sections, selectedSectionId]);
-
-    const selectedSection = useMemo(
-        () => findSectionById(sections, selectedSectionId),
-        [sections, selectedSectionId]
-    );
-    const selectedLeafSection = selectedSection && selectedSection.sections.length === 0
-        ? selectedSection
-        : findFirstLeafSection(selectedSection?.sections || sections);
-    const definitionJson = useMemo(
-        () => JSON.stringify({ name, checklistType, targetType, sections }, null, 2),
-        [checklistType, name, sections, targetType]
-    );
-    const definitionHash = useMemo(() => hashText(definitionJson), [definitionJson]);
-
-    const buildChecklistForSave = (): Checklist => ({
-        id: checklist?.id,
-        name,
-        checklistType,
-        targetType,
-        statuscode,
-        currentVersion: isNew ? "1" : (parseInt(currentVersion, 10) + 1).toString(),
-        sections,
-        definitionJson,
-        definitionHash,
-        raw: checklist?.raw,
-    });
-
-    const handleSave = (publishAction: "draft" | "submit") => {
-        onSave(
-            buildChecklistForSave(),
-            isNew,
-            publishAction
-        );
-    };
-
-    const addSection = (parentSectionId?: string) => {
-        const newSection: ChecklistSection = {
-            id: makeId(),
-            name: "",
-            bulkServiceable: false,
-            sections: [],
-            items: [],
-            parentId: parentSectionId || null,
-        };
-        setSections((prev) =>
-            parentSectionId ? addChildSectionRecursive(prev, parentSectionId, newSection) : [...prev, newSection]
-        );
-        setSelectedSectionId(newSection.id);
-    };
-
-    const addItem = (sectionId: string) => {
-        setSections((prev) =>
-            addItemToSectionRecursive(prev, sectionId, {
-                id: makeId(),
-                name: "",
-                description: "",
-                quantity: 1,
-            })
-        );
-        setSelectedSectionId(sectionId);
-    };
-
-    return (
-        <div className={styles.editor}>
-            <div className={styles.editorHeader}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <Button icon={<ArrowLeftRegular />} appearance="subtle" onClick={onBack}>
-                        {t("back")}
-                    </Button>
-                    <Text as="h1" size={600} weight="semibold">
-                        {isNew ? t("createChecklist") : t("editNextVersion")}
-                    </Text>
-                </div>
-            </div>
-            <Card>
-                <CardHeader header={<Text weight="semibold">{t("details")}</Text>} />
-                <div className={styles.detailsGrid}>
-                    <Field label={t("checklistName")} required>
-                        <Input value={name} onChange={(_, d) => setName(d.value)} />
-                    </Field>
-                    <Field label={t("checklistType")}>
-                        <Dropdown
-                            selectedOptions={[checklistType]}
-                            value={checklistType}
-                            onOptionSelect={(_, data) => {
-                                setChecklistType(data.optionValue || "Standard");
-                                if (data.optionValue !== "Standard") setTargetType("");
-                            }}
-                        >
-                            {CHECKLIST_TYPES.map((type) => (
-                                <Option key={type.key} value={type.key}>
-                                    {type.text}
-                                </Option>
-                            ))}
-                        </Dropdown>
-                    </Field>
-                    <Field label={t("checklistTargetType")} required={checklistType === "Standard"}>
-                        <Dropdown
-                            selectedOptions={targetType ? [targetType] : []}
-                            value={targetType}
-                            disabled={checklistType !== "Standard"}
-                            onOptionSelect={(_, data) => setTargetType(data.optionValue || "")}
-                        >
-                            {TARGET_TYPES.map((target) => (
-                                <Option key={target.key} value={target.key}>
-                                    {target.text}
-                                </Option>
-                            ))}
-                        </Dropdown>
-                    </Field>
-                    <Field label={t("status")}>
-                        <StatusPill statuscode={STATUS_DRAFT} statusOptions={statusOptions} className={styles.statusPill} />
-                    </Field>
-                </div>
-            </Card>
-            <div className={styles.editorCanvas}>
-                <div className={styles.sectionPane}>
-                    <div className={styles.paneHeader}>
-                        <Text weight="semibold">{t("sections")}</Text>
-                        <Button appearance="subtle" icon={<AddRegular />} onClick={() => addSection()}>
-                            {t("newTopLevelSection")}
-                        </Button>
-                    </div>
-                    <div className={styles.sectionList}>
-                        {sections.length === 0 ? (
-                            <div className={styles.empty}>
-                                <Text>{t("noSections")}</Text>
-                            </div>
-                        ) : (
-                            sections.map((section) => (
-                                <SectionEditor
-                                    key={section.id}
-                                    section={section}
-                                    selectedSectionId={selectedLeafSection?.id}
-                                    onSelectSection={(id) => {
-                                        const sectionToSelect = findSectionById(sections, id);
-                                        setSelectedSectionId(
-                                            sectionToSelect?.sections.length
-                                                ? findFirstLeafSection(sectionToSelect.sections)?.id
-                                                : id
-                                        );
-                                    }}
-                                    onUpdate={(id, updated) => setSections((prev) => updateSectionRecursive(prev, id, updated))}
-                                    onRemove={(id) => setSections((prev) => removeSectionRecursive(prev, id))}
-                                    onAddChild={addSection}
-                                    onAddItem={addItem}
-                                    onRemoveItem={(sectionId, itemId) =>
-                                        setSections((prev) => removeItemFromSectionRecursive(prev, sectionId, itemId))
-                                    }
-                                    onUpdateItem={(sectionId, itemId, updated) =>
-                                        setSections((prev) => updateItemInSectionRecursive(prev, sectionId, itemId, updated))
-                                    }
-                                    t={t}
-                                />
-                            ))
-                        )}
-                    </div>
-                </div>
-                <div className={styles.panelGap} aria-hidden="true" />
-                <div className={styles.itemPane}>
-                    <div className={styles.paneHeader}>
-                        <Text weight="semibold">{t("definition")}</Text>
-                        <Caption1>{selectedLeafSection?.name || t("selectSection")}</Caption1>
-                    </div>
-                    <div className={styles.itemList}>
-                        {!selectedLeafSection ? (
-                            <div className={styles.empty}>
-                                <Text>{sections.length === 0 ? t("noItems") : t("selectSection")}</Text>
-                            </div>
-                        ) : (
-                            <SectionItems
-                                section={selectedLeafSection}
-                                onAddItem={addItem}
-                                onRemoveItem={(sectionId, itemId) =>
-                                    setSections((prev) => removeItemFromSectionRecursive(prev, sectionId, itemId))
-                                }
-                                onUpdateItem={(sectionId, itemId, updated) =>
-                                    setSections((prev) => updateItemInSectionRecursive(prev, sectionId, itemId, updated))
-                                }
-                                t={t}
-                            />
-                        )}
-                    </div>
-                </div>
-            </div>
-            <div className={styles.footer}>
-                <Caption1>{t("versionNote")}</Caption1>
-                <div style={{ display: "flex", gap: 8 }}>
-                    <Button appearance="secondary" onClick={onBack}>
-                        {t("cancel")}
-                    </Button>
-                    <Button
-                        appearance="secondary"
-                        icon={<SaveRegular />}
-                        onClick={() => handleSave("draft")}
-                        disabled={!name || (checklistType === "Standard" && !targetType)}
-                    >
-                        {t("saveDraft")}
-                    </Button>
-                    <Button
-                        appearance="primary"
-                        icon={<SaveRegular />}
-                        onClick={() => handleSave("submit")}
-                        disabled={!name || (checklistType === "Standard" && !targetType)}
-                    >
-                        {requireReviewForNewVersion ? t("submitForReview") : t("publishChecklist")}
-                    </Button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function SectionEditor({
-    section,
-    selectedSectionId,
-    onSelectSection,
-    onUpdate,
-    onRemove,
-    onAddChild,
-    onAddItem,
-    onRemoveItem,
-    onUpdateItem,
-    t,
-}: {
-    section: ChecklistSection;
-    selectedSectionId?: string;
-    onSelectSection: (sectionId: string) => void;
-    onUpdate: (id: string, updated: Partial<ChecklistSection>) => void;
-    onRemove: (id: string) => void;
-    onAddChild: (parentId: string) => void;
-    onAddItem: (sectionId: string) => void;
-    onRemoveItem: (sectionId: string, itemId: string) => void;
-    onUpdateItem: (sectionId: string, itemId: string, updated: Partial<ChecklistItem>) => void;
-    t: (key: string) => string;
-}) {
-    const styles = useStyles();
-    const isParent = section.sections.length > 0;
-    const isSelected = selectedSectionId === section.id;
-
-    return (
-        <div className={`${styles.sectionCard} ${isSelected ? styles.selectedSectionCard : ""}`}>
-            <div className={styles.sectionBody}>
-                <Field label={t("sectionName")}>
-                    <Input
-                        value={section.name}
-                        onFocus={() => onSelectSection(section.id)}
-                        onChange={(_, d) => onUpdate(section.id, { name: d.value })}
-                    />
-                </Field>
-                <Toolbar>
-                    <ToolbarButton disabled={isParent} icon={<AddRegular />} onClick={() => onAddItem(section.id)}>
-                        {t("addItem")}
-                    </ToolbarButton>
-                    <ToolbarButton icon={<DeleteRegular />} onClick={() => onRemove(section.id)}>
-                        {t("remove")}
-                    </ToolbarButton>
-                </Toolbar>
-                <Checkbox
-                    checked={section.bulkServiceable}
-                    onChange={(_, d) => onUpdate(section.id, { bulkServiceable: !!d.checked })}
-                    label={t("sectionBulkServiceable")}
-                />
-            </div>
-            <div className={styles.childSectionAction}>
-                <Button appearance="subtle" icon={<AddRegular />} onClick={() => onAddChild(section.id)}>
-                    {t("newChildSection")}
-                </Button>
-            </div>
-            {section.sections.length > 0 && (
-                <div className={styles.sectionChildren}>
-                    {section.sections.map((child) => (
-                        <SectionEditor
-                            key={child.id}
-                            section={child}
-                            selectedSectionId={selectedSectionId}
-                            onSelectSection={onSelectSection}
-                            onUpdate={onUpdate}
-                            onRemove={onRemove}
-                            onAddChild={onAddChild}
-                            onAddItem={onAddItem}
-                            onRemoveItem={onRemoveItem}
-                            onUpdateItem={onUpdateItem}
-                            t={t}
-                        />
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function SectionItems({
-    section,
-    onAddItem,
-    onRemoveItem,
-    onUpdateItem,
-    t,
-}: {
-    section: ChecklistSection;
-    onAddItem: (sectionId: string) => void;
-    onRemoveItem: (sectionId: string, itemId: string) => void;
-    onUpdateItem: (sectionId: string, itemId: string, updated: Partial<ChecklistItem>) => void;
-    t: (key: string) => string;
-}) {
-    const styles = useStyles();
-    const isParent = section.sections.length > 0;
-
-    return (
-        <Card>
-            <CardHeader
-                header={<Text weight="semibold">{section.name || t("sectionName")}</Text>}
-                description={<Caption1>{isParent ? t("noItemsAllowed") : `${section.items.length} ${t("items")}`}</Caption1>}
-                action={
-                    <Button appearance="subtle" icon={<AddRegular />} disabled={isParent} onClick={() => onAddItem(section.id)}>
-                        {t("addItem")}
-                    </Button>
-                }
-            />
-            <Divider />
-            {isParent ? (
-                <div style={{ padding: 12 }}>
-                    <Text size={200}>{t("noItemsAllowed")}</Text>
-                </div>
-            ) : section.items.length === 0 ? (
-                <div style={{ padding: 12 }}>
-                    <Text size={200}>{t("noItems")}</Text>
-                </div>
-            ) : (
-                <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
-                    {section.items.map((item) => (
-                        <ItemEditor
-                            key={item.id}
-                            item={item}
-                            onUpdate={(updated) => onUpdateItem(section.id, item.id, updated)}
-                            onRemove={() => onRemoveItem(section.id, item.id)}
-                            t={t}
-                            className={styles.itemRow}
-                        />
-                    ))}
-                </div>
-            )}
-        </Card>
-    );
-}
-
-function ItemEditor({
-    item,
-    onUpdate,
-    onRemove,
-    t,
-    className,
-}: {
-    item: ChecklistItem;
-    onUpdate: (updated: Partial<ChecklistItem>) => void;
-    onRemove: () => void;
-    t: (key: string) => string;
-    className: string;
-}) {
-    return (
-        <div className={className}>
-            <Field label={t("itemName")}>
-                <Input value={item.name} onChange={(_, d) => onUpdate({ name: d.value })} />
-            </Field>
-            <Field label={t("itemDescription")}>
-                <Input value={item.description} onChange={(_, d) => onUpdate({ description: d.value })} />
-            </Field>
-            <Field label={t("itemQuantity")}>
-                <Input
-                    value={item.quantity.toString()}
-                    type="number"
-                    min={1}
-                    onChange={(_, d) => onUpdate({ quantity: Number(d.value) || 1 })}
-                />
-            </Field>
-            <Button appearance="subtle" icon={<DeleteRegular />} onClick={onRemove}>
-                {t("remove")}
-            </Button>
-        </div>
-    );
-}
-
-function addChildSectionRecursive(sections: ChecklistSection[], parentId: string, newSection: ChecklistSection): ChecklistSection[] {
-    return sections.map((section) =>
-        section.id === parentId
-            ? { ...section, sections: [...section.sections, newSection] }
-            : { ...section, sections: addChildSectionRecursive(section.sections, parentId, newSection) }
-    );
-}
-
-function removeSectionRecursive(sections: ChecklistSection[], sectionId: string): ChecklistSection[] {
-    return sections
-        .filter((section) => section.id !== sectionId)
-        .map((section) => ({
-            ...section,
-            sections: removeSectionRecursive(section.sections, sectionId),
-        }));
-}
-
-function updateSectionRecursive(
-    sections: ChecklistSection[],
-    sectionId: string,
-    updated: Partial<ChecklistSection>
-): ChecklistSection[] {
-    return sections.map((section) =>
-        section.id === sectionId
-            ? { ...section, ...updated }
-            : { ...section, sections: updateSectionRecursive(section.sections, sectionId, updated) }
-    );
-}
-
-function addItemToSectionRecursive(
-    sections: ChecklistSection[],
-    sectionId: string,
-    newItem: ChecklistItem
-): ChecklistSection[] {
-    return sections.map((section) =>
-        section.id === sectionId
-            ? { ...section, items: [...section.items, newItem] }
-            : { ...section, sections: addItemToSectionRecursive(section.sections, sectionId, newItem) }
-    );
-}
-
-function removeItemFromSectionRecursive(
-    sections: ChecklistSection[],
-    sectionId: string,
-    itemId: string
-): ChecklistSection[] {
-    return sections.map((section) =>
-        section.id === sectionId
-            ? { ...section, items: section.items.filter((item) => item.id !== itemId) }
-            : { ...section, sections: removeItemFromSectionRecursive(section.sections, sectionId, itemId) }
-    );
-}
-
-function updateItemInSectionRecursive(
-    sections: ChecklistSection[],
-    sectionId: string,
-    itemId: string,
-    updated: Partial<ChecklistItem>
-): ChecklistSection[] {
-    return sections.map((section) =>
-        section.id === sectionId
-            ? { ...section, items: section.items.map((item) => (item.id === itemId ? { ...item, ...updated } : item)) }
-            : { ...section, sections: updateItemInSectionRecursive(section.sections, sectionId, itemId, updated) }
     );
 }
 
