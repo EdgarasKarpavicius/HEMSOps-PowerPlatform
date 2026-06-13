@@ -617,6 +617,10 @@ function StatusPill({
     );
 }
 
+function getErrorMessage(error: any) {
+    return String(error?.message || error?.error?.message || error?.details || error || "Unknown error");
+}
+
 function getValue(record: Record<string, any>, names: string[], fallback = "") {
     for (const name of names) {
         if (record[name] !== undefined && record[name] !== null) return record[name];
@@ -892,8 +896,8 @@ async function loadChecklistFromDataverse(checklistId: string): Promise<Checklis
             "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype"
         );
         return mapChecklistRecord(record);
-    } catch {
-        return null;
+    } catch (error) {
+        throw new Error(`Parent checklist ${checklistId} retrieve failed: ${getErrorMessage(error)}`);
     }
 }
 
@@ -947,17 +951,19 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
 async function loadChecklistVersionFromDataverse(versionId: string): Promise<ChecklistVersion | null> {
     if (!versionId) return null;
     const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype";
-    const metadataNavigationName = await loadChecklistNavigationProperty();
-    if (metadataNavigationName) {
+    const relationshipName = (await loadChecklistNavigationProperty()) || "int_checklist";
+    let expandError = "";
+    if (relationshipName) {
         try {
             const record = await Xrm.WebApi.retrieveRecord(
                 VERSION_TABLE_NAME,
                 versionId,
-                `?$select=int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statuscode,int_definitionjson&$expand=${metadataNavigationName}($select=${checklistSelect})`
+                `?$select=int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statuscode,int_definitionjson&$expand=${relationshipName}($select=${checklistSelect})`
             );
-            const checklist = getExpandedChecklist(record, metadataNavigationName);
+            const checklist = getExpandedChecklist(record, relationshipName);
             if (checklist) return mapChecklistVersionRecord(record, checklist);
-        } catch {
+        } catch (error) {
+            expandError = getErrorMessage(error);
             // Fall back to retrieving the parent checklist through the exact lookup value.
         }
     }
@@ -971,8 +977,9 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
         "_int_checklist_value",
     ]);
     if (!checklistId) throw new Error("The checklist version record does not contain an int_checklist lookup value.");
-    const checklist = await loadChecklistFromDataverse(checklistId);
-    if (!checklist) throw new Error(`The parent checklist ${checklistId} could not be read.`);
+    const checklist = await loadChecklistFromDataverse(checklistId).catch((error) => {
+        throw new Error(`${getErrorMessage(error)}${expandError ? ` Expand attempt failed first: ${expandError}` : ""}`);
+    });
     return mapChecklistVersionRecord(record, checklist);
 }
 
