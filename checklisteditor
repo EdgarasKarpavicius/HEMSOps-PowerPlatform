@@ -146,6 +146,14 @@ type DragOverTarget =
     | { type: "topLevelSections" }
     | null;
 
+type SectionPointerDrag = {
+    id: string;
+    startX: number;
+    startY: number;
+    isDragging: boolean;
+    pointerId: number;
+} | null;
+
 type PendingSectionPromotion = {
     sectionId: string;
     sectionName: string;
@@ -664,6 +672,7 @@ const useStyles = makeStyles({
     },
     draggingRow: {
         opacity: 0.55,
+        pointerEvents: "none",
     },
     dropBeforeRow: {
         borderTopColor: tokens.colorBrandStroke1,
@@ -1807,6 +1816,8 @@ function ChecklistDetails({
     const [sectionNameDraft, setSectionNameDraft] = useState("");
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
     const draggedSectionIdRef = useRef("");
+    const sectionPointerDragRef = useRef<SectionPointerDrag>(null);
+    const ignoreNextSectionClickRef = useRef(false);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
@@ -1946,12 +1957,11 @@ function ChecklistDetails({
         }
         if (event.key === "Escape") setDraftItem(null);
     };
-    const handleSectionDrop = (targetSection: ChecklistSection) => {
-        const draggedSectionId = draggedSectionIdRef.current;
-        if (!draggedSectionId) return;
-        if (!areSiblingSections(sections, draggedSectionId, targetSection.id)) return;
+    const handleSectionDropById = (draggedSectionId: string, targetSectionId: string) => {
+        if (!draggedSectionId || !targetSectionId) return;
+        if (!areSiblingSections(sections, draggedSectionId, targetSectionId)) return;
         setSections((current) =>
-            reorderSiblingSections(current, draggedSectionId, targetSection.id)
+            reorderSiblingSections(current, draggedSectionId, targetSectionId)
         );
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
@@ -1965,17 +1975,85 @@ function ChecklistDetails({
         setDraggedItem(null);
         setDragOverTarget(null);
     };
-    const canDropSectionOnTarget = (targetSection: ChecklistSection) => {
-        const draggedSectionId = draggedSectionIdRef.current;
-        if (!draggedSectionId || draggedSectionId === targetSection.id) return false;
-        return areSiblingSections(sections, draggedSectionId, targetSection.id);
+    const getSectionDropTargetFromPoint = (clientX: number, clientY: number) => {
+        const element = document.elementFromPoint(clientX, clientY);
+        const promoteDropZone = element?.closest?.("[data-section-promote-dropzone='true']");
+        if (promoteDropZone) return { type: "topLevelSections" } as DragOverTarget;
+        const sectionElement = element?.closest?.("[data-section-id]");
+        const sectionId = sectionElement instanceof HTMLElement ? sectionElement.dataset.sectionId || "" : "";
+        return sectionId ? ({ type: "section", id: sectionId } as DragOverTarget) : null;
+    };
+    const handleSectionPointerDown = (event: React.PointerEvent<HTMLDivElement>, section: ChecklistSection) => {
+        if (event.button !== 0 || draftSection || draftItem) return;
+        const target = event.target as HTMLElement;
+        if (target.closest("button,input,textarea,select,[role='button']")) return;
+        sectionPointerDragRef.current = {
+            id: section.id,
+            startX: event.clientX,
+            startY: event.clientY,
+            isDragging: false,
+            pointerId: event.pointerId,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+    };
+    const handleSectionPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = sectionPointerDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+        if (!drag.isDragging && distance < 6) return;
+        if (!drag.isDragging) {
+            drag.isDragging = true;
+            ignoreNextSectionClickRef.current = true;
+            draggedSectionIdRef.current = drag.id;
+            setDraggedItem({ type: "section", id: drag.id });
+        }
+        const target = getSectionDropTargetFromPoint(event.clientX, event.clientY);
+        if (target?.type === "topLevelSections") {
+            const sectionPath = findSectionPathById(sections, drag.id);
+            setDragOverTarget(sectionPath.length > 1 ? target : null);
+            return;
+        }
+        if (target?.type === "section" && target.id !== drag.id && areSiblingSections(sections, drag.id, target.id)) {
+            setDragOverTarget(target);
+            return;
+        }
+        setDragOverTarget(null);
+    };
+    const handleSectionPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = sectionPointerDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        try {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch {
+            // Pointer capture can already be released by the browser.
+        }
+        const target = drag.isDragging ? getSectionDropTargetFromPoint(event.clientX, event.clientY) : null;
+        sectionPointerDragRef.current = null;
+        draggedSectionIdRef.current = "";
+        setDraggedItem(null);
+        setDragOverTarget(null);
+        if (!drag.isDragging) return;
+        if (target?.type === "topLevelSections") {
+            requestSectionPromotion(drag.id);
+            return;
+        }
+        if (target?.type === "section") handleSectionDropById(drag.id, target.id);
+    };
+    const handleSectionPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = sectionPointerDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        sectionPointerDragRef.current = null;
+        draggedSectionIdRef.current = "";
+        setDraggedItem(null);
+        setDragOverTarget(null);
     };
     const canDropItemOnTarget = (targetItem: ChecklistItem) =>
         Boolean(draggedItem?.type === "item" && draggedItem.sectionId === selectedSectionId && draggedItem.id !== targetItem.id);
-    const handlePromoteSectionDrop = () => {
-        if (!isDraggingChildSection || draggedItem?.type !== "section") return;
-        const section = draggedSectionPath[draggedSectionPath.length - 1];
-        const parent = draggedSectionPath[draggedSectionPath.length - 2];
+    const requestSectionPromotion = (sectionId: string) => {
+        const sectionPath = findSectionPathById(sections, sectionId);
+        if (sectionPath.length <= 1) return;
+        const section = sectionPath[sectionPath.length - 1];
+        const parent = sectionPath[sectionPath.length - 2];
         setPendingSectionPromotion({
             sectionId: section.id,
             sectionName: section.name || "Untitled section",
@@ -2118,6 +2196,7 @@ function ChecklistDetails({
         return (
             <React.Fragment key={section.id}>
                 <div
+                    data-section-id={section.id}
                     className={[
                         styles.sectionRow,
                         depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
@@ -2125,45 +2204,21 @@ function ChecklistDetails({
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropTarget ? styles.dropBeforeRow : "",
                     ].filter(Boolean).join(" ")}
-                    draggable
                     onClick={() => {
+                        if (ignoreNextSectionClickRef.current) {
+                            ignoreNextSectionClickRef.current = false;
+                            return;
+                        }
                         setSelectedSectionId(section.id);
                         setDraftItem(null);
                     }}
+                    onPointerDown={(event) => handleSectionPointerDown(event, section)}
+                    onPointerMove={handleSectionPointerMove}
+                    onPointerUp={handleSectionPointerUp}
+                    onPointerCancel={handleSectionPointerCancel}
                     onPointerEnter={() => setHoveredSectionId(section.id)}
                     onPointerLeave={() => {
                         setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
-                    }}
-                    onDragStart={(event) => {
-                        event.stopPropagation();
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("text/plain", section.id);
-                        draggedSectionIdRef.current = section.id;
-                        setDraggedItem({ type: "section", id: section.id });
-                    }}
-                    onDragOver={(event) => {
-                        event.stopPropagation();
-                        if (!canDropSectionOnTarget(section)) {
-                            if (dragOverTarget?.type === "section" && dragOverTarget.id === section.id) setDragOverTarget(null);
-                            return;
-                        }
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = "move";
-                        setDragOverTarget({ type: "section", id: section.id });
-                    }}
-                    onDrop={(event) => {
-                        event.stopPropagation();
-                        event.preventDefault();
-                        handleSectionDrop(section);
-                    }}
-                    onDragLeave={() => {
-                        if (dragOverTarget?.type === "section" && dragOverTarget.id === section.id) setDragOverTarget(null);
-                    }}
-                    onDragEnd={(event) => {
-                        event.stopPropagation();
-                        draggedSectionIdRef.current = "";
-                        setDraggedItem(null);
-                        setDragOverTarget(null);
                     }}
                 >
                     <div className={styles.sectionMain}>
@@ -2175,6 +2230,8 @@ function ChecklistDetails({
                                 icon={isCollapsed ? <ChevronRightRegular /> : <ChevronDownRegular />}
                                 onClick={(event) => {
                                     event.stopPropagation();
+                                    setSelectedSectionId(section.id);
+                                    setDraftItem(null);
                                     toggleCollapsedSection(section.id);
                                 }}
                             />
@@ -2397,21 +2454,11 @@ function ChecklistDetails({
                                 <div className={styles.contentsColumnBody}>
                                     {isDraggingChildSection && (
                                         <div
+                                            data-section-promote-dropzone="true"
                                             className={[
                                                 styles.promoteDropZone,
                                                 dragOverTarget?.type === "topLevelSections" ? styles.activePromoteDropZone : "",
                                             ].filter(Boolean).join(" ")}
-                                            onDragOver={(event) => {
-                                                event.preventDefault();
-                                                setDragOverTarget({ type: "topLevelSections" });
-                                            }}
-                                            onDragLeave={() => {
-                                                if (dragOverTarget?.type === "topLevelSections") setDragOverTarget(null);
-                                            }}
-                                            onDrop={(event) => {
-                                                event.preventDefault();
-                                                handlePromoteSectionDrop();
-                                            }}
                                         >
                                             <Text weight="semibold">Drop here to make this a top-level section</Text>
                                         </div>
