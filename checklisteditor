@@ -142,7 +142,9 @@ type DraggedItem =
 
 type DragOverTarget =
     | { type: "section"; id: string; placement?: "before" | "child" }
+    | { type: "invalidSectionChild"; id: string; reason: string }
     | { type: "item"; id: string }
+    | { type: "topLevelEnd" }
     | null;
 
 type SectionPointerDrag = {
@@ -157,6 +159,11 @@ type PendingDelete =
     | { type: "section"; id: string; name: string }
     | { type: "item"; sectionId: string; id: string; name: string }
     | null;
+
+type PendingValidationMessage = {
+    title: string;
+    message: string;
+} | null;
 
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
@@ -662,6 +669,22 @@ const useStyles = makeStyles({
         backgroundColor: tokens.colorBrandBackground2,
         borderColor: tokens.colorBrandStroke1,
         boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
+    },
+    invalidDropSectionRow: {
+        backgroundColor: tokens.colorPaletteRedBackground1,
+        borderColor: tokens.colorPaletteRedBorder2,
+        boxShadow: `inset 3px 0 0 ${tokens.colorPaletteRedBorder2}`,
+    },
+    topLevelEndDropTarget: {
+        minHeight: "18px",
+        marginTop: "2px",
+        borderTopWidth: "4px",
+        borderTopStyle: "solid",
+        borderTopColor: "transparent",
+    },
+    activeTopLevelEndDropTarget: {
+        borderTopColor: tokens.colorBrandStroke1,
+        boxShadow: `0 -2px 0 ${tokens.colorBrandStroke1}`,
     },
     sectionRowText: {
         overflow: "hidden",
@@ -1225,6 +1248,12 @@ function moveSectionToParentEnd(sections: ChecklistSection[], draggedId: string,
     return appendSectionToParentEnd(sectionsWithoutDragged, removed, parentId);
 }
 
+function moveSectionToTopLevelEnd(sections: ChecklistSection[], draggedId: string): ChecklistSection[] {
+    const { sections: sectionsWithoutDragged, removed } = removeSectionById(sections, draggedId);
+    if (!removed) return sections;
+    return [...sectionsWithoutDragged, { ...removed, parentId: null }];
+}
+
 function canMoveSectionBeforeTarget(sections: ChecklistSection[], draggedId: string, targetId: string): boolean {
     if (!draggedId || !targetId || draggedId === targetId) return false;
     const draggedPath = findSectionPathById(sections, draggedId);
@@ -1244,6 +1273,30 @@ function canMoveSectionToParentEnd(sections: ChecklistSection[], draggedId: stri
     const draggedSection = draggedPath[draggedPath.length - 1];
     const parentSection = parentPath[parentPath.length - 1];
     return draggedPath.length === 1 && draggedSection.sections.length === 0 && parentSection.items.length === 0;
+}
+
+function getSectionParentDropValidationMessage(sections: ChecklistSection[], draggedId: string, parentId: string): string {
+    const draggedPath = findSectionPathById(sections, draggedId);
+    const parentPath = findSectionPathById(sections, parentId);
+    if (!draggedPath.length || parentPath.length !== 1) return "This section cannot be nested in the selected location.";
+    const draggedSection = draggedPath[draggedPath.length - 1];
+    const parentSection = parentPath[parentPath.length - 1];
+    if (parentSection.items.length > 0) {
+        return "A section cannot be added beneath a top-level section that already contains checklist items. Remove the items or move them to a child section before nesting another section.";
+    }
+    if (draggedPath.length !== 1) {
+        return "Only top-level sections can be moved beneath another top-level section.";
+    }
+    if (draggedSection.sections.length > 0) {
+        return "A section that already contains child sections cannot be nested beneath another section.";
+    }
+    return "This section cannot be nested in the selected location.";
+}
+
+function canMoveSectionToTopLevelEnd(sections: ChecklistSection[], draggedId: string): boolean {
+    const draggedPath = findSectionPathById(sections, draggedId);
+    if (!draggedPath.length) return false;
+    return sections[sections.length - 1]?.id !== draggedId || draggedPath.length > 1;
 }
 
 function reorderSectionItems(sections: ChecklistSection[], sectionId: string, draggedId: string, targetId: string): ChecklistSection[] {
@@ -1838,6 +1891,7 @@ function ChecklistDetails({
     const ignoreNextSectionClickRef = useRef(false);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
+    const [pendingValidationMessage, setPendingValidationMessage] = useState<PendingValidationMessage>(null);
     const [hoveredSectionId, setHoveredSectionId] = useState("");
     const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
         () => new Set(getSectionIdsWithChildren(version.definition.checklistVersionContents.sections))
@@ -1893,6 +1947,9 @@ function ChecklistDetails({
         selectedSectionDepth === 0 &&
         selectedSection.items.length === 0 &&
         selectedSection.sections.length === 0
+    );
+    const canDropSectionAtTopLevelEnd = Boolean(
+        draggedItem?.type === "section" && canMoveSectionToTopLevelEnd(sections, draggedItem.id)
     );
     useEffect(() => {
         setSectionNameDraft(selectedSection?.name || "");
@@ -1994,6 +2051,14 @@ function ChecklistDetails({
         draggedSectionIdRef.current = "";
         setDragOverTarget(null);
     };
+    const handleSectionTopLevelEndDropById = (draggedSectionId: string) => {
+        if (!canMoveSectionToTopLevelEnd(sections, draggedSectionId)) return;
+        setSections((current) => moveSectionToTopLevelEnd(current, draggedSectionId));
+        setSelectedSectionId(draggedSectionId);
+        setDraggedItem(null);
+        draggedSectionIdRef.current = "";
+        setDragOverTarget(null);
+    };
     const handleItemDrop = (targetItem: ChecklistItem) => {
         if (draggedItem?.type !== "item" || draggedItem.sectionId !== selectedSectionId) return;
         setSections((current) =>
@@ -2004,14 +2069,25 @@ function ChecklistDetails({
     };
     const getSectionDropTargetFromPoint = (clientX: number, clientY: number, draggedSectionId: string) => {
         const element = document.elementFromPoint(clientX, clientY);
+        const topLevelEndElement = element?.closest?.("[data-section-top-level-end='true']");
+        if (topLevelEndElement && canMoveSectionToTopLevelEnd(sections, draggedSectionId)) {
+            return { type: "topLevelEnd" } as DragOverTarget;
+        }
         const sectionElement = element?.closest?.("[data-section-id]");
         const sectionId = sectionElement instanceof HTMLElement ? sectionElement.dataset.sectionId || "" : "";
         if (!sectionId) return null;
         const depth = sectionElement instanceof HTMLElement ? Number(sectionElement.dataset.sectionDepth || "0") : 0;
         const rowBounds = sectionElement instanceof HTMLElement ? sectionElement.getBoundingClientRect() : null;
         const isIndentedOverTopLevel = depth === 0 && rowBounds ? clientX > rowBounds.left + 56 : false;
-        if (isIndentedOverTopLevel && canMoveSectionToParentEnd(sections, draggedSectionId, sectionId)) {
-            return { type: "section", id: sectionId, placement: "child" } as DragOverTarget;
+        if (isIndentedOverTopLevel) {
+            if (canMoveSectionToParentEnd(sections, draggedSectionId, sectionId)) {
+                return { type: "section", id: sectionId, placement: "child" } as DragOverTarget;
+            }
+            return {
+                type: "invalidSectionChild",
+                id: sectionId,
+                reason: getSectionParentDropValidationMessage(sections, draggedSectionId, sectionId),
+            } as DragOverTarget;
         }
         return { type: "section", id: sectionId, placement: "before" } as DragOverTarget;
     };
@@ -2042,7 +2118,15 @@ function ChecklistDetails({
             setDraggedItem({ type: "section", id: drag.id });
         }
         const target = getSectionDropTargetFromPoint(event.clientX, event.clientY, drag.id);
+        if (target?.type === "topLevelEnd") {
+            setDragOverTarget(target);
+            return;
+        }
         if (target?.type === "section" && target.placement === "child" && canMoveSectionToParentEnd(sections, drag.id, target.id)) {
+            setDragOverTarget(target);
+            return;
+        }
+        if (target?.type === "invalidSectionChild") {
             setDragOverTarget(target);
             return;
         }
@@ -2066,6 +2150,17 @@ function ChecklistDetails({
         setDraggedItem(null);
         setDragOverTarget(null);
         if (!drag.isDragging) return;
+        if (target?.type === "topLevelEnd") {
+            handleSectionTopLevelEndDropById(drag.id);
+            return;
+        }
+        if (target?.type === "invalidSectionChild") {
+            setPendingValidationMessage({
+                title: "Section cannot be nested",
+                message: target.reason,
+            });
+            return;
+        }
         if (target?.type === "section" && target.placement === "child") {
             handleSectionChildDropById(drag.id, target.id);
             return;
@@ -2205,6 +2300,9 @@ function ChecklistDetails({
             dragOverTarget?.type === "section" &&
             dragOverTarget.id === section.id &&
             dragOverTarget.placement === "child";
+        const isInvalidDropTarget =
+            dragOverTarget?.type === "invalidSectionChild" &&
+            dragOverTarget.id === section.id;
         const selectedSectionTopParentId = selectedSectionPath[0]?.id || "";
         const canAddAnotherChild =
             depth === 0 &&
@@ -2226,6 +2324,7 @@ function ChecklistDetails({
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropBeforeTarget ? styles.dropBeforeRow : "",
                         isDropChildTarget ? styles.dropIntoSectionRow : "",
+                        isInvalidDropTarget ? styles.invalidDropSectionRow : "",
                     ].filter(Boolean).join(" ")}
                     onClick={() => {
                         if (ignoreNextSectionClickRef.current) {
@@ -2476,6 +2575,15 @@ function ChecklistDetails({
                                 </div>
                                 <div className={styles.contentsColumnBody}>
                                     {sections.map((section) => renderSectionRow(section))}
+                                    {canDropSectionAtTopLevelEnd && (
+                                        <div
+                                            data-section-top-level-end="true"
+                                            className={[
+                                                styles.topLevelEndDropTarget,
+                                                dragOverTarget?.type === "topLevelEnd" ? styles.activeTopLevelEndDropTarget : "",
+                                            ].filter(Boolean).join(" ")}
+                                        />
+                                    )}
                                     {draftSection?.parentId === null && renderDraftSectionRow(0)}
                                     {!flattenedSections.length && !draftSection && (
                                         <div className={styles.contentsPlaceholder}>
@@ -2724,6 +2832,26 @@ function ChecklistDetails({
                     </div>
                 )}
             </div>
+            <Dialog
+                open={Boolean(pendingValidationMessage)}
+                onOpenChange={(_, data) => {
+                    if (!data.open) setPendingValidationMessage(null);
+                }}
+            >
+                <DialogSurface>
+                    <DialogBody>
+                        <DialogTitle>{pendingValidationMessage?.title || "Action not allowed"}</DialogTitle>
+                        <DialogContent>
+                            <Text>{pendingValidationMessage?.message || "The requested action is not permitted."}</Text>
+                        </DialogContent>
+                        <DialogActions>
+                            <Button appearance="primary" onClick={() => setPendingValidationMessage(null)}>
+                                OK
+                            </Button>
+                        </DialogActions>
+                    </DialogBody>
+                </DialogSurface>
+            </Dialog>
             <Dialog
                 open={Boolean(pendingDelete)}
                 onOpenChange={(_, data) => {
