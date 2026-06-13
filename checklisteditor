@@ -123,6 +123,11 @@ type DraftItem = {
     name: string;
 };
 
+type DraggedItem =
+    | { type: "section"; id: string }
+    | { type: "item"; id: string; sectionId: string }
+    | null;
+
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
 const TEMP_DEV_CHECKLIST_VERSION_ID = "24e8d1ae-fa66-f111-ab0c-000d3a7ecf04";
@@ -505,15 +510,31 @@ const useStyles = makeStyles({
         minHeight: "36px",
         padding: "7px 10px",
         borderRadius: tokens.borderRadiusMedium,
-        cursor: "pointer",
+        cursor: "grab",
         color: tokens.colorNeutralForeground2,
+        ...shorthands.border("1px", "solid", "transparent"),
         ":hover": {
             backgroundColor: tokens.colorNeutralBackground2,
         },
     },
+    parentSectionRow: {
+        backgroundColor: tokens.colorNeutralBackground2,
+        fontWeight: tokens.fontWeightSemibold,
+    },
+    childSectionRow: {
+        marginLeft: "18px",
+        backgroundColor: tokens.colorNeutralBackground1,
+        borderLeftColor: tokens.colorBrandStroke1,
+        borderLeftWidth: "3px",
+        borderLeftStyle: "solid",
+    },
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
         color: tokens.colorNeutralForeground1,
+        borderColor: tokens.colorBrandStroke1,
+    },
+    draggingRow: {
+        opacity: 0.55,
     },
     sectionRowText: {
         overflow: "hidden",
@@ -541,6 +562,7 @@ const useStyles = makeStyles({
         gap: "12px",
         minHeight: "38px",
         padding: "8px 10px",
+        cursor: "grab",
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
@@ -873,6 +895,48 @@ function appendItemToSection(sections: ChecklistSection[], sectionId: string, it
         return {
             ...candidate,
             sections: appendItemToSection(candidate.sections, sectionId, item),
+        };
+    });
+}
+
+function reorderById<T extends { id: string }>(items: T[], draggedId: string, targetId: string) {
+    if (draggedId === targetId) return items;
+    const draggedIndex = items.findIndex((item) => item.id === draggedId);
+    const targetIndex = items.findIndex((item) => item.id === targetId);
+    if (draggedIndex < 0 || targetIndex < 0) return items;
+    const nextItems = [...items];
+    const [draggedItem] = nextItems.splice(draggedIndex, 1);
+    nextItems.splice(targetIndex, 0, draggedItem);
+    return nextItems;
+}
+
+function reorderSiblingSections(sections: ChecklistSection[], parentId: string | null, draggedId: string, targetId: string): ChecklistSection[] {
+    if (!parentId) return reorderById(sections, draggedId, targetId);
+    return sections.map((candidate) => {
+        if (candidate.id === parentId) {
+            return {
+                ...candidate,
+                sections: reorderById(candidate.sections, draggedId, targetId),
+            };
+        }
+        return {
+            ...candidate,
+            sections: reorderSiblingSections(candidate.sections, parentId, draggedId, targetId),
+        };
+    });
+}
+
+function reorderSectionItems(sections: ChecklistSection[], sectionId: string, draggedId: string, targetId: string): ChecklistSection[] {
+    return sections.map((candidate) => {
+        if (candidate.id === sectionId) {
+            return {
+                ...candidate,
+                items: reorderById(candidate.items, draggedId, targetId),
+            };
+        }
+        return {
+            ...candidate,
+            sections: reorderSectionItems(candidate.sections, sectionId, draggedId, targetId),
         };
     });
 }
@@ -1446,6 +1510,7 @@ function ChecklistDetails({
     );
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
+    const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
 
     useEffect(() => {
         let isMounted = true;
@@ -1510,6 +1575,22 @@ function ChecklistDetails({
         setSections((current) => appendItemToSection(current, draftItem.sectionId, newItem));
         setDraftItem(null);
     };
+    const handleSectionDrop = (targetSection: ChecklistSection) => {
+        if (draggedItem?.type !== "section") return;
+        const draggedSection = flattenedSections.find(({ section }) => section.id === draggedItem.id)?.section;
+        if (!draggedSection || (draggedSection.parentId || null) !== (targetSection.parentId || null)) return;
+        setSections((current) =>
+            reorderSiblingSections(current, targetSection.parentId || null, draggedItem.id, targetSection.id)
+        );
+        setDraggedItem(null);
+    };
+    const handleItemDrop = (targetItem: ChecklistItem) => {
+        if (draggedItem?.type !== "item" || draggedItem.sectionId !== selectedSectionId) return;
+        setSections((current) =>
+            reorderSectionItems(current, selectedSectionId, draggedItem.id, targetItem.id)
+        );
+        setDraggedItem(null);
+    };
     const renderDraftSectionRow = (depth = 0) => (
         <div
             className={styles.draftSectionRow}
@@ -1558,6 +1639,45 @@ function ChecklistDetails({
                 onClick={confirmDraftItem}
             />
         </div>
+    );
+    const renderSectionRow = (section: ChecklistSection, depth = 0): React.ReactNode => (
+        <React.Fragment key={section.id}>
+            <div
+                className={[
+                    styles.sectionRow,
+                    depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
+                    selectedSectionId === section.id ? styles.selectedSectionRow : "",
+                    draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
+                ].filter(Boolean).join(" ")}
+                draggable
+                onClick={() => {
+                    setSelectedSectionId(section.id);
+                    setDraftItem(null);
+                }}
+                onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", section.id);
+                    setDraggedItem({ type: "section", id: section.id });
+                }}
+                onDragOver={(event) => {
+                    if (draggedItem?.type === "section") event.preventDefault();
+                }}
+                onDrop={(event) => {
+                    event.preventDefault();
+                    handleSectionDrop(section);
+                }}
+                onDragEnd={() => setDraggedItem(null)}
+            >
+                <Text className={styles.sectionRowText} weight={selectedSectionId === section.id ? "semibold" : "regular"}>
+                    {section.name || "Untitled section"}
+                </Text>
+                <Caption1 className={styles.mutedText}>
+                    {section.sections.length ? `${section.sections.length} child` : `${section.items.length} item`}
+                </Caption1>
+            </div>
+            {section.sections.map((childSection) => renderSectionRow(childSection, depth + 1))}
+            {draftSection?.parentId === section.id && renderDraftSectionRow(depth + 1)}
+        </React.Fragment>
     );
     const handleSave = async () => {
         setSaveError("");
@@ -1735,26 +1855,7 @@ function ChecklistDetails({
                                     </Button>
                                 </div>
                                 <div className={styles.contentsColumnBody}>
-                                    {flattenedSections.map(({ section, depth }) => (
-                                        <React.Fragment key={section.id}>
-                                            <div
-                                                className={`${styles.sectionRow} ${selectedSectionId === section.id ? styles.selectedSectionRow : ""}`}
-                                                style={{ marginLeft: depth * 18 }}
-                                                onClick={() => {
-                                                    setSelectedSectionId(section.id);
-                                                    setDraftItem(null);
-                                                }}
-                                            >
-                                                <Text className={styles.sectionRowText} weight={selectedSectionId === section.id ? "semibold" : "regular"}>
-                                                    {section.name || "Untitled section"}
-                                                </Text>
-                                                <Caption1 className={styles.mutedText}>
-                                                    {section.sections.length ? `${section.sections.length} child` : `${section.items.length} item`}
-                                                </Caption1>
-                                            </div>
-                                            {draftSection?.parentId === section.id && renderDraftSectionRow(depth + 1)}
-                                        </React.Fragment>
-                                    ))}
+                                    {sections.map((section) => renderSectionRow(section))}
                                     {draftSection?.parentId === null && renderDraftSectionRow(0)}
                                     {!flattenedSections.length && !draftSection && (
                                         <div className={styles.contentsPlaceholder}>
@@ -1811,7 +1912,24 @@ function ChecklistDetails({
                                     ) : (
                                         <div className={styles.itemList}>
                                             {selectedSection.items.map((item) => (
-                                                <div className={styles.itemRow} key={item.id}>
+                                                <div
+                                                    className={`${styles.itemRow} ${draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : ""}`}
+                                                    key={item.id}
+                                                    draggable
+                                                    onDragStart={(event) => {
+                                                        event.dataTransfer.effectAllowed = "move";
+                                                        event.dataTransfer.setData("text/plain", item.id);
+                                                        setDraggedItem({ type: "item", id: item.id, sectionId: selectedSection.id });
+                                                    }}
+                                                    onDragOver={(event) => {
+                                                        if (draggedItem?.type === "item") event.preventDefault();
+                                                    }}
+                                                    onDrop={(event) => {
+                                                        event.preventDefault();
+                                                        handleItemDrop(item);
+                                                    }}
+                                                    onDragEnd={() => setDraggedItem(null)}
+                                                >
                                                     <Text weight="semibold">{item.name || "Untitled item"}</Text>
                                                     <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
                                                 </div>
