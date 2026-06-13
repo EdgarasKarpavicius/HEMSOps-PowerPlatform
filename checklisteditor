@@ -2098,7 +2098,13 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isDropTarget = dragOverTarget?.type === "section" && dragOverTarget.id === section.id;
-        const canAddAnotherChild = depth === 0 && selectedSectionId === section.id && section.sections.length > 0 && !draftSection && !draftItem;
+        const selectedSectionTopParentId = selectedSectionPath[0]?.id || "";
+        const canAddAnotherChild =
+            depth === 0 &&
+            selectedSectionTopParentId === section.id &&
+            section.sections.length > 0 &&
+            !draftSection &&
+            !draftItem;
 
         return (
             <React.Fragment key={section.id}>
