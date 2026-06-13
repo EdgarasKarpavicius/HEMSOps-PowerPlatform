@@ -680,13 +680,15 @@ const useStyles = makeStyles({
     },
     dropBeforeRow: {
         borderTopColor: tokens.colorBrandStroke1,
-        borderTopWidth: "2px",
+        borderTopWidth: "3px",
         borderTopStyle: "solid",
+        boxShadow: `0 -1px 0 ${tokens.colorBrandStroke1}`,
     },
     dropAfterRow: {
         borderBottomColor: tokens.colorBrandStroke1,
-        borderBottomWidth: "2px",
+        borderBottomWidth: "3px",
         borderBottomStyle: "solid",
+        boxShadow: `0 1px 0 ${tokens.colorBrandStroke1}`,
     },
     dropIntoSectionRow: {
         backgroundColor: tokens.colorNeutralBackground2,
@@ -701,12 +703,13 @@ const useStyles = makeStyles({
     topLevelEndDropTarget: {
         minHeight: "18px",
         marginTop: "2px",
-        borderTopWidth: "2px",
+        borderTopWidth: "3px",
         borderTopStyle: "solid",
         borderTopColor: "transparent",
     },
     activeTopLevelEndDropTarget: {
         borderTopColor: tokens.colorBrandStroke1,
+        boxShadow: `0 -1px 0 ${tokens.colorBrandStroke1}`,
     },
     sectionRowText: {
         overflow: "hidden",
