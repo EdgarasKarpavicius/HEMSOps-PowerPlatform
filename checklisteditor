@@ -48,6 +48,7 @@ type Checklist = {
     checklistType: string;
     checklistTypeValue: number;
     targetType: string;
+    targetTypeValue: number;
     statuscode: number;
     sections: ChecklistSection[];
     definitionJson?: string;
@@ -70,10 +71,17 @@ type ChecklistVersionOption = {
     value: boolean | number | string;
 };
 
+type AppliesToSelection = {
+    entityName: string;
+    id: string;
+    name: string;
+    category?: string;
+};
+
 type ChecklistVersionDetails = {
     proposedChecklistName: string;
-    versionType?: string;
-    applicableAircraftTypes: string[];
+    versionType: number;
+    appliesTo: AppliesToSelection | null;
     options: ChecklistVersionOption[];
 };
 
@@ -112,6 +120,8 @@ type StatusOption = {
     text: string;
     color?: string;
 };
+
+type AppliesToOption = AppliesToSelection;
 
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
@@ -221,6 +231,41 @@ const STATUS_LABELS: Record<number, string> = {
 
 const CHECKLIST_TYPE_STANDARD = 1;
 const CHECKLIST_TYPE_STOCK = 2;
+const CHECKLIST_TARGET_AIRCRAFT = 1;
+const CHECKLIST_TARGET_EQUIPMENT = 2;
+const CHECKLIST_TARGET_VEHICLE = 3;
+const CHECKLIST_TARGET_BASE_SITE = 4;
+const VERSION_TYPE_MAJOR = 1;
+const VERSION_TYPE_MINOR = 2;
+
+const VERSION_TYPES = [
+    { key: VERSION_TYPE_MAJOR, text: "Major" },
+    { key: VERSION_TYPE_MINOR, text: "Minor" },
+];
+
+const APPLIES_TO_TARGETS: Record<number, { entityName: string; idField: string; label: string; categoryLookup?: string }> = {
+    [CHECKLIST_TARGET_AIRCRAFT]: {
+        entityName: "int_aircrafttype",
+        idField: "int_aircrafttypeid",
+        label: "Aircraft type",
+    },
+    [CHECKLIST_TARGET_EQUIPMENT]: {
+        entityName: "int_equipmenttype",
+        idField: "int_equipmenttypeid",
+        label: "Equipment type",
+        categoryLookup: "int_category",
+    },
+    [CHECKLIST_TARGET_VEHICLE]: {
+        entityName: "int_vehicletype",
+        idField: "int_vehicletypeid",
+        label: "Vehicle type",
+    },
+    [CHECKLIST_TARGET_BASE_SITE]: {
+        entityName: "int_basesite",
+        idField: "int_basesiteid",
+        label: "Base site",
+    },
+};
 
 const CHECKLIST_OPTION_DEFINITIONS = [
     {
@@ -322,6 +367,15 @@ const useStyles = makeStyles({
         lineHeight: "30px",
         fontWeight: tokens.fontWeightSemibold,
     },
+    editableTitleRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        minWidth: 0,
+    },
+    titleInput: {
+        width: "min(520px, 70vw)",
+    },
     pageSubtitle: {
         color: tokens.colorNeutralForeground3,
         fontSize: "12px",
@@ -374,10 +428,11 @@ const useStyles = makeStyles({
         display: "flex",
         alignItems: "center",
         alignSelf: "stretch",
+        gap: "10px",
     },
     detailsPage: {
-        display: "grid",
-        gridTemplateRows: "auto minmax(0, 1fr)",
+        display: "flex",
+        flexDirection: "column",
         flexGrow: 1,
         height: "100%",
         minHeight: 0,
@@ -509,6 +564,10 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         gap: "2px",
+    },
+    optionGroupText: {
+        color: tokens.colorNeutralForeground3,
+        fontSize: "12px",
     },
     contentsPlaceholder: {
         minHeight: "260px",
@@ -957,11 +1016,33 @@ function inferChecklistTypeValue(value: unknown, label: string) {
     return label.toLowerCase().includes("stock") ? CHECKLIST_TYPE_STOCK : CHECKLIST_TYPE_STANDARD;
 }
 
+function inferChecklistTargetTypeValue(value: unknown, label: string) {
+    const numericValue = Number(value);
+    if (!Number.isNaN(numericValue) && numericValue > 0) return numericValue;
+    const normalized = label.toLowerCase();
+    if (normalized.includes("equipment")) return CHECKLIST_TARGET_EQUIPMENT;
+    if (normalized.includes("vehicle")) return CHECKLIST_TARGET_VEHICLE;
+    if (normalized.includes("base") || normalized.includes("site")) return CHECKLIST_TARGET_BASE_SITE;
+    return CHECKLIST_TARGET_AIRCRAFT;
+}
+
 function getChecklistTypeLabel(record: Record<string, any>) {
     const label = String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], ""));
     if (label && Number.isNaN(Number(label))) return label;
     const value = Number(getValue(record, ["int_checklisttype", "checklisttype"], CHECKLIST_TYPE_STANDARD));
     return value === CHECKLIST_TYPE_STOCK ? "Stock" : "Standard";
+}
+
+function getChecklistTargetTypeLabel(record: Record<string, any>) {
+    const label = String(getDisplayValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], ""));
+    if (label && Number.isNaN(Number(label))) return label;
+    const value = Number(
+        getValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], CHECKLIST_TARGET_AIRCRAFT)
+    );
+    if (value === CHECKLIST_TARGET_EQUIPMENT) return "Equipment";
+    if (value === CHECKLIST_TARGET_VEHICLE) return "Vehicle";
+    if (value === CHECKLIST_TARGET_BASE_SITE) return "Base Site";
+    return "Aircraft";
 }
 
 function getApplicableOptionDefinitions(checklistTypeValue: number) {
@@ -984,6 +1065,95 @@ function normalizeApplicableOptions(options: unknown, checklistTypeValue: number
     }));
 }
 
+function getAppliesToOptionId(record: Record<string, any>, idField: string) {
+    return String(getValue(record, [idField, "id"], "")).replace(/[{}]/g, "");
+}
+
+function mapAppliesToRecord(record: Record<string, any>, target: { entityName: string; idField: string; categoryLookup?: string }) {
+    const categoryLookup = target.categoryLookup;
+    return {
+        entityName: target.entityName,
+        id: getAppliesToOptionId(record, target.idField),
+        name: String(getDisplayValue(record, ["int_name", "name"], "Unnamed")),
+        category: categoryLookup
+            ? String(getDisplayValue(record, [`_${categoryLookup}_value`, categoryLookup], "Uncategorised"))
+            : undefined,
+    };
+}
+
+function getAppliesToOptionText(option: AppliesToOption) {
+    return option.category ? `${option.category} / ${option.name}` : option.name;
+}
+
+async function loadAppliesToOptions(targetTypeValue: number): Promise<AppliesToOption[]> {
+    if (typeof Xrm === "undefined") return [];
+    const target = APPLIES_TO_TARGETS[targetTypeValue];
+    if (!target) return [];
+
+    try {
+        const select = `$select=${target.idField},int_name`;
+        const result = await Xrm.WebApi.retrieveMultipleRecords(
+            target.entityName,
+            `?${select}&$filter=statecode eq 0&$orderby=int_name asc`
+        );
+        return (result.entities || [])
+            .map((record: Record<string, any>) => mapAppliesToRecord(record, target))
+            .filter((option: AppliesToOption) => option.id)
+            .sort((a: AppliesToOption, b: AppliesToOption) =>
+                `${a.category || ""}|${a.name}`.localeCompare(`${b.category || ""}|${b.name}`)
+            );
+    } catch {
+        return [];
+    }
+}
+
+function buildChecklistVersionDefinition({
+    checklist,
+    proposedChecklistName,
+    versionType,
+    appliesTo,
+    options,
+    sections,
+}: {
+    checklist: Checklist;
+    proposedChecklistName: string;
+    versionType: number;
+    appliesTo: AppliesToSelection | null;
+    options: ChecklistVersionOption[];
+    sections: ChecklistSection[];
+}): ChecklistVersionDefinition {
+    return {
+        checklistVersionDetails: {
+            proposedChecklistName: proposedChecklistName.trim() || checklist.name,
+            versionType,
+            appliesTo,
+            options: normalizeApplicableOptions(options, checklist.checklistTypeValue),
+        },
+        checklistVersionContents: {
+            sections,
+        },
+    };
+}
+
+function stableStringify(value: any): string {
+    if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+    if (value && typeof value === "object") {
+        return `{${Object.keys(value)
+            .sort()
+            .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+            .join(",")}}`;
+    }
+    return JSON.stringify(value);
+}
+
+function getDefinitionHashPayload(checklistId: string | undefined, definition: ChecklistVersionDefinition) {
+    return {
+        checklistId: checklistId || "",
+        checklistVersionDetails: definition.checklistVersionDetails,
+        checklistVersionContents: definition.checklistVersionContents,
+    };
+}
+
 function parseChecklistVersionDefinition(record: Record<string, any>, checklist: Checklist): ChecklistVersionDefinition {
     const rawDefinition = String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""));
     let parsed: any = {};
@@ -1000,15 +1170,20 @@ function parseChecklistVersionDefinition(record: Record<string, any>, checklist:
     const proposedChecklistName = String(
         getValue(record, ["int_proposedchecklistname"], details.proposedChecklistName || checklist.name)
     );
-    const applicableAircraftTypes = Array.isArray(details.applicableAircraftTypes)
-        ? details.applicableAircraftTypes.map(String)
-        : [];
+    const appliesTo = details.appliesTo && typeof details.appliesTo === "object"
+        ? {
+              entityName: String(details.appliesTo.entityName || ""),
+              id: String(details.appliesTo.id || ""),
+              name: String(details.appliesTo.name || ""),
+              category: details.appliesTo.category ? String(details.appliesTo.category) : undefined,
+          }
+        : null;
 
     return {
         checklistVersionDetails: {
             proposedChecklistName,
-            versionType: details.versionType,
-            applicableAircraftTypes,
+            versionType: Number(details.versionType || VERSION_TYPE_MINOR),
+            appliesTo,
             options: normalizeApplicableOptions(details.options, checklist.checklistTypeValue),
         },
         checklistVersionContents: {
@@ -1022,13 +1197,18 @@ function mapChecklistRecord(record: Record<string, any>): Checklist {
         getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], "")
     );
     const checklistType = getChecklistTypeLabel(record);
+    const targetType = getChecklistTargetTypeLabel(record);
     return {
         id: String(getValue(record, ["int_checklistid", "id", "checklistid"], "")),
         name: String(getValue(record, ["int_name", "name", "int_checklistname"], "Untitled checklist")),
         currentVersion: String(getValue(record, ["int_currentversion", "int_version", "currentversion"], "1")),
         checklistType,
         checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
-        targetType: String(getDisplayValue(record, ["int_targettype", "targettype"], "")),
+        targetType,
+        targetTypeValue: inferChecklistTargetTypeValue(
+            getValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], ""),
+            targetType
+        ),
         statuscode: Number(getValue(record, ["statuscode"], 1)),
         sections: parseSections(definitionJson),
         definitionJson,
@@ -1048,7 +1228,7 @@ async function loadChecklistFromDataverse(checklistId: string): Promise<Checklis
         const record = await Xrm.WebApi.retrieveRecord(
             TABLE_NAME,
             checklistId,
-            "?$select=int_checklistid,int_name,int_checklisttype,int_targettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion"
+            "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype,int_targettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion"
         );
         return mapChecklistRecord(record);
     } catch {
@@ -1065,6 +1245,7 @@ function getExpandedChecklist(record: Record<string, any>, relationshipNames: st
 
 function mapChecklistFromVersionRecord(record: Record<string, any>): Checklist {
     const checklistType = String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], "Standard"));
+    const targetType = getChecklistTargetTypeLabel(record);
     return {
         id: getLookupId(record, ["_int_checklist_value", "_int_checklistid_value", "_int_checklistid_value"]),
         name: String(
@@ -1073,7 +1254,11 @@ function mapChecklistFromVersionRecord(record: Record<string, any>): Checklist {
         currentVersion: String(getValue(record, ["int_versionnumber", "int_version", "versionnumber"], "")),
         checklistType,
         checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
-        targetType: String(getDisplayValue(record, ["int_targettype", "targettype"], "")),
+        targetType,
+        targetTypeValue: inferChecklistTargetTypeValue(
+            getValue(record, ["int_checklisttargettype", "int_targettype", "targettype"], ""),
+            targetType
+        ),
         statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
         sections: parseSections(String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""))),
         definitionJson: String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], "")),
@@ -1125,7 +1310,7 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
 
 async function loadChecklistVersionFromDataverse(versionId: string): Promise<ChecklistVersion | null> {
     if (!versionId) return null;
-    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_targettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion";
+    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype,int_targettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion";
     const metadataNavigationName = await loadChecklistNavigationProperty();
     const relationshipNames = [
         metadataNavigationName,
@@ -1181,6 +1366,25 @@ async function saveChecklistToDataverse(checklist: Checklist, createNewRecord: b
     }
     const created = await Xrm.WebApi.createRecord(TABLE_NAME, payload);
     return { ...checklist, id: created.id };
+}
+
+async function saveChecklistVersionDefinition(version: ChecklistVersion, definition: ChecklistVersionDefinition) {
+    if (!version.id) return version;
+    const definitionJson = JSON.stringify(definition);
+    const definitionHash = hashText(stableStringify(getDefinitionHashPayload(version.checklist.id, definition)));
+    await Xrm.WebApi.updateRecord(VERSION_TABLE_NAME, version.id, {
+        int_definitionjson: definitionJson,
+        int_definitionhash: definitionHash,
+    });
+    return {
+        ...version,
+        definition,
+        raw: {
+            ...(version.raw || {}),
+            int_definitionjson: definitionJson,
+            int_definitionhash: definitionHash,
+        },
+    };
 }
 
 function hashText(text: string) {
@@ -1379,6 +1583,7 @@ const GeneratedComponent = () => {
                     <ChecklistDetails
                         version={selectedVersion}
                         statusOptions={statusOptions}
+                        onVersionSaved={setSelectedVersion}
                         t={t}
                     />
                 ) : (
@@ -1440,27 +1645,71 @@ function FocusedChecklistEmpty({
 function ChecklistDetails({
     version,
     statusOptions,
+    onVersionSaved,
     t,
 }: {
     version: ChecklistVersion;
     statusOptions: Record<number, StatusOption>;
+    onVersionSaved: (version: ChecklistVersion) => void;
     t: (key: string) => string;
 }) {
     const styles = useStyles();
     const checklist = version.checklist;
     const [activeTab, setActiveTab] = useState("general");
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState("");
+    const [appliesToOptions, setAppliesToOptions] = useState<AppliesToOption[]>([]);
     const [proposedChecklistName, setProposedChecklistName] = useState(
         version.definition.checklistVersionDetails.proposedChecklistName || checklist.name
     );
-    const [applicableAircraftTypes, setApplicableAircraftTypes] = useState(
-        version.definition.checklistVersionDetails.applicableAircraftTypes
-    );
+    const [versionType, setVersionType] = useState(version.definition.checklistVersionDetails.versionType || VERSION_TYPE_MINOR);
+    const [appliesTo, setAppliesTo] = useState<AppliesToSelection | null>(version.definition.checklistVersionDetails.appliesTo);
     const [options, setOptions] = useState(version.definition.checklistVersionDetails.options);
+
+    useEffect(() => {
+        let isMounted = true;
+        loadAppliesToOptions(checklist.targetTypeValue).then((items) => {
+            if (isMounted) setAppliesToOptions(items);
+        });
+        return () => {
+            isMounted = false;
+        };
+    }, [checklist.targetTypeValue]);
+
+    const currentDefinition = useMemo(
+        () =>
+            buildChecklistVersionDefinition({
+                checklist,
+                proposedChecklistName,
+                versionType,
+                appliesTo,
+                options,
+                sections: version.definition.checklistVersionContents.sections,
+            }),
+        [appliesTo, checklist, options, proposedChecklistName, version.definition.checklistVersionContents.sections, versionType]
+    );
+    const originalDefinitionText = useMemo(() => stableStringify(version.definition), [version.definition]);
+    const currentDefinitionText = useMemo(() => stableStringify(currentDefinition), [currentDefinition]);
+    const hasDefinitionChanges = currentDefinitionText !== originalDefinitionText;
+    const appliesToTarget = APPLIES_TO_TARGETS[checklist.targetTypeValue];
 
     const updateOption = (key: string, value: boolean | number | string) => {
         setOptions((current) =>
             current.map((option) => (option.key === key ? { ...option, value } : option))
         );
+    };
+    const handleSave = async () => {
+        setSaveError("");
+        setIsSaving(true);
+        try {
+            const saved = await saveChecklistVersionDefinition(version, currentDefinition);
+            onVersionSaved(saved);
+        } catch (error) {
+            setSaveError(error instanceof Error ? error.message : "Unable to save checklist version.");
+        } finally {
+            setIsSaving(false);
+        }
     };
     const sectionCount = version.definition.checklistVersionContents.sections.length;
 
@@ -1469,9 +1718,28 @@ function ChecklistDetails({
             <div className={styles.editorHeader}>
                 <div className={styles.titleStack}>
                     <Text className={styles.eyebrow}>{`${checklist.checklistType} Checklist`}</Text>
-                    <Text as="h1" className={styles.pageTitle}>
-                        {checklist.name}
-                    </Text>
+                    <div className={styles.editableTitleRow}>
+                        {isEditingName ? (
+                            <Input
+                                className={styles.titleInput}
+                                value={proposedChecklistName}
+                                onChange={(_, data) => setProposedChecklistName(data.value)}
+                                onBlur={() => setIsEditingName(false)}
+                            />
+                        ) : (
+                            <>
+                                <Text as="h1" className={styles.pageTitle}>
+                                    {proposedChecklistName || checklist.name}
+                                </Text>
+                                <Button
+                                    aria-label="Edit checklist name"
+                                    appearance="subtle"
+                                    icon={<EditRegular />}
+                                    onClick={() => setIsEditingName(true)}
+                                />
+                            </>
+                        )}
+                    </div>
                     <Caption1 block className={styles.pageSubtitle}>
                         {`${t("version")}: ${version.versionNumber || "-"}`}
                     </Caption1>
@@ -1482,6 +1750,14 @@ function ChecklistDetails({
                     )}
                 </div>
                 <div className={styles.headerAction}>
+                    <Button
+                        appearance="primary"
+                        icon={<SaveRegular />}
+                        disabled={!hasDefinitionChanges || isSaving}
+                        onClick={handleSave}
+                    >
+                        {isSaving ? "Saving" : "Save"}
+                    </Button>
                     <StatusPill
                         statuscode={version.statuscode}
                         fallbackLabel={version.statusLabel}
@@ -1490,6 +1766,11 @@ function ChecklistDetails({
                     />
                 </div>
             </div>
+            {saveError && (
+                <MessageBar intent="error">
+                    <MessageBarBody>{saveError}</MessageBarBody>
+                </MessageBar>
+            )}
             <div className={styles.workbenchSurface}>
                 <div className={styles.workbenchTabs}>
                     <TabList
@@ -1504,24 +1785,41 @@ function ChecklistDetails({
                     <div className={styles.tabPanel}>
                         <div className={styles.generalGrid}>
                             <div className={styles.formStack}>
-                                <Field label="Checklist name">
-                                    <Input
-                                        value={proposedChecklistName}
-                                        onChange={(_, data) => setProposedChecklistName(data.value)}
-                                    />
+                                <Field label="Version type">
+                                    <Dropdown
+                                        selectedOptions={[String(versionType)]}
+                                        value={VERSION_TYPES.find((item) => item.key === versionType)?.text || ""}
+                                        onOptionSelect={(_, data) => setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR)}
+                                    >
+                                        {VERSION_TYPES.map((item) => (
+                                            <Option key={item.key} value={String(item.key)}>
+                                                {item.text}
+                                            </Option>
+                                        ))}
+                                    </Dropdown>
                                 </Field>
-                                <Field label="Applicable aircraft types">
-                                    <Input
-                                        value={applicableAircraftTypes.join(", ")}
-                                        onChange={(_, data) =>
-                                            setApplicableAircraftTypes(
-                                                data.value
-                                                    .split(",")
-                                                    .map((value) => value.trim())
-                                                    .filter(Boolean)
-                                            )
-                                        }
-                                    />
+                                <Field label="Applies To">
+                                    <Dropdown
+                                        placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type"}
+                                        selectedOptions={appliesTo?.id ? [appliesTo.id] : []}
+                                        value={appliesTo ? getAppliesToOptionText(appliesTo) : ""}
+                                        disabled={!appliesToTarget}
+                                        onOptionSelect={(_, data) => {
+                                            const selected = appliesToOptions.find((item) => item.id === data.optionValue) || null;
+                                            setAppliesTo(selected);
+                                        }}
+                                    >
+                                        {appliesToOptions.map((item) => (
+                                            <Option key={item.id} value={item.id}>
+                                                <span>
+                                                    {item.category && (
+                                                        <span className={styles.optionGroupText}>{`${item.category} / `}</span>
+                                                    )}
+                                                    {item.name}
+                                                </span>
+                                            </Option>
+                                        ))}
+                                    </Dropdown>
                                 </Field>
                             </div>
                             <div className={styles.formStack}>
