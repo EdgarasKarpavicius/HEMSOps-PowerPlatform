@@ -30,7 +30,6 @@ import {
     ChevronDownRegular,
     ChevronRightRegular,
     DeleteRegular,
-    ReOrderDotsVerticalRegular,
     EditRegular,
     SaveRegular,
 } from "@fluentui/react-icons";
@@ -561,7 +560,7 @@ const useStyles = makeStyles({
         minHeight: "38px",
         padding: "8px 10px",
         borderRadius: tokens.borderRadiusMedium,
-        cursor: "pointer",
+        cursor: "grab",
         color: tokens.colorNeutralForeground2,
         ...shorthands.border("1px", "solid", "transparent"),
         ":hover": {
@@ -606,12 +605,6 @@ const useStyles = makeStyles({
         alignItems: "center",
         gap: "4px",
         flexShrink: 0,
-    },
-    dragHandle: {
-        minWidth: "28px",
-        width: "28px",
-        height: "28px",
-        cursor: "grab",
     },
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
@@ -666,7 +659,7 @@ const useStyles = makeStyles({
         gap: "12px",
         minHeight: "40px",
         padding: "8px 10px",
-        cursor: "pointer",
+        cursor: "grab",
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
@@ -2014,9 +2007,15 @@ function ChecklistDetails({
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropTarget ? styles.dropBeforeRow : "",
                     ].filter(Boolean).join(" ")}
+                    draggable
                     onClick={() => {
                         setSelectedSectionId(section.id);
                         setDraftItem(null);
+                    }}
+                    onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", section.id);
+                        setDraggedItem({ type: "section", id: section.id });
                     }}
                     onDragOver={(event) => {
                         if (!canDropSectionOnTarget(section)) {
@@ -2061,24 +2060,6 @@ function ChecklistDetails({
                         {hasChildren ? `${section.sections.length} child` : `${section.items.length} item`}
                     </Caption1>
                     <div className={styles.rowActions}>
-                        <Button
-                            aria-label="Drag section to reorder"
-                            appearance="subtle"
-                            className={styles.dragHandle}
-                            draggable
-                            icon={<ReOrderDotsVerticalRegular />}
-                            onClick={(event) => event.stopPropagation()}
-                            onDragStart={(event) => {
-                                event.stopPropagation();
-                                event.dataTransfer.effectAllowed = "move";
-                                event.dataTransfer.setData("text/plain", section.id);
-                                setDraggedItem({ type: "section", id: section.id });
-                            }}
-                            onDragEnd={() => {
-                                setDraggedItem(null);
-                                setDragOverTarget(null);
-                            }}
-                        />
                         <Button
                             aria-label="Delete section"
                             appearance="subtle"
@@ -2377,7 +2358,13 @@ function ChecklistDetails({
                                                             dragOverTarget?.type === "item" && dragOverTarget.id === item.id ? styles.dropBeforeRow : "",
                                                         ].filter(Boolean).join(" ")}
                                                         key={item.id}
+                                                        draggable
                                                         onClick={() => startEditItem(selectedSection.id, item)}
+                                                        onDragStart={(event) => {
+                                                            event.dataTransfer.effectAllowed = "move";
+                                                            event.dataTransfer.setData("text/plain", item.id);
+                                                            setDraggedItem({ type: "item", id: item.id, sectionId: selectedSection.id });
+                                                        }}
                                                         onDragOver={(event) => {
                                                             if (!canDropItemOnTarget(item)) {
                                                                 if (dragOverTarget?.type === "item" && dragOverTarget.id === item.id) setDragOverTarget(null);
@@ -2408,24 +2395,6 @@ function ChecklistDetails({
                                                             {item.quantity !== null && item.quantity !== undefined && (
                                                                 <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
                                                             )}
-                                                            <Button
-                                                                aria-label="Drag item to reorder"
-                                                                appearance="subtle"
-                                                                className={styles.dragHandle}
-                                                                draggable
-                                                                icon={<ReOrderDotsVerticalRegular />}
-                                                                onClick={(event) => event.stopPropagation()}
-                                                                onDragStart={(event) => {
-                                                                    event.stopPropagation();
-                                                                    event.dataTransfer.effectAllowed = "move";
-                                                                    event.dataTransfer.setData("text/plain", item.id);
-                                                                    setDraggedItem({ type: "item", id: item.id, sectionId: selectedSection.id });
-                                                                }}
-                                                                onDragEnd={() => {
-                                                                    setDraggedItem(null);
-                                                                    setDragOverTarget(null);
-                                                                }}
-                                                            />
                                                             <Button
                                                                 aria-label="Delete item"
                                                                 appearance="subtle"
