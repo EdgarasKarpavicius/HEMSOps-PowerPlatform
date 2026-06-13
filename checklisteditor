@@ -56,6 +56,7 @@ type ChecklistVersion = {
     id?: string;
     versionNumber: string;
     statuscode: number;
+    statusLabel?: string;
     checklist: Checklist;
     raw?: Record<string, any>;
 };
@@ -585,10 +586,21 @@ async function loadRequireReviewForNewVersions(): Promise<boolean> {
 function getCollectionItems(collection: any): any[] {
     if (!collection) return [];
     if (Array.isArray(collection)) return collection;
+    if (Array.isArray(collection._collection)) return collection._collection;
+    if (Array.isArray(collection.items)) return collection.items;
+    if (typeof collection.forEach === "function") {
+        const items: any[] = [];
+        collection.forEach((item: any) => items.push(item));
+        if (items.length) return items;
+    }
+    if (typeof collection.getLength === "function" && typeof collection.get === "function") {
+        return Array.from({ length: collection.getLength() }, (_, index) => collection.get(index));
+    }
     if (typeof collection.get === "function") {
         const items = collection.get();
         return Array.isArray(items) ? items : [];
     }
+    if (typeof collection === "object") return Object.values(collection);
     return [];
 }
 
@@ -596,10 +608,81 @@ function getOptionLabel(option: any) {
     return (
         option?.Label?.UserLocalizedLabel?.Label ||
         option?.Label?.LocalizedLabels?.[0]?.Label ||
+        option?.label?.userLocalizedLabel?.label ||
+        option?.label?.localizedLabels?.[0]?.label ||
+        option?.label ||
+        option?.Label ||
         option?.text ||
         option?.Text ||
         ""
     );
+}
+
+function getOptionColor(option: any) {
+    const color = option?.Color || option?.color || option?.Metadata?.Color || option?.metadata?.color;
+    return typeof color === "string" && color ? color : undefined;
+}
+
+function mapStatusOptions(options: any[]): Record<number, StatusOption> {
+    return options.reduce((acc, option) => {
+        const value = Number(option?.Value ?? option?.value ?? option?.Status ?? option?.status);
+        if (!Number.isNaN(value)) {
+            acc[value] = {
+                text: getOptionLabel(option) || STATUS_LABELS[value] || value.toString(),
+                color: getOptionColor(option),
+            };
+        }
+        return acc;
+    }, {} as Record<number, StatusOption>);
+}
+
+function mergeStatusOptions(primary: Record<number, StatusOption>, fallback: Record<number, StatusOption>) {
+    const merged = { ...fallback };
+    Object.entries(primary).forEach(([key, option]) => {
+        const value = Number(key);
+        merged[value] = {
+            text: option.text || fallback[value]?.text || STATUS_LABELS[value] || value.toString(),
+            color: option.color || fallback[value]?.color,
+        };
+    });
+    return merged;
+}
+
+function getStatusAttribute(metadata: any) {
+    const attributes = metadata?.Attributes || metadata?.attributes;
+    const attributeItems = getCollectionItems(attributes);
+    return (
+        attributeItems.find((attribute) => attribute?.LogicalName === "statuscode" || attribute?.logicalName === "statuscode") ||
+        attributes?.getByName?.("statuscode") ||
+        attributes?.get?.("statuscode")
+    );
+}
+
+async function loadStatusOptionsFromMetadataApi(entityName: string): Promise<Record<number, StatusOption>> {
+    if (typeof Xrm === "undefined" || typeof fetch === "undefined") return {};
+
+    try {
+        const clientUrl = Xrm.Utility?.getGlobalContext?.()?.getClientUrl?.();
+        if (!clientUrl) return {};
+
+        const url =
+            `${clientUrl}/api/data/v9.2/EntityDefinitions(LogicalName='${entityName}')` +
+            "/Attributes(LogicalName='statuscode')/Microsoft.Dynamics.CRM.StatusAttributeMetadata" +
+            "?$select=LogicalName&$expand=OptionSet";
+        const response = await fetch(url, {
+            headers: {
+                Accept: "application/json",
+                "OData-MaxVersion": "4.0",
+                "OData-Version": "4.0",
+            },
+        });
+        if (!response.ok) return {};
+
+        const metadata = await response.json();
+        return mapStatusOptions(getCollectionItems(metadata?.OptionSet?.Options || metadata?.optionSet?.options));
+    } catch {
+        return {};
+    }
 }
 
 async function loadStatusOptions(entityName = TABLE_NAME): Promise<Record<number, StatusOption>> {
@@ -607,23 +690,24 @@ async function loadStatusOptions(entityName = TABLE_NAME): Promise<Record<number
 
     try {
         const metadata = await Xrm.Utility?.getEntityMetadata?.(entityName, ["statuscode"]);
-        const attributes = getCollectionItems(metadata?.Attributes || metadata?.attributes);
-        const statusAttribute =
-            attributes.find((attribute) => attribute?.LogicalName === "statuscode" || attribute?.logicalName === "statuscode") ||
-            metadata?.Attributes?.get?.("statuscode");
-        const options = getCollectionItems(statusAttribute?.OptionSet?.Options || statusAttribute?.optionSet?.options || statusAttribute?.Options);
-        return options.reduce((acc, option) => {
-            const value = Number(option?.Value ?? option?.value);
-            if (!Number.isNaN(value)) {
-                acc[value] = {
-                    text: getOptionLabel(option) || STATUS_LABELS[value] || value.toString(),
-                    color: option?.Color || option?.color,
-                };
-            }
-            return acc;
-        }, {} as Record<number, StatusOption>);
+        const statusAttribute = getStatusAttribute(metadata);
+        const options = getCollectionItems(
+            statusAttribute?.OptionSet?.Options ||
+                statusAttribute?.optionSet?.options ||
+                statusAttribute?.OptionSet ||
+                statusAttribute?.optionSet ||
+                statusAttribute?.Options ||
+                statusAttribute?.options
+        );
+        const clientOptions = mapStatusOptions(options);
+        const missingColors = Object.values(clientOptions).some((option) => !option.color);
+        if (Object.keys(clientOptions).length === 0 || missingColors) {
+            const apiOptions = await loadStatusOptionsFromMetadataApi(entityName);
+            return mergeStatusOptions(clientOptions, apiOptions);
+        }
+        return clientOptions;
     } catch {
-        return {};
+        return loadStatusOptionsFromMetadataApi(entityName);
     }
 }
 
@@ -639,10 +723,12 @@ function getReadableTextColor(hexColor: string) {
 
 function StatusPill({
     statuscode,
+    fallbackLabel,
     statusOptions,
     className,
 }: {
     statuscode: number;
+    fallbackLabel?: string;
     statusOptions: Record<number, StatusOption>;
     className: string;
 }) {
@@ -658,7 +744,7 @@ function StatusPill({
 
     return (
         <span className={className} style={style}>
-            {option?.text || STATUS_LABELS[statuscode] || statuscode}
+            {option?.text || fallbackLabel || STATUS_LABELS[statuscode] || statuscode}
         </span>
     );
 }
@@ -818,6 +904,7 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
         id: String(getValue(record, ["int_checklistversionid", "id", "checklistversionid"], "")),
         versionNumber: String(getValue(record, ["int_versionnumber", "versionnumber"], "")),
         statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
+        statusLabel: String(getDisplayValue(record, ["statuscode"], "")),
         checklist,
         raw: record,
     };
@@ -1169,6 +1256,7 @@ function ChecklistDetails({
                 <div className={styles.headerAction}>
                     <StatusPill
                         statuscode={version.statuscode}
+                        fallbackLabel={version.statusLabel}
                         statusOptions={statusOptions}
                         className={`${styles.statusPill} ${styles.headerStatusPill}`}
                     />
