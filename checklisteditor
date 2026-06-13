@@ -667,11 +667,6 @@ const useStyles = makeStyles({
         boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
     },
     selectedChildSectionRow: {
-        backgroundColor: tokens.colorBrandBackground2,
-        borderColor: tokens.colorBrandStroke1,
-        borderLeftColor: tokens.colorBrandStroke1,
-        borderLeftWidth: "3px",
-        boxShadow: `inset 0 0 0 1px ${tokens.colorBrandStroke1}`,
         fontWeight: tokens.fontWeightSemibold,
     },
     draggingRow: {
