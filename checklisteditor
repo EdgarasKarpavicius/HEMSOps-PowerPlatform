@@ -29,7 +29,6 @@ import {
     CheckmarkRegular,
     ChevronDownRegular,
     ChevronRightRegular,
-    DeleteRegular,
     EditRegular,
     SaveRegular,
 } from "@fluentui/react-icons";
@@ -2116,14 +2115,14 @@ function ChecklistDetails({
                     </Caption1>
                     <div className={styles.rowActions}>
                         <Button
-                            aria-label="Delete section"
                             appearance="subtle"
-                            icon={<DeleteRegular />}
                             onClick={(event) => {
                                 event.stopPropagation();
                                 requestDeleteSection(section);
                             }}
-                        />
+                        >
+                            Delete
+                        </Button>
                     </div>
                 </div>
                 {hasChildren && !isCollapsed && (
@@ -2452,14 +2451,14 @@ function ChecklistDetails({
                                                                 <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
                                                             )}
                                                             <Button
-                                                                aria-label="Delete item"
                                                                 appearance="subtle"
-                                                                icon={<DeleteRegular />}
                                                                 onClick={(event) => {
                                                                     event.stopPropagation();
                                                                     requestDeleteItem(selectedSection.id, item);
                                                                 }}
-                                                            />
+                                                            >
+                                                                Delete
+                                                            </Button>
                                                         </div>
                                                     </div>
                                                 )
