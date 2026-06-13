@@ -584,9 +584,6 @@ const useStyles = makeStyles({
         ":hover": {
             backgroundColor: tokens.colorNeutralBackground2,
         },
-        ":hover .sectionDeleteAction": {
-            opacity: 1,
-        },
     },
     parentSectionRow: {
         backgroundColor: tokens.colorNeutralBackground2,
@@ -650,6 +647,9 @@ const useStyles = makeStyles({
         width: "24px",
         height: "24px",
         opacity: 0,
+    },
+    visibleSectionDeleteButton: {
+        opacity: 1,
     },
     selectedSectionTitleRow: {
         display: "flex",
@@ -1811,6 +1811,7 @@ function ChecklistDetails({
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingSectionPromotion, setPendingSectionPromotion] = useState<PendingSectionPromotion>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
+    const [hoveredSectionId, setHoveredSectionId] = useState("");
     const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
@@ -2143,6 +2144,10 @@ function ChecklistDetails({
                         setSelectedSectionId(section.id);
                         setDraftItem(null);
                     }}
+                    onMouseEnter={() => setHoveredSectionId(section.id)}
+                    onMouseLeave={() => {
+                        setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
+                    }}
                     onDragStart={(event) => {
                         event.stopPropagation();
                         event.dataTransfer.effectAllowed = "move";
@@ -2200,7 +2205,10 @@ function ChecklistDetails({
                         <Button
                             aria-label="Delete section"
                             appearance="subtle"
-                            className={`${styles.sectionDeleteButton} sectionDeleteAction`}
+                            className={[
+                                styles.sectionDeleteButton,
+                                hoveredSectionId === section.id ? styles.visibleSectionDeleteButton : "",
+                            ].filter(Boolean).join(" ")}
                             icon={<DeleteRegular />}
                             disabled={Boolean(draftSection || draftItem)}
                             onClick={(event) => {
