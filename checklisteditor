@@ -621,6 +621,22 @@ const useStyles = makeStyles({
         gap: "4px",
         flexShrink: 0,
     },
+    rowActionText: {
+        backgroundColor: "transparent",
+        color: tokens.colorNeutralForeground3,
+        fontSize: "12px",
+        lineHeight: "18px",
+        padding: "0",
+        borderTopWidth: 0,
+        borderRightWidth: 0,
+        borderBottomWidth: 0,
+        borderLeftWidth: 0,
+        cursor: "pointer",
+        ":hover": {
+            color: tokens.colorNeutralForeground1,
+            textDecorationLine: "underline",
+        },
+    },
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
         color: tokens.colorNeutralForeground1,
@@ -2114,15 +2130,16 @@ function ChecklistDetails({
                         {hasChildren ? `${section.sections.length} child` : `${section.items.length} item`}
                     </Caption1>
                     <div className={styles.rowActions}>
-                        <Button
-                            appearance="subtle"
+                        <button
+                            type="button"
+                            className={styles.rowActionText}
                             onClick={(event) => {
                                 event.stopPropagation();
                                 requestDeleteSection(section);
                             }}
                         >
                             Delete
-                        </Button>
+                        </button>
                     </div>
                 </div>
                 {hasChildren && !isCollapsed && (
@@ -2450,15 +2467,16 @@ function ChecklistDetails({
                                                             {item.quantity !== null && item.quantity !== undefined && (
                                                                 <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
                                                             )}
-                                                            <Button
-                                                                appearance="subtle"
+                                                            <button
+                                                                type="button"
+                                                                className={styles.rowActionText}
                                                                 onClick={(event) => {
                                                                     event.stopPropagation();
                                                                     requestDeleteItem(selectedSection.id, item);
                                                                 }}
                                                             >
                                                                 Delete
-                                                            </Button>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 )
