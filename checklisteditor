@@ -37,6 +37,8 @@ type Checklist = {
 type ChecklistVersion = {
     id?: string;
     versionNumber: string;
+    description: string;
+    versionType: number;
     statuscode: number;
     statusLabel?: string;
     definition: ChecklistVersionDefinition;
@@ -58,6 +60,8 @@ type AppliesToSelection = {
 type ChecklistVersionDetails = {
     proposedChecklistName: string;
     versionType: number;
+    versionNumber: string;
+    description: string;
     appliesTo: AppliesToSelection | null;
     options: ChecklistVersionOption[];
 };
@@ -644,10 +648,10 @@ function makeId() {
 
 function normalizeSections(sections: any[]): ChecklistSection[] {
     return sections.map((section) => ({
-        id: String(section.id || section.int_checklistsectionid || makeId()),
-        name: String(section.name || section.int_name || ""),
-        bulkServiceable: Boolean(section.bulkServiceable || section.int_bulkserviceable),
-        parentId: section.parentId || section.int_parentsectionid || null,
+        id: String(section.id || makeId()),
+        name: String(section.name || ""),
+        bulkServiceable: Boolean(section.bulkServiceable),
+        parentId: section.parentId || null,
         sections: normalizeSections(Array.isArray(section.sections) ? section.sections : []),
         items: normalizeItems(Array.isArray(section.items) ? section.items : []),
     }));
@@ -655,10 +659,10 @@ function normalizeSections(sections: any[]): ChecklistSection[] {
 
 function normalizeItems(items: any[]): ChecklistItem[] {
     return items.map((item) => ({
-        id: String(item.id || item.int_checklistitemid || makeId()),
-        name: String(item.name || item.int_name || ""),
-        description: String(item.description || item.int_description || ""),
-        quantity: Number(item.quantity || item.int_quantity || 1),
+        id: String(item.id || makeId()),
+        name: String(item.name || ""),
+        description: String(item.description || ""),
+        quantity: Number(item.quantity || 1),
     }));
 }
 
@@ -666,9 +670,7 @@ function parseSections(value: unknown): ChecklistSection[] {
     if (!value || typeof value !== "string") return [];
     try {
         const parsed = JSON.parse(value);
-        const source = Array.isArray(parsed)
-            ? parsed
-            : parsed.checklistVersionContents?.sections || parsed.sections;
+        const source = parsed.checklistVersionContents?.sections;
         return Array.isArray(source) ? normalizeSections(source) : [];
     } catch {
         return [];
@@ -678,7 +680,10 @@ function parseSections(value: unknown): ChecklistSection[] {
 function inferChecklistTypeValue(value: unknown, label: string) {
     const numericValue = Number(value);
     if (!Number.isNaN(numericValue) && numericValue > 0) return numericValue;
-    return label.toLowerCase().includes("stock") ? CHECKLIST_TYPE_STOCK : CHECKLIST_TYPE_STANDARD;
+    const normalized = label.toLowerCase();
+    if (normalized.includes("stock")) return CHECKLIST_TYPE_STOCK;
+    if (normalized.includes("standard")) return CHECKLIST_TYPE_STANDARD;
+    return 0;
 }
 
 function getChecklistTargetTypeValue(record: Record<string, any>) {
@@ -687,10 +692,12 @@ function getChecklistTargetTypeValue(record: Record<string, any>) {
 }
 
 function getChecklistTypeLabel(record: Record<string, any>) {
-    const label = String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], ""));
+    const label = String(getDisplayValue(record, ["int_checklisttype"], ""));
     if (label && Number.isNaN(Number(label))) return label;
-    const value = Number(getValue(record, ["int_checklisttype", "checklisttype"], CHECKLIST_TYPE_STANDARD));
-    return value === CHECKLIST_TYPE_STOCK ? "Stock" : "Standard";
+    const value = Number(getValue(record, ["int_checklisttype"], 0));
+    if (value === CHECKLIST_TYPE_STOCK) return "Stock";
+    if (value === CHECKLIST_TYPE_STANDARD) return "Standard";
+    return "";
 }
 
 function getChecklistTargetTypeLabel(record: Record<string, any>) {
@@ -725,7 +732,7 @@ function normalizeApplicableOptions(options: unknown, checklistTypeValue: number
 }
 
 function getAppliesToOptionId(record: Record<string, any>, idField: string) {
-    return String(getValue(record, [idField, "id"], "")).replace(/[{}]/g, "");
+    return String(getValue(record, [idField], "")).replace(/[{}]/g, "");
 }
 
 function mapAppliesToRecord(record: Record<string, any>, target: { entityName: string; idField: string; categoryLookup?: string }) {
@@ -733,9 +740,9 @@ function mapAppliesToRecord(record: Record<string, any>, target: { entityName: s
     return {
         entityName: target.entityName,
         id: getAppliesToOptionId(record, target.idField),
-        name: String(getDisplayValue(record, ["int_name", "name"], "Unnamed")),
+        name: String(getDisplayValue(record, ["int_name"], "Unnamed")),
         category: categoryLookup
-            ? String(getDisplayValue(record, [`_${categoryLookup}_value`, categoryLookup], "Uncategorised"))
+            ? String(getDisplayValue(record, [`_${categoryLookup}_value`], "Uncategorised"))
             : undefined,
     };
 }
@@ -770,6 +777,8 @@ function buildChecklistVersionDefinition({
     checklist,
     proposedChecklistName,
     versionType,
+    versionNumber,
+    description,
     appliesTo,
     options,
     sections,
@@ -777,6 +786,8 @@ function buildChecklistVersionDefinition({
     checklist: Checklist;
     proposedChecklistName: string;
     versionType: number;
+    versionNumber: string;
+    description: string;
     appliesTo: AppliesToSelection | null;
     options: ChecklistVersionOption[];
     sections: ChecklistSection[];
@@ -785,6 +796,8 @@ function buildChecklistVersionDefinition({
         checklistVersionDetails: {
             proposedChecklistName: proposedChecklistName.trim() || checklist.name,
             versionType,
+            versionNumber,
+            description,
             appliesTo,
             options: normalizeApplicableOptions(options, checklist.checklistTypeValue),
         },
@@ -814,7 +827,7 @@ function getDefinitionHashPayload(checklistId: string | undefined, definition: C
 }
 
 function parseChecklistVersionDefinition(record: Record<string, any>, checklist: Checklist): ChecklistVersionDefinition {
-    const rawDefinition = String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""));
+    const rawDefinition = String(getValue(record, ["int_definitionjson"], ""));
     let parsed: any = {};
     if (rawDefinition) {
         try {
@@ -829,6 +842,9 @@ function parseChecklistVersionDefinition(record: Record<string, any>, checklist:
     const proposedChecklistName = String(
         getValue(record, ["int_proposedchecklistname"], details.proposedChecklistName || checklist.name)
     );
+    const versionType = Number(getValue(record, ["int_versiontype"], details.versionType || VERSION_TYPE_MINOR));
+    const versionNumber = String(getValue(record, ["int_versionnumber"], details.versionNumber || ""));
+    const description = String(getValue(record, ["int_description"], details.description || ""));
     const appliesTo = details.appliesTo && typeof details.appliesTo === "object"
         ? {
               entityName: String(details.appliesTo.entityName || ""),
@@ -841,27 +857,29 @@ function parseChecklistVersionDefinition(record: Record<string, any>, checklist:
     return {
         checklistVersionDetails: {
             proposedChecklistName,
-            versionType: Number(details.versionType || VERSION_TYPE_MINOR),
+            versionType,
+            versionNumber,
+            description,
             appliesTo,
             options: normalizeApplicableOptions(details.options, checklist.checklistTypeValue),
         },
         checklistVersionContents: {
-            sections: normalizeSections(Array.isArray(contents.sections) ? contents.sections : parsed.sections || checklist.sections),
+            sections: normalizeSections(Array.isArray(contents.sections) ? contents.sections : checklist.sections),
         },
     };
 }
 
 function mapChecklistRecord(record: Record<string, any>): Checklist {
     const definitionJson = String(
-        getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], "")
+        getValue(record, ["int_definitionjson"], "")
     );
     const checklistType = getChecklistTypeLabel(record);
     const targetType = getChecklistTargetTypeLabel(record);
     return {
-        id: String(getValue(record, ["int_checklistid", "id", "checklistid"], "")),
-        name: String(getValue(record, ["int_name", "name", "int_checklistname"], "Untitled checklist")),
+        id: String(getValue(record, ["int_checklistid"], "")),
+        name: String(getValue(record, ["int_name"], "Untitled checklist")),
         checklistType,
-        checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
+        checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype"], ""), checklistType),
         targetType,
         targetTypeValue: getChecklistTargetTypeValue(record),
         sections: parseSections(definitionJson),
@@ -874,7 +892,7 @@ async function loadChecklistFromDataverse(checklistId: string): Promise<Checklis
         const record = await Xrm.WebApi.retrieveRecord(
             TABLE_NAME,
             checklistId,
-            "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion"
+            "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype,int_definitionjson"
         );
         return mapChecklistRecord(record);
     } catch {
@@ -882,27 +900,9 @@ async function loadChecklistFromDataverse(checklistId: string): Promise<Checklis
     }
 }
 
-function getExpandedChecklist(record: Record<string, any>, relationshipNames: string[]): Checklist | null {
-    const expanded = relationshipNames
-        .map((name) => record[name])
-        .find((value) => value && typeof value === "object");
+function getExpandedChecklist(record: Record<string, any>, relationshipName: string): Checklist | null {
+    const expanded = record[relationshipName];
     return expanded ? mapChecklistRecord(expanded) : null;
-}
-
-function mapChecklistFromVersionRecord(record: Record<string, any>): Checklist {
-    const checklistType = String(getDisplayValue(record, ["int_checklisttype", "checklisttype"], "Standard"));
-    const targetType = getChecklistTargetTypeLabel(record);
-    return {
-        id: getLookupId(record, ["_int_checklist_value", "_int_checklistid_value", "_int_checklistid_value"]),
-        name: String(
-            getDisplayValue(record, ["_int_checklist_value", "_int_checklistid_value", "int_checklistid"], "Untitled checklist")
-        ),
-        checklistType,
-        checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype", "checklisttype"], ""), checklistType),
-        targetType,
-        targetTypeValue: getChecklistTargetTypeValue(record),
-        sections: parseSections(String(getValue(record, ["int_definitionjson", "int_definition", "definitionjson"], ""))),
-    };
 }
 
 function getRelationshipNavigationName(relationship: any) {
@@ -936,8 +936,10 @@ async function loadChecklistNavigationProperty(): Promise<string | null> {
 
 function mapChecklistVersionRecord(record: Record<string, any>, checklist: Checklist): ChecklistVersion {
     return {
-        id: String(getValue(record, ["int_checklistversionid", "id", "checklistversionid"], "")),
-        versionNumber: String(getValue(record, ["int_versionnumber", "versionnumber"], "")),
+        id: String(getValue(record, ["int_checklistversionid"], "")),
+        versionNumber: String(getValue(record, ["int_versionnumber"], "")),
+        description: String(getValue(record, ["int_description"], "")),
+        versionType: Number(getValue(record, ["int_versiontype"], VERSION_TYPE_MINOR)),
         statuscode: Number(getValue(record, ["statuscode"], STATUS_DRAFT)),
         statusLabel: String(getDisplayValue(record, ["statuscode"], "")),
         definition: parseChecklistVersionDefinition(record, checklist),
@@ -947,38 +949,32 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
 
 async function loadChecklistVersionFromDataverse(versionId: string): Promise<ChecklistVersion | null> {
     if (!versionId) return null;
-    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype,statuscode,int_definitionjson,int_definitionhash,int_currentversion";
+    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype,int_definitionjson";
     const metadataNavigationName = await loadChecklistNavigationProperty();
-    const relationshipNames = [
-        metadataNavigationName,
-        "int_Checklist",
-        "int_checklist",
-        "int_ChecklistId",
-        "int_checklistid",
-    ].filter((name, index, names): name is string => !!name && names.indexOf(name) === index);
-
-    for (const relationshipName of relationshipNames) {
+    if (metadataNavigationName) {
         try {
             const record = await Xrm.WebApi.retrieveRecord(
                 VERSION_TABLE_NAME,
                 versionId,
-                `?$select=int_checklistversionid,int_versionnumber,statuscode,int_definitionjson&$expand=${relationshipName}($select=${checklistSelect})`
+                `?$select=int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statuscode,int_definitionjson&$expand=${metadataNavigationName}($select=${checklistSelect})`
             );
-            const checklist = getExpandedChecklist(record, relationshipNames);
+            const checklist = getExpandedChecklist(record, metadataNavigationName);
             if (checklist) return mapChecklistVersionRecord(record, checklist);
         } catch {
-            // Try the next possible relationship navigation property.
+            // Fall back to retrieving the parent checklist through the exact lookup value.
         }
     }
 
-    const record = await Xrm.WebApi.retrieveRecord(VERSION_TABLE_NAME, versionId);
-    const fallbackChecklist = mapChecklistFromVersionRecord(record);
+    const record = await Xrm.WebApi.retrieveRecord(
+        VERSION_TABLE_NAME,
+        versionId,
+        "?$select=int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statuscode,int_definitionjson,_int_checklist_value"
+    );
     const checklistId = getLookupId(record, [
         "_int_checklist_value",
-        "_int_checklistid_value",
-        "_int_Checklist_value",
     ]);
-    const checklist = (await loadChecklistFromDataverse(checklistId)) || fallbackChecklist;
+    const checklist = await loadChecklistFromDataverse(checklistId);
+    if (!checklist) throw new Error("The checklist version does not reference a readable parent checklist.");
     return mapChecklistVersionRecord(record, checklist);
 }
 
@@ -986,12 +982,22 @@ async function saveChecklistVersionDefinition(version: ChecklistVersion, definit
     if (!version.id) return version;
     const definitionJson = JSON.stringify(definition);
     const definitionHash = hashText(stableStringify(getDefinitionHashPayload(version.checklist.id, definition)));
+    const details = definition.checklistVersionDetails;
+    const versionNumber = Number(details.versionNumber);
+    if (Number.isNaN(versionNumber)) throw new Error("Version number must be a valid number.");
     await Xrm.WebApi.updateRecord(VERSION_TABLE_NAME, version.id, {
+        int_proposedchecklistname: details.proposedChecklistName,
+        int_versiontype: details.versionType,
+        int_versionnumber: versionNumber,
+        int_description: details.description,
         int_definitionjson: definitionJson,
         int_definitionhash: definitionHash,
     });
     return {
         ...version,
+        versionNumber: details.versionNumber,
+        versionType: details.versionType,
+        description: details.description,
         definition,
     };
 }
@@ -1205,7 +1211,13 @@ function ChecklistDetails({
     const [proposedChecklistName, setProposedChecklistName] = useState(
         version.definition.checklistVersionDetails.proposedChecklistName || checklist.name
     );
-    const [versionType, setVersionType] = useState(version.definition.checklistVersionDetails.versionType || VERSION_TYPE_MINOR);
+    const [versionType, setVersionType] = useState(version.versionType || version.definition.checklistVersionDetails.versionType || VERSION_TYPE_MINOR);
+    const [versionNumber, setVersionNumber] = useState(
+        version.versionNumber || version.definition.checklistVersionDetails.versionNumber || ""
+    );
+    const [description, setDescription] = useState(
+        version.description || version.definition.checklistVersionDetails.description || ""
+    );
     const [appliesTo, setAppliesTo] = useState<AppliesToSelection | null>(version.definition.checklistVersionDetails.appliesTo);
     const [options, setOptions] = useState(version.definition.checklistVersionDetails.options);
 
@@ -1225,11 +1237,13 @@ function ChecklistDetails({
                 checklist,
                 proposedChecklistName,
                 versionType,
+                versionNumber,
+                description,
                 appliesTo,
                 options,
                 sections: version.definition.checklistVersionContents.sections,
             }),
-        [appliesTo, checklist, options, proposedChecklistName, version.definition.checklistVersionContents.sections, versionType]
+        [appliesTo, checklist, description, options, proposedChecklistName, version.definition.checklistVersionContents.sections, versionNumber, versionType]
     );
     const originalDefinitionText = useMemo(() => stableStringify(version.definition), [version.definition]);
     const currentDefinitionText = useMemo(() => stableStringify(currentDefinition), [currentDefinition]);
@@ -1259,7 +1273,7 @@ function ChecklistDetails({
         <div className={styles.detailsPage}>
             <div className={styles.editorHeader}>
                 <div className={styles.titleStack}>
-                    <Text className={styles.eyebrow}>{`${checklist.checklistType} Checklist`}</Text>
+                    <Text className={styles.eyebrow}>{checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist"}</Text>
                     <div className={styles.editableTitleRow}>
                         {isEditingName ? (
                             <Input
@@ -1283,7 +1297,7 @@ function ChecklistDetails({
                         )}
                     </div>
                     <Caption1 block className={styles.pageSubtitle}>
-                        {`${t("version")}: ${version.versionNumber || "-"}`}
+                        {`${t("version")}: ${versionNumber || "-"}`}
                     </Caption1>
                     {checklist.targetType && (
                         <Caption1 block className={styles.pageSubtitle}>
@@ -1341,6 +1355,20 @@ function ChecklistDetails({
                                             </Option>
                                         ))}
                                     </Dropdown>
+                                </Field>
+                                <Field label="Version number">
+                                    <Input
+                                        type="number"
+                                        step="0.1"
+                                        value={versionNumber}
+                                        onChange={(_, data) => setVersionNumber(data.value)}
+                                    />
+                                </Field>
+                                <Field label="Description">
+                                    <Input
+                                        value={description}
+                                        onChange={(_, data) => setDescription(data.value)}
+                                    />
                                 </Field>
                             </section>
                             <section className={styles.generalSection}>
