@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
     Button,
     Caption1,
@@ -29,6 +29,7 @@ import {
     CheckmarkRegular,
     ChevronDownRegular,
     ChevronRightRegular,
+    DeleteRegular,
     EditRegular,
     SaveRegular,
 } from "@fluentui/react-icons";
@@ -284,12 +285,9 @@ const CHECKLIST_OPTION_DEFINITIONS = [
 
 const useStyles = makeStyles({
     page: {
-        position: "fixed",
-        inset: 0,
         width: "100%",
-        height: "100dvh",
-        minHeight: "100dvh",
-        maxHeight: "100dvh",
+        height: "100%",
+        minHeight: "100%",
         boxSizing: "border-box",
         backgroundColor: tokens.colorNeutralBackground3,
         color: tokens.colorNeutralForeground1,
@@ -301,14 +299,9 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         flexGrow: 1,
-        flexBasis: 0,
-        height: "100dvh",
-        maxHeight: "100dvh",
         minHeight: 0,
-        boxSizing: "border-box",
         padding: "22px 24px",
         rowGap: "14px",
-        overflow: "hidden",
     },
     header: {
         display: "flex",
@@ -377,7 +370,6 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         flexGrow: 1,
-        flexBasis: 0,
         height: "100%",
         minHeight: 0,
         rowGap: "16px",
@@ -401,10 +393,10 @@ const useStyles = makeStyles({
         backgroundColor: tokens.colorNeutralBackground2,
         color: tokens.colorNeutralForeground2,
     },
-    metadataStatusPill: {
-        padding: "5px 12px",
-        fontSize: "13px",
-        lineHeight: "20px",
+    headerStatusPill: {
+        padding: "6px 14px",
+        fontSize: "14px",
+        lineHeight: "22px",
     },
     versionsSurface: {
         backgroundColor: tokens.colorNeutralBackground1,
@@ -420,8 +412,6 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         flexGrow: 1,
-        flexBasis: 0,
-        height: "100%",
         minHeight: 0,
         overflow: "hidden",
     },
@@ -437,8 +427,6 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         flexGrow: 1,
-        flexBasis: 0,
-        height: "100%",
         minHeight: 0,
         overflow: "hidden",
         padding: "14px 0 0",
@@ -512,9 +500,8 @@ const useStyles = makeStyles({
         gridTemplateColumns: "minmax(280px, 35%) minmax(0, 1fr)",
         gap: "18px",
         flexGrow: 1,
-        flexBasis: 0,
         height: "100%",
-        minHeight: 0,
+        minHeight: "420px",
         overflow: "hidden",
     },
     contentsColumn: {
@@ -573,6 +560,7 @@ const useStyles = makeStyles({
         minHeight: "38px",
         padding: "8px 10px",
         borderRadius: tokens.borderRadiusMedium,
+        cursor: "grab",
         color: tokens.colorNeutralForeground2,
         ...shorthands.border("1px", "solid", "transparent"),
         ":hover": {
@@ -593,14 +581,11 @@ const useStyles = makeStyles({
         borderLeftColor: tokens.colorBrandStroke1,
         borderLeftWidth: "3px",
         borderLeftStyle: "solid",
-        borderTopColor: tokens.colorNeutralStroke3,
-        borderTopWidth: "1px",
-        borderTopStyle: "solid",
     },
     sectionChildren: {
         display: "flex",
         flexDirection: "column",
-        gap: "0",
+        gap: "5px",
         marginTop: "5px",
         marginBottom: "2px",
     },
@@ -624,10 +609,7 @@ const useStyles = makeStyles({
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
         color: tokens.colorNeutralForeground1,
-        borderTopColor: tokens.colorBrandStroke1,
-        borderRightColor: tokens.colorBrandStroke1,
-        borderBottomColor: tokens.colorBrandStroke1,
-        borderLeftColor: tokens.colorBrandStroke1,
+        borderColor: tokens.colorBrandStroke1,
     },
     draggingRow: {
         opacity: 0.55,
@@ -677,6 +659,7 @@ const useStyles = makeStyles({
         gap: "12px",
         minHeight: "40px",
         padding: "8px 10px",
+        cursor: "grab",
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
@@ -910,10 +893,7 @@ function StatusPill({
     const style = color
         ? {
               backgroundColor: color,
-              borderTopColor: color,
-              borderRightColor: color,
-              borderBottomColor: color,
-              borderLeftColor: color,
+              borderColor: color,
               color: getReadableTextColor(color),
           }
         : undefined;
@@ -1836,45 +1816,6 @@ function ChecklistDetails({
         setDraftItem({ sectionId, name: "", description: "", quantity: "" });
         setDraftSection(null);
     };
-    const handleChecklistShortcutKeyDown = useCallback((event: KeyboardEvent | React.KeyboardEvent) => {
-        if (event.key !== " " || activeTab !== "contents" || !selectedSection || draftSection || draftItem) return;
-        const target = event.target as HTMLElement | null;
-        const tagName = target?.tagName.toLowerCase();
-        if (
-            tagName === "input" ||
-            tagName === "textarea" ||
-            tagName === "select" ||
-            tagName === "button" ||
-            target?.isContentEditable
-        ) {
-            return;
-        }
-
-        if (selectedSectionHasChildren && canAddChildSection) {
-            event.preventDefault();
-            startNewSection(selectedSection.id);
-            return;
-        }
-        if (!selectedSectionHasChildren) {
-            event.preventDefault();
-            startNewItem(selectedSection.id);
-        }
-    }, [
-        activeTab,
-        canAddChildSection,
-        draftItem,
-        draftSection,
-        selectedSection,
-        selectedSectionHasChildren,
-        startNewItem,
-        startNewSection,
-    ]);
-    useEffect(() => {
-        if (typeof document === "undefined") return;
-        const handleKeyDown = (event: KeyboardEvent) => handleChecklistShortcutKeyDown(event);
-        document.addEventListener("keydown", handleKeyDown);
-        return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [handleChecklistShortcutKeyDown]);
     const startEditItem = (sectionId: string, item: ChecklistItem) => {
         setDraftItem({
             sectionId,
@@ -2067,7 +2008,6 @@ function ChecklistDetails({
                         isDropTarget ? styles.dropBeforeRow : "",
                     ].filter(Boolean).join(" ")}
                     draggable
-                    tabIndex={0}
                     onClick={() => {
                         setSelectedSectionId(section.id);
                         setDraftItem(null);
@@ -2119,6 +2059,17 @@ function ChecklistDetails({
                     <Caption1 className={styles.mutedText}>
                         {hasChildren ? `${section.sections.length} child` : `${section.items.length} item`}
                     </Caption1>
+                    <div className={styles.rowActions}>
+                        <Button
+                            aria-label="Delete section"
+                            appearance="subtle"
+                            icon={<DeleteRegular />}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                requestDeleteSection(section);
+                            }}
+                        />
+                    </div>
                 </div>
                 {hasChildren && !isCollapsed && (
                     <div className={styles.sectionChildren}>
@@ -2182,16 +2133,12 @@ function ChecklistDetails({
                     )}
                 </div>
                 <div className={styles.headerAction}>
-                    {hasDefinitionChanges && (
-                        <Button
-                            appearance="primary"
-                            icon={<SaveRegular />}
-                            disabled={isSaving}
-                            onClick={handleSave}
-                        >
-                            {isSaving ? "Saving" : "Save"}
-                        </Button>
-                    )}
+                    <StatusPill
+                        statuscode={version.statuscode}
+                        fallbackLabel={version.statusLabel}
+                        statusOptions={statusOptions}
+                        className={`${styles.statusPill} ${styles.headerStatusPill}`}
+                    />
                 </div>
             </div>
             {saveError && (
@@ -2209,20 +2156,22 @@ function ChecklistDetails({
                         <Tab value="contents">Contents</Tab>
                         <Tab value="options">Options</Tab>
                     </TabList>
+                    {hasDefinitionChanges && (
+                        <Button
+                            appearance="primary"
+                            icon={<SaveRegular />}
+                            disabled={isSaving}
+                            onClick={handleSave}
+                        >
+                            {isSaving ? "Saving" : "Save"}
+                        </Button>
+                    )}
                 </div>
                 {activeTab === "general" ? (
                     <div className={styles.tabPanel}>
                         <div className={styles.formStack}>
                             <section className={styles.generalSection}>
                                 <Text className={styles.generalSectionTitle}>Version Details</Text>
-                                <Field label="Status">
-                                    <StatusPill
-                                        statuscode={version.statuscode}
-                                        fallbackLabel={version.statusLabel}
-                                        statusOptions={statusOptions}
-                                        className={`${styles.statusPill} ${styles.metadataStatusPill}`}
-                                    />
-                                </Field>
                                 <Field label="Version type">
                                     <Dropdown
                                         className={styles.controlFullWidth}
@@ -2298,6 +2247,7 @@ function ChecklistDetails({
                                         </Caption1>
                                     </div>
                                     <Button
+                                        appearance="primary"
                                         icon={<AddRegular />}
                                         disabled={Boolean(draftSection || draftItem)}
                                         onClick={() => startNewSection(null)}
@@ -2445,6 +2395,15 @@ function ChecklistDetails({
                                                             {item.quantity !== null && item.quantity !== undefined && (
                                                                 <Caption1 className={styles.mutedText}>{`Qty ${item.quantity}`}</Caption1>
                                                             )}
+                                                            <Button
+                                                                aria-label="Delete item"
+                                                                appearance="subtle"
+                                                                icon={<DeleteRegular />}
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    requestDeleteItem(selectedSection.id, item);
+                                                                }}
+                                                            />
                                                         </div>
                                                     </div>
                                                 )
