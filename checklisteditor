@@ -661,6 +661,14 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground1,
         borderColor: tokens.colorBrandStroke1,
     },
+    selectedChildSectionRow: {
+        backgroundColor: tokens.colorBrandBackground2,
+        borderColor: tokens.colorBrandStroke1,
+        borderLeftColor: tokens.colorBrandStroke1,
+        borderLeftWidth: "5px",
+        boxShadow: `inset 0 0 0 1px ${tokens.colorBrandStroke1}`,
+        fontWeight: tokens.fontWeightSemibold,
+    },
     draggingRow: {
         opacity: 0.55,
         pointerEvents: "none",
@@ -2332,6 +2340,7 @@ function ChecklistDetails({
     const renderSectionRow = (section: ChecklistSection, depth = 0): React.ReactNode => {
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
+        const isSelectedSection = selectedSectionId === section.id;
         const isDropBeforeTarget =
             dragOverTarget?.type === "section" &&
             dragOverTarget.id === section.id &&
@@ -2363,7 +2372,8 @@ function ChecklistDetails({
                     className={[
                         styles.sectionRow,
                         depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
-                        selectedSectionId === section.id ? styles.selectedSectionRow : "",
+                        isSelectedSection ? styles.selectedSectionRow : "",
+                        isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropBeforeTarget ? styles.dropBeforeRow : "",
                         isDropChildTarget ? styles.dropIntoSectionRow : "",
