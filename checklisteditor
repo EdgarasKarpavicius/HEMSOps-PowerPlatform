@@ -21,6 +21,8 @@ import {
 import {
     AddRegular,
     CheckmarkRegular,
+    ChevronDownRegular,
+    ChevronRightRegular,
     EditRegular,
     SaveRegular,
 } from "@fluentui/react-icons";
@@ -507,8 +509,8 @@ const useStyles = makeStyles({
         alignItems: "center",
         justifyContent: "space-between",
         gap: "8px",
-        minHeight: "36px",
-        padding: "7px 10px",
+        minHeight: "38px",
+        padding: "8px 10px",
         borderRadius: tokens.borderRadiusMedium,
         cursor: "grab",
         color: tokens.colorNeutralForeground2,
@@ -519,14 +521,34 @@ const useStyles = makeStyles({
     },
     parentSectionRow: {
         backgroundColor: tokens.colorNeutralBackground2,
+        minHeight: "46px",
+        padding: "10px 12px",
         fontWeight: tokens.fontWeightSemibold,
     },
     childSectionRow: {
-        marginLeft: "18px",
+        marginLeft: "28px",
         backgroundColor: tokens.colorNeutralBackground1,
         borderLeftColor: tokens.colorBrandStroke1,
         borderLeftWidth: "3px",
         borderLeftStyle: "solid",
+    },
+    sectionChildren: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        marginTop: "8px",
+        marginBottom: "4px",
+    },
+    sectionMain: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        minWidth: 0,
+    },
+    sectionChevron: {
+        minWidth: "28px",
+        width: "28px",
+        height: "28px",
     },
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
@@ -540,6 +562,18 @@ const useStyles = makeStyles({
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
+    },
+    sectionPathTitle: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        flexWrap: "wrap",
+    },
+    sectionPathPart: {
+        color: tokens.colorNeutralForeground3,
+    },
+    sectionPathCurrent: {
+        color: tokens.colorNeutralForeground1,
     },
     draftSectionRow: {
         display: "grid",
@@ -866,6 +900,16 @@ function findSectionById(sections: ChecklistSection[], sectionId: string | null)
         if (childMatch) return childMatch;
     }
     return null;
+}
+
+function findSectionPathById(sections: ChecklistSection[], sectionId: string | null): ChecklistSection[] {
+    if (!sectionId) return [];
+    for (const section of sections) {
+        if (section.id === sectionId) return [section];
+        const childPath = findSectionPathById(section.sections, sectionId);
+        if (childPath.length) return [section, ...childPath];
+    }
+    return [];
 }
 
 function appendSection(sections: ChecklistSection[], parentId: string | null, section: ChecklistSection): ChecklistSection[] {
@@ -1511,6 +1555,7 @@ function ChecklistDetails({
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
+    const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
         let isMounted = true;
@@ -1551,12 +1596,23 @@ function ChecklistDetails({
         () => findSectionById(sections, selectedSectionId),
         [sections, selectedSectionId]
     );
+    const selectedSectionPath = useMemo(
+        () => findSectionPathById(sections, selectedSectionId),
+        [sections, selectedSectionId]
+    );
     const selectedSectionDepth = flattenedSections.find(({ section }) => section.id === selectedSectionId)?.depth ?? 0;
     const canAddChildSection = Boolean(selectedSection && selectedSectionDepth === 0 && selectedSection.items.length === 0);
     const selectedSectionHasChildren = Boolean(selectedSection && selectedSection.sections.length > 0);
     const startNewSection = (parentId: string | null) => {
         setDraftSection({ parentId, name: "" });
         setDraftItem(null);
+        if (parentId) {
+            setCollapsedSectionIds((current) => {
+                const next = new Set(current);
+                next.delete(parentId);
+                return next;
+            });
+        }
     };
     const confirmDraftSection = () => {
         if (!draftSection?.name.trim()) return;
@@ -1564,6 +1620,17 @@ function ChecklistDetails({
         setSections((current) => appendSection(current, draftSection.parentId, newSection));
         setSelectedSectionId(newSection.id);
         setDraftSection(null);
+    };
+    const toggleCollapsedSection = (sectionId: string) => {
+        setCollapsedSectionIds((current) => {
+            const next = new Set(current);
+            if (next.has(sectionId)) {
+                next.delete(sectionId);
+            } else {
+                next.add(sectionId);
+            }
+            return next;
+        });
     };
     const startNewItem = (sectionId: string) => {
         setDraftItem({ sectionId, name: "" });
@@ -1640,45 +1707,70 @@ function ChecklistDetails({
             />
         </div>
     );
-    const renderSectionRow = (section: ChecklistSection, depth = 0): React.ReactNode => (
-        <React.Fragment key={section.id}>
-            <div
-                className={[
-                    styles.sectionRow,
-                    depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
-                    selectedSectionId === section.id ? styles.selectedSectionRow : "",
-                    draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
-                ].filter(Boolean).join(" ")}
-                draggable
-                onClick={() => {
-                    setSelectedSectionId(section.id);
-                    setDraftItem(null);
-                }}
-                onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", section.id);
-                    setDraggedItem({ type: "section", id: section.id });
-                }}
-                onDragOver={(event) => {
-                    if (draggedItem?.type === "section") event.preventDefault();
-                }}
-                onDrop={(event) => {
-                    event.preventDefault();
-                    handleSectionDrop(section);
-                }}
-                onDragEnd={() => setDraggedItem(null)}
-            >
-                <Text className={styles.sectionRowText} weight={selectedSectionId === section.id ? "semibold" : "regular"}>
-                    {section.name || "Untitled section"}
-                </Text>
-                <Caption1 className={styles.mutedText}>
-                    {section.sections.length ? `${section.sections.length} child` : `${section.items.length} item`}
-                </Caption1>
-            </div>
-            {section.sections.map((childSection) => renderSectionRow(childSection, depth + 1))}
-            {draftSection?.parentId === section.id && renderDraftSectionRow(depth + 1)}
-        </React.Fragment>
-    );
+    const renderSectionRow = (section: ChecklistSection, depth = 0): React.ReactNode => {
+        const hasChildren = section.sections.length > 0;
+        const isCollapsed = collapsedSectionIds.has(section.id);
+
+        return (
+            <React.Fragment key={section.id}>
+                <div
+                    className={[
+                        styles.sectionRow,
+                        depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
+                        selectedSectionId === section.id ? styles.selectedSectionRow : "",
+                        draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
+                    ].filter(Boolean).join(" ")}
+                    draggable
+                    onClick={() => {
+                        setSelectedSectionId(section.id);
+                        setDraftItem(null);
+                    }}
+                    onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", section.id);
+                        setDraggedItem({ type: "section", id: section.id });
+                    }}
+                    onDragOver={(event) => {
+                        if (draggedItem?.type === "section") event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                        event.preventDefault();
+                        handleSectionDrop(section);
+                    }}
+                    onDragEnd={() => setDraggedItem(null)}
+                >
+                    <div className={styles.sectionMain}>
+                        {hasChildren ? (
+                            <Button
+                                aria-label={isCollapsed ? "Expand section" : "Collapse section"}
+                                appearance="subtle"
+                                className={styles.sectionChevron}
+                                icon={isCollapsed ? <ChevronRightRegular /> : <ChevronDownRegular />}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    toggleCollapsedSection(section.id);
+                                }}
+                            />
+                        ) : (
+                            <span className={styles.sectionChevron} />
+                        )}
+                        <Text className={styles.sectionRowText} weight={depth === 0 || selectedSectionId === section.id ? "semibold" : "regular"}>
+                            {section.name || "Untitled section"}
+                        </Text>
+                    </div>
+                    <Caption1 className={styles.mutedText}>
+                        {hasChildren ? `${section.sections.length} child` : `${section.items.length} item`}
+                    </Caption1>
+                </div>
+                {hasChildren && !isCollapsed && (
+                    <div className={styles.sectionChildren}>
+                        {section.sections.map((childSection) => renderSectionRow(childSection, depth + 1))}
+                    </div>
+                )}
+                {draftSection?.parentId === section.id && renderDraftSectionRow(depth + 1)}
+            </React.Fragment>
+        );
+    };
     const handleSave = async () => {
         setSaveError("");
         setIsSaving(true);
@@ -1867,9 +1959,23 @@ function ChecklistDetails({
                             <div className={styles.contentsColumn}>
                                 <div className={styles.contentsColumnHeader}>
                                     <div>
-                                        <Text block weight="semibold">
-                                            {selectedSection?.name || "Select a section"}
-                                        </Text>
+                                        {selectedSectionPath.length ? (
+                                            <div className={styles.sectionPathTitle}>
+                                                {selectedSectionPath.map((section, index) => (
+                                                    <React.Fragment key={section.id}>
+                                                        {index > 0 && <Text className={styles.mutedText}>{">"}</Text>}
+                                                        <Text
+                                                            weight={index === selectedSectionPath.length - 1 ? "semibold" : "regular"}
+                                                            className={index === selectedSectionPath.length - 1 ? styles.sectionPathCurrent : styles.sectionPathPart}
+                                                        >
+                                                            {section.name || "Untitled section"}
+                                                        </Text>
+                                                    </React.Fragment>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <Text block weight="semibold">Select a section</Text>
+                                        )}
                                         {selectedSection && (
                                             <Caption1 className={styles.mutedText}>
                                                 {selectedSectionHasChildren
