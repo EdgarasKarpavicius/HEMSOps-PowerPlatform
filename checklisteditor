@@ -870,9 +870,6 @@ function parseChecklistVersionDefinition(record: Record<string, any>, checklist:
 }
 
 function mapChecklistRecord(record: Record<string, any>): Checklist {
-    const definitionJson = String(
-        getValue(record, ["int_definitionjson"], "")
-    );
     const checklistType = getChecklistTypeLabel(record);
     const targetType = getChecklistTargetTypeLabel(record);
     return {
@@ -882,7 +879,7 @@ function mapChecklistRecord(record: Record<string, any>): Checklist {
         checklistTypeValue: inferChecklistTypeValue(getValue(record, ["int_checklisttype"], ""), checklistType),
         targetType,
         targetTypeValue: getChecklistTargetTypeValue(record),
-        sections: parseSections(definitionJson),
+        sections: [],
     };
 }
 
@@ -892,7 +889,7 @@ async function loadChecklistFromDataverse(checklistId: string): Promise<Checklis
         const record = await Xrm.WebApi.retrieveRecord(
             TABLE_NAME,
             checklistId,
-            "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype,int_definitionjson"
+            "?$select=int_checklistid,int_name,int_checklisttype,int_checklisttargettype"
         );
         return mapChecklistRecord(record);
     } catch {
@@ -949,7 +946,7 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
 
 async function loadChecklistVersionFromDataverse(versionId: string): Promise<ChecklistVersion | null> {
     if (!versionId) return null;
-    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype,int_definitionjson";
+    const checklistSelect = "int_checklistid,int_name,int_checklisttype,int_checklisttargettype";
     const metadataNavigationName = await loadChecklistNavigationProperty();
     if (metadataNavigationName) {
         try {
@@ -973,8 +970,9 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
     const checklistId = getLookupId(record, [
         "_int_checklist_value",
     ]);
+    if (!checklistId) throw new Error("The checklist version record does not contain an int_checklist lookup value.");
     const checklist = await loadChecklistFromDataverse(checklistId);
-    if (!checklist) throw new Error("The checklist version does not reference a readable parent checklist.");
+    if (!checklist) throw new Error(`The parent checklist ${checklistId} could not be read.`);
     return mapChecklistVersionRecord(record, checklist);
 }
 
