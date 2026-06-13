@@ -355,25 +355,20 @@ const useStyles = makeStyles({
         overflow: "hidden",
         boxShadow: tokens.shadow2,
     },
-    workbenchSurface: {
-        backgroundColor: tokens.colorNeutralBackground1,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
-        display: "grid",
-        gridTemplateRows: "auto minmax(0, 1fr)",
+    tabSurface: {
+        display: "flex",
+        flexDirection: "column",
         minHeight: 0,
         overflow: "hidden",
-        boxShadow: tokens.shadow2,
     },
-    workbenchTabs: {
-        padding: "8px 14px 0",
-        backgroundColor: tokens.colorNeutralBackground2,
+    tabHeader: {
+        padding: "0 0 6px",
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
     tabPanel: {
         minHeight: 0,
         overflow: "auto",
-        padding: "18px",
+        padding: "14px 0 0",
     },
     formStack: {
         display: "flex",
@@ -1354,8 +1349,8 @@ function ChecklistDetails({
                     <MessageBarBody>{saveError}</MessageBarBody>
                 </MessageBar>
             )}
-            <div className={styles.workbenchSurface}>
-                <div className={styles.workbenchTabs}>
+            <div className={styles.tabSurface}>
+                <div className={styles.tabHeader}>
                     <TabList
                         selectedValue={activeTab}
                         onTabSelect={(_, data) => setActiveTab(String(data.value))}
