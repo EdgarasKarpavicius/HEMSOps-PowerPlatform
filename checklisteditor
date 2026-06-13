@@ -543,7 +543,7 @@ const useStyles = makeStyles({
         flexGrow: 1,
         minHeight: 0,
         overflow: "auto",
-        padding: "12px",
+        padding: "12px 12px 28px",
     },
     promoteDropZone: {
         display: "flex",
@@ -706,7 +706,7 @@ const useStyles = makeStyles({
         flexDirection: "column",
         gap: "14px",
         flexGrow: 1,
-        padding: "14px",
+        padding: "14px 14px 30px",
         minHeight: 0,
         overflow: "auto",
     },
