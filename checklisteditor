@@ -2619,6 +2619,14 @@ function ChecklistDetails({
                                             {!selectedSection.items.length && !selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && (
                                                 <div className={styles.contentsPlaceholder}>
                                                     <Text weight="semibold">Create the first item for this section.</Text>
+                                                    <Button
+                                                        appearance="primary"
+                                                        icon={<AddRegular />}
+                                                        disabled={Boolean(draftSection || draftItem)}
+                                                        onClick={() => startNewItem(selectedSection.id)}
+                                                    >
+                                                        New Item
+                                                    </Button>
                                                 </div>
                                             )}
                                         </div>
