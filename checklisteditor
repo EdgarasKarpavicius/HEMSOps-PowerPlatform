@@ -1818,6 +1818,30 @@ function ChecklistDetails({
         setDraftItem({ sectionId, name: "", description: "", quantity: "" });
         setDraftSection(null);
     };
+    const handleChecklistShortcutKeyDown = (event: React.KeyboardEvent) => {
+        if (event.key !== " " || activeTab !== "contents" || !selectedSection || draftSection || draftItem) return;
+        const target = event.target as HTMLElement | null;
+        const tagName = target?.tagName.toLowerCase();
+        if (
+            tagName === "input" ||
+            tagName === "textarea" ||
+            tagName === "select" ||
+            tagName === "button" ||
+            target?.isContentEditable
+        ) {
+            return;
+        }
+
+        if (selectedSectionHasChildren && canAddChildSection) {
+            event.preventDefault();
+            startNewSection(selectedSection.id);
+            return;
+        }
+        if (!selectedSectionHasChildren) {
+            event.preventDefault();
+            startNewItem(selectedSection.id);
+        }
+    };
     const startEditItem = (sectionId: string, item: ChecklistItem) => {
         setDraftItem({
             sectionId,
@@ -2010,6 +2034,7 @@ function ChecklistDetails({
                         isDropTarget ? styles.dropBeforeRow : "",
                     ].filter(Boolean).join(" ")}
                     draggable
+                    tabIndex={0}
                     onClick={() => {
                         setSelectedSectionId(section.id);
                         setDraftItem(null);
@@ -2097,7 +2122,7 @@ function ChecklistDetails({
     const sectionCount = flattenedSections.length;
 
     return (
-        <div className={styles.detailsPage}>
+        <div className={styles.detailsPage} tabIndex={0} onKeyDown={handleChecklistShortcutKeyDown}>
             <div className={styles.editorHeader}>
                 <div className={styles.titleStack}>
                     <Text className={styles.eyebrow}>{checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist"}</Text>
