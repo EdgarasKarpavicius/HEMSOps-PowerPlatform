@@ -1302,6 +1302,32 @@ function reorderById<T extends { id: string }>(items: T[], draggedId: string, ta
     return nextItems;
 }
 
+function getAdjacentIdAfterRemoval<T extends { id: string }>(items: T[], removedId: string): string {
+    const removedIndex = items.findIndex((item) => item.id === removedId);
+    if (removedIndex < 0) return "";
+    return items[removedIndex + 1]?.id || items[removedIndex - 1]?.id || "";
+}
+
+function getAdjacentIdAfterRemovingIds<T extends { id: string }>(items: T[], removedId: string, removedIds: Set<string>): string {
+    const removedIndex = items.findIndex((item) => item.id === removedId);
+    if (removedIndex < 0) return "";
+    for (let index = removedIndex + 1; index < items.length; index += 1) {
+        if (!removedIds.has(items[index].id)) return items[index].id;
+    }
+    for (let index = removedIndex - 1; index >= 0; index -= 1) {
+        if (!removedIds.has(items[index].id)) return items[index].id;
+    }
+    return "";
+}
+
+function getSectionIds(section: ChecklistSection | null): Set<string> {
+    if (!section) return new Set();
+    return new Set([
+        section.id,
+        ...section.sections.flatMap((childSection) => Array.from(getSectionIds(childSection))),
+    ]);
+}
+
 function insertSectionBeforeTarget(sections: ChecklistSection[], section: ChecklistSection, targetId: string, parentId: string | null): ChecklistSection[] {
     const targetIndex = sections.findIndex((candidate) => candidate.id === targetId);
     if (targetIndex >= 0) {
@@ -2650,16 +2676,25 @@ function ChecklistDetails({
     const confirmDelete = () => {
         if (!pendingDelete) return;
         if (pendingDelete.type === "section") {
+            const deletedSectionIds = getSectionIds(findSectionById(sections, pendingDelete.id));
+            const nextHighlightedSectionId = getAdjacentIdAfterRemovingIds(
+                visibleSections.map(({ section }) => section),
+                pendingDelete.id,
+                deletedSectionIds
+            );
             setSections((current) => removeSectionById(current, pendingDelete.id).sections);
             if (selectedSectionPath.some((candidate) => candidate.id === pendingDelete.id)) {
-                selectSection("");
+                selectSection(nextHighlightedSectionId);
             } else {
-                setHighlightedSectionId((current) => (current === pendingDelete.id ? selectedSectionId : current));
+                setHighlightedSectionId((current) => (current === pendingDelete.id ? nextHighlightedSectionId : current));
             }
+            setKeyboardPane("sections");
         } else {
+            const nextSelectedItemId = getAdjacentIdAfterRemoval(selectedSection?.items || [], pendingDelete.id);
             setSections((current) => removeItemFromSection(current, pendingDelete.sectionId, pendingDelete.id));
             if (draftItem?.itemId === pendingDelete.id) setDraftItem(null);
-            if (selectedItemId === pendingDelete.id) setSelectedItemId("");
+            if (selectedItemId === pendingDelete.id) setSelectedItemId(nextSelectedItemId);
+            setKeyboardPane("items");
         }
         setPendingDelete(null);
     };
