@@ -191,7 +191,6 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
-const TEMP_DEV_CHECKLIST_VERSION_ID = "24e8d1ae-fa66-f111-ab0c-000d3a7ecf04";
 const STATUS_DRAFT = 1;
 const STATUS_PUBLISHED = 2;
 const STATUS_INACTIVE = 3;
@@ -1741,25 +1740,6 @@ function serializeChecklistVersionDefinition(definition: ChecklistVersionDefinit
     };
 }
 
-function stableStringify(value: any): string {
-    if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-    if (value && typeof value === "object") {
-        return `{${Object.keys(value)
-            .sort()
-            .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-            .join(",")}}`;
-    }
-    return JSON.stringify(value);
-}
-
-function getDefinitionHashPayload(checklistId: string | undefined, definition: ChecklistVersionDefinition) {
-    return {
-        checklistId: checklistId || "",
-        checklistVersionDetails: definition.checklistVersionDetails,
-        checklistVersionContents: definition.checklistVersionContents,
-    };
-}
-
 function parseChecklistVersionDefinition(record: Record<string, any>, checklist: Checklist): ChecklistVersionDefinition {
     const rawDefinition = String(getValue(record, ["int_definitionjson"], ""));
     let parsed: any = {};
@@ -1918,7 +1898,6 @@ async function saveChecklistVersionDefinition(version: ChecklistVersion, definit
     if (!version.id) return version;
     const serializedDefinition = serializeChecklistVersionDefinition(definition);
     const definitionJson = JSON.stringify(serializedDefinition);
-    const definitionHash = hashText(stableStringify(getDefinitionHashPayload(version.checklist.id, serializedDefinition)));
     const details = definition.checklistVersionDetails;
     const versionNumber = Number(details.versionNumber);
     if (Number.isNaN(versionNumber)) throw new Error("Version number must be a valid number.");
@@ -1928,7 +1907,6 @@ async function saveChecklistVersionDefinition(version: ChecklistVersion, definit
         int_versionnumber: versionNumber,
         int_description: details.description,
         int_definitionjson: definitionJson,
-        int_definitionhash: definitionHash,
     });
     return {
         ...version,
@@ -1937,15 +1915,6 @@ async function saveChecklistVersionDefinition(version: ChecklistVersion, definit
         description: details.description,
         definition,
     };
-}
-
-function hashText(text: string) {
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-        hash = (hash << 5) - hash + text.charCodeAt(i);
-        hash |= 0;
-    }
-    return Math.abs(hash).toString(16);
 }
 
 function normalizeLookupValue(value: unknown) {
@@ -2024,9 +1993,15 @@ const GeneratedComponent = () => {
                     const versionId = normalizeLookupValue(
                         pageInput.data?.checklistVersionId ||
                             pageInput.data?.int_checklistversionid ||
-                            pageInput.recordId ||
-                            TEMP_DEV_CHECKLIST_VERSION_ID
+                            pageInput.recordId
                     );
+                    if (!versionId) {
+                        if (isMounted) {
+                            setMessage("");
+                            setSelectedVersion(null);
+                        }
+                        return;
+                    }
                     const [version, statusMetadata] = await Promise.all([
                         loadChecklistVersionFromDataverse(versionId),
                         loadStatusOptions(VERSION_TABLE_NAME),
@@ -2144,6 +2119,7 @@ function ChecklistDetails({
     const [isEditingName, setIsEditingName] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState("");
+    const [hasDefinitionChanges, setHasDefinitionChanges] = useState(false);
     const [appliesToOptions, setAppliesToOptions] = useState<AppliesToOption[]>([]);
     const [proposedChecklistName, setProposedChecklistName] = useState(
         version.definition.checklistVersionDetails.proposedChecklistName || checklist.name
@@ -2221,15 +2197,18 @@ function ChecklistDetails({
             }),
         [appliesTo, checklist, description, options, proposedChecklistName, sections, versionNumber, versionType]
     );
-    const originalDefinitionText = useMemo(() => stableStringify(version.definition), [version.definition]);
-    const currentDefinitionText = useMemo(() => stableStringify(currentDefinition), [currentDefinition]);
-    const hasDefinitionChanges = currentDefinitionText !== originalDefinitionText;
     const appliesToTarget = APPLIES_TO_TARGETS[checklist.targetTypeValue];
 
+    const markDefinitionChanged = () => setHasDefinitionChanges(true);
+    const updateSections = (updater: React.SetStateAction<ChecklistSection[]>) => {
+        setSections(updater);
+        markDefinitionChanged();
+    };
     const updateOption = (key: string, value: boolean | number | string) => {
         setOptions((current) =>
             current.map((option) => (option.key === key ? { ...option, value } : option))
         );
+        markDefinitionChanged();
     };
     const flattenedSections = useMemo(() => flattenSections(sections), [sections]);
     const visibleSections = useMemo(() => flattenVisibleSections(sections, collapsedSectionIds), [collapsedSectionIds, sections]);
@@ -2469,12 +2448,23 @@ function ChecklistDetails({
                 startEditItem(selectedSection.id, selectedItem);
                 return;
             }
-            if ((event.key === "Delete" || event.key === "Backspace") && keyboardPane === "sections" && highlightedSection) {
+            if (
+                (event.key === "Delete" || event.key === "Backspace") &&
+                keyboardNavigationActive &&
+                keyboardPane === "sections" &&
+                highlightedSection
+            ) {
                 event.preventDefault();
                 requestDeleteSection(highlightedSection);
                 return;
             }
-            if ((event.key === "Delete" || event.key === "Backspace") && keyboardPane === "items" && selectedSection && selectedItem) {
+            if (
+                (event.key === "Delete" || event.key === "Backspace") &&
+                keyboardNavigationActive &&
+                keyboardPane === "items" &&
+                selectedSection &&
+                selectedItem
+            ) {
                 event.preventDefault();
                 requestDeleteItem(selectedSection.id, selectedItem);
                 return;
@@ -2505,7 +2495,7 @@ function ChecklistDetails({
     const confirmDraftSection = () => {
         if (!draftSection?.name.trim()) return;
         const newSection = createEmptySection(draftSection.name, draftSection.parentId);
-        setSections((current) => addSection(current, draftSection.parentId, newSection, draftSection.afterSectionId));
+        updateSections((current) => addSection(current, draftSection.parentId, newSection, draftSection.afterSectionId));
         selectSection(newSection.id);
         setDraftSection(null);
     };
@@ -2547,7 +2537,7 @@ function ChecklistDetails({
             setEditingSectionId("");
             return;
         }
-        setSections((current) => updateSectionName(current, editingSectionId, nextName));
+        updateSections((current) => updateSectionName(current, editingSectionId, nextName));
         setEditingSectionId("");
     };
     const startEditItem = (sectionId: string, item: ChecklistItem) => {
@@ -2566,7 +2556,7 @@ function ChecklistDetails({
         if (!draftItem?.name.trim()) return false;
         const item = createChecklistItemFromDraft(draftItem);
         const sectionId = draftItem.sectionId;
-        setSections((current) =>
+        updateSections((current) =>
             draftItem.itemId
                 ? updateItemInSection(current, sectionId, item)
                 : addItemToSection(current, sectionId, item, draftItem.afterItemId)
@@ -2604,7 +2594,7 @@ function ChecklistDetails({
     const handleSectionDropById = (draggedSectionId: string, targetSectionId: string) => {
         if (!draggedSectionId || !targetSectionId) return;
         if (!canMoveSectionBeforeTarget(sections, draggedSectionId, targetSectionId)) return;
-        setSections((current) =>
+        updateSections((current) =>
             moveSectionBeforeTarget(current, draggedSectionId, targetSectionId)
         );
         setDraggedItem(null);
@@ -2614,7 +2604,7 @@ function ChecklistDetails({
     const handleSectionDropAfterById = (draggedSectionId: string, targetSectionId: string) => {
         if (!draggedSectionId || !targetSectionId) return;
         if (!canMoveSectionAfterTarget(sections, draggedSectionId, targetSectionId)) return;
-        setSections((current) =>
+        updateSections((current) =>
             moveSectionAfterTarget(current, draggedSectionId, targetSectionId)
         );
         setDraggedItem(null);
@@ -2623,7 +2613,7 @@ function ChecklistDetails({
     };
     const handleSectionChildDropById = (draggedSectionId: string, parentSectionId: string) => {
         if (!canMoveSectionToParentEnd(sections, draggedSectionId, parentSectionId)) return;
-        setSections((current) =>
+        updateSections((current) =>
             moveSectionToParentEnd(current, draggedSectionId, parentSectionId)
         );
         selectSection(draggedSectionId);
@@ -2638,7 +2628,7 @@ function ChecklistDetails({
     };
     const handleSectionChildrenEndDropById = (draggedSectionId: string, parentSectionId: string) => {
         if (!canMoveSectionToChildrenEnd(sections, draggedSectionId, parentSectionId)) return;
-        setSections((current) => moveSectionToParentEnd(current, draggedSectionId, parentSectionId));
+        updateSections((current) => moveSectionToParentEnd(current, draggedSectionId, parentSectionId));
         selectSection(draggedSectionId);
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
@@ -2646,7 +2636,7 @@ function ChecklistDetails({
     };
     const handleSectionTopLevelEndDropById = (draggedSectionId: string) => {
         if (!canMoveSectionToTopLevelEnd(sections, draggedSectionId)) return;
-        setSections((current) => moveSectionToTopLevelEnd(current, draggedSectionId));
+        updateSections((current) => moveSectionToTopLevelEnd(current, draggedSectionId));
         selectSection(draggedSectionId);
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
@@ -2655,7 +2645,7 @@ function ChecklistDetails({
     const handleItemDrop = (targetItemId: string, placement: "before" | "after") => {
         const currentDraggedItem = draggedItem?.type === "item" ? draggedItem : draggedItemRef.current;
         if (currentDraggedItem?.type !== "item" || currentDraggedItem.sectionId !== selectedSectionId) return;
-        setSections((current) =>
+        updateSections((current) =>
             reorderSectionItems(current, selectedSectionId, currentDraggedItem.id, targetItemId, placement)
         );
         draggedItemRef.current = null;
@@ -2904,7 +2894,7 @@ function ChecklistDetails({
                 pendingDelete.id,
                 deletedSectionIds
             );
-            setSections((current) => removeSectionById(current, pendingDelete.id).sections);
+            updateSections((current) => removeSectionById(current, pendingDelete.id).sections);
             if (selectedSectionPath.some((candidate) => candidate.id === pendingDelete.id)) {
                 selectSection(nextHighlightedSectionId);
             } else {
@@ -2913,7 +2903,7 @@ function ChecklistDetails({
             setKeyboardPane("sections");
         } else {
             const nextSelectedItemId = getAdjacentIdAfterRemoval(selectedSection?.items || [], pendingDelete.id);
-            setSections((current) => removeItemFromSection(current, pendingDelete.sectionId, pendingDelete.id));
+            updateSections((current) => removeItemFromSection(current, pendingDelete.sectionId, pendingDelete.id));
             if (draftItem?.itemId === pendingDelete.id) setDraftItem(null);
             if (selectedItemId === pendingDelete.id) setSelectedItemId(nextSelectedItemId);
             setKeyboardPane("items");
@@ -3232,6 +3222,7 @@ function ChecklistDetails({
         try {
             const saved = await saveChecklistVersionDefinition(version, currentDefinition);
             onVersionSaved(saved);
+            setHasDefinitionChanges(false);
         } catch (error) {
             setSaveError(error instanceof Error ? error.message : "The checklist version could not be saved.");
         } finally {
@@ -3263,7 +3254,10 @@ function ChecklistDetails({
                             <Input
                                 className={styles.titleInput}
                                 value={proposedChecklistName}
-                                onChange={(_, data) => setProposedChecklistName(data.value)}
+                                onChange={(_, data) => {
+                                    setProposedChecklistName(data.value);
+                                    markDefinitionChanged();
+                                }}
                                 onBlur={() => setIsEditingName(false)}
                             />
                         ) : (
@@ -3331,7 +3325,10 @@ function ChecklistDetails({
                                         className={styles.controlFullWidth}
                                         selectedOptions={[String(versionType)]}
                                         value={VERSION_TYPES.find((item) => item.key === versionType)?.text || ""}
-                                        onOptionSelect={(_, data) => setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR)}
+                                        onOptionSelect={(_, data) => {
+                                            setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR);
+                                            markDefinitionChanged();
+                                        }}
                                     >
                                         {VERSION_TYPES.map((item) => (
                                             <Option key={item.key} value={String(item.key)}>
@@ -3346,7 +3343,10 @@ function ChecklistDetails({
                                         type="number"
                                         step="0.01"
                                         value={versionNumber}
-                                        onChange={(_, data) => setVersionNumber(data.value)}
+                                        onChange={(_, data) => {
+                                            setVersionNumber(data.value);
+                                            markDefinitionChanged();
+                                        }}
                                         onBlur={() => setVersionNumber((current) => formatVersionNumber(current))}
                                     />
                                 </Field>
@@ -3356,7 +3356,10 @@ function ChecklistDetails({
                                         resize="vertical"
                                         rows={5}
                                         value={description}
-                                        onChange={(_, data) => setDescription(data.value)}
+                                        onChange={(_, data) => {
+                                            setDescription(data.value);
+                                            markDefinitionChanged();
+                                        }}
                                     />
                                 </Field>
                             </section>
@@ -3372,6 +3375,7 @@ function ChecklistDetails({
                                         onOptionSelect={(_, data) => {
                                             const selected = appliesToOptions.find((item) => item.id === data.optionValue) || null;
                                             setAppliesTo(selected);
+                                            markDefinitionChanged();
                                         }}
                                     >
                                         {appliesToOptions.map((item) => (
