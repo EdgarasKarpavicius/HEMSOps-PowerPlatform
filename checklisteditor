@@ -661,6 +661,8 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground2,
         userSelect: "none",
         ...shorthands.border("1px", "solid", "transparent"),
+    },
+    sectionRowHoverable: {
         ":hover": {
             backgroundColor: tokens.colorNeutralBackground2,
         },
@@ -3015,6 +3017,7 @@ function ChecklistDetails({
             dragOverTarget?.type === "invalidSectionChild" &&
             dragOverTarget.id === section.id;
         const isAnyDropTarget = isDropBeforeTarget || isDropAfterTarget || isDropChildTarget || isInvalidDropTarget;
+        const canUseHoverBackground = !isSelectedSection && !isSelectedAncestorSection && !isHighlightedSection && !isAnyDropTarget;
         const selectedChildSectionStyle: React.CSSProperties | undefined =
             isSelectedSection && depth > 0 && !isAnyDropTarget
                 ? {
@@ -3037,6 +3040,7 @@ function ChecklistDetails({
                     data-section-depth={depth}
                     className={[
                         styles.sectionRow,
+                        canUseHoverBackground ? styles.sectionRowHoverable : "",
                         depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
                         isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
                         isSelectedSection ? styles.selectedSectionRow : "",
