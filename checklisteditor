@@ -1527,13 +1527,21 @@ function serializeChecklistSections(sections: ChecklistSection[]): any[] {
         const serialized: Record<string, any> = {
             id: section.id,
             name: section.name,
-            bulkServiceable: section.bulkServiceable,
         };
+        if (section.bulkServiceable) serialized.bulkServiceable = true;
         if (section.parentId) serialized.parentId = section.parentId;
         if (section.sections.length > 0) {
             serialized.sections = serializeChecklistSections(section.sections);
         } else if (section.items.length > 0) {
-            serialized.items = section.items;
+            serialized.items = section.items.map((item) => {
+                const serializedItem: Record<string, any> = {
+                    id: item.id,
+                    name: item.name,
+                };
+                if (item.description) serializedItem.description = item.description;
+                if (item.quantity !== null && item.quantity !== undefined) serializedItem.quantity = item.quantity;
+                return serializedItem;
+            });
         }
         return serialized;
     });
