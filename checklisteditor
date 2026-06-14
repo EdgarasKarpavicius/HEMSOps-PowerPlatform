@@ -2167,6 +2167,7 @@ function ChecklistDetails({
     const draggedItemRef = useRef<DraggedItem>(null);
     const sectionPointerDragRef = useRef<SectionPointerDrag>(null);
     const itemPointerDragRef = useRef<ItemPointerDrag>(null);
+    const itemNameInputRef = useRef<HTMLInputElement>(null);
     const ignoreNextSectionClickRef = useRef(false);
     const ignoreNextItemClickRef = useRef(false);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
@@ -2251,6 +2252,17 @@ function ChecklistDetails({
     const canDropSectionAtTopLevelEnd = Boolean(
         draggedItem?.type === "section" && canMoveSectionToTopLevelEnd(sections, draggedItem.id)
     );
+    useEffect(() => {
+        if (
+            draftItem &&
+            !draftItem.itemId &&
+            draftItem.name === "" &&
+            draftItem.description === "" &&
+            draftItem.quantity === ""
+        ) {
+            itemNameInputRef.current?.focus();
+        }
+    }, [draftItem?.sectionId, draftItem?.itemId, draftItem?.name, draftItem?.description, draftItem?.quantity]);
     const selectSection = (sectionId: string) => {
         setSelectedSectionId(sectionId);
         setHighlightedSectionId(sectionId);
@@ -2945,6 +2957,7 @@ function ChecklistDetails({
             <Field label="Name" className={styles.itemNameField}>
                 <Input
                     autoFocus
+                    ref={itemNameInputRef}
                     placeholder="Enter item name"
                     value={draftItem?.name || ""}
                     onChange={(_, data) =>
