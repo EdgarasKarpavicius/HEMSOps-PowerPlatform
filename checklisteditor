@@ -629,6 +629,11 @@ const useStyles = makeStyles({
         width: "28px",
         height: "28px",
     },
+    sectionNameInlineInput: {
+        minWidth: "140px",
+        maxWidth: "260px",
+        width: "100%",
+    },
     rowActions: {
         display: "flex",
         alignItems: "center",
@@ -646,15 +651,18 @@ const useStyles = makeStyles({
         width: "24px",
         height: "24px",
     },
+    sectionEditButton: {
+        color: tokens.colorNeutralForeground2,
+        minWidth: "24px",
+        width: "24px",
+        height: "24px",
+    },
     selectedSectionTitleRow: {
         display: "flex",
         alignItems: "center",
         gap: "6px",
         minWidth: 0,
         flexWrap: "wrap",
-    },
-    selectedSectionNameInput: {
-        width: "min(360px, 44vw)",
     },
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
@@ -1973,7 +1981,7 @@ function ChecklistDetails({
     );
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
-    const [isEditingSectionName, setIsEditingSectionName] = useState(false);
+    const [editingSectionId, setEditingSectionId] = useState("");
     const [sectionNameDraft, setSectionNameDraft] = useState("");
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
     const draggedSectionIdRef = useRef("");
@@ -2041,15 +2049,25 @@ function ChecklistDetails({
     const canDropSectionAtTopLevelEnd = Boolean(
         draggedItem?.type === "section" && canMoveSectionToTopLevelEnd(sections, draggedItem.id)
     );
-    useEffect(() => {
-        setSectionNameDraft(selectedSection?.name || "");
-        setIsEditingSectionName(false);
-    }, [selectedSection?.id, selectedSection?.name]);
+    const expandTopLevelSectionOnly = (current: Set<string>, sectionId: string) => {
+        const next = new Set(current);
+        sections.forEach((section) => {
+            if (!section.sections.length) return;
+            if (section.id === sectionId) {
+                next.delete(section.id);
+            } else {
+                next.add(section.id);
+            }
+        });
+        return next;
+    };
     const startNewSection = (parentId: string | null) => {
         setDraftSection({ parentId, name: "" });
         setDraftItem(null);
         if (parentId) {
             setCollapsedSectionIds((current) => {
+                const parentDepth = flattenedSections.find(({ section }) => section.id === parentId)?.depth ?? 0;
+                if (parentDepth === 0) return expandTopLevelSectionOnly(current, parentId);
                 const next = new Set(current);
                 next.delete(parentId);
                 return next;
@@ -2063,8 +2081,11 @@ function ChecklistDetails({
         setSelectedSectionId(newSection.id);
         setDraftSection(null);
     };
-    const toggleCollapsedSection = (sectionId: string) => {
+    const toggleCollapsedSection = (sectionId: string, depth = 0) => {
         setCollapsedSectionIds((current) => {
+            if (depth === 0 && current.has(sectionId)) {
+                return expandTopLevelSectionOnly(current, sectionId);
+            }
             const next = new Set(current);
             if (next.has(sectionId)) {
                 next.delete(sectionId);
@@ -2078,16 +2099,26 @@ function ChecklistDetails({
         setDraftItem({ sectionId, name: "", description: "", quantity: "" });
         setDraftSection(null);
     };
-    const confirmSelectedSectionName = () => {
-        if (!selectedSection) return;
-        const nextName = sectionNameDraft.trim();
-        if (!nextName) {
-            setSectionNameDraft(selectedSection.name || "");
-            setIsEditingSectionName(false);
+    const startEditSectionName = (section: ChecklistSection) => {
+        setSelectedSectionId(section.id);
+        setSectionNameDraft(section.name || "");
+        setEditingSectionId(section.id);
+        setDraftItem(null);
+    };
+    const confirmEditingSectionName = () => {
+        const section = findSectionById(sections, editingSectionId);
+        if (!section) {
+            setEditingSectionId("");
             return;
         }
-        setSections((current) => updateSectionName(current, selectedSection.id, nextName));
-        setIsEditingSectionName(false);
+        const nextName = sectionNameDraft.trim();
+        if (!nextName) {
+            setSectionNameDraft(section.name || "");
+            setEditingSectionId("");
+            return;
+        }
+        setSections((current) => updateSectionName(current, editingSectionId, nextName));
+        setEditingSectionId("");
     };
     const startEditItem = (sectionId: string, item: ChecklistItem) => {
         setDraftItem({
@@ -2428,6 +2459,7 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isSelectedSection = selectedSectionId === section.id;
+        const isEditingThisSection = editingSectionId === section.id;
         const isSelectedAncestorSection =
             depth === 0 &&
             selectedSectionPath.length > 1 &&
@@ -2486,6 +2518,7 @@ function ChecklistDetails({
                     ].filter(Boolean).join(" ")}
                     style={selectedChildSectionStyle}
                     onClick={() => {
+                        if (isEditingThisSection) return;
                         if (ignoreNextSectionClickRef.current) {
                             ignoreNextSectionClickRef.current = false;
                             return;
@@ -2494,6 +2527,7 @@ function ChecklistDetails({
                         setDraftItem(null);
                         if (hasChildren) {
                             setCollapsedSectionIds((current) => {
+                                if (depth === 0) return expandTopLevelSectionOnly(current, section.id);
                                 if (!current.has(section.id)) return current;
                                 const next = new Set(current);
                                 next.delete(section.id);
@@ -2521,17 +2555,45 @@ function ChecklistDetails({
                                     event.stopPropagation();
                                     setSelectedSectionId(section.id);
                                     setDraftItem(null);
-                                    toggleCollapsedSection(section.id);
+                                    toggleCollapsedSection(section.id, depth);
                                 }}
                             />
                         ) : (
                             <span className={styles.sectionChevron} />
                         )}
-                        <Text className={styles.sectionRowText} weight={depth === 0 || selectedSectionId === section.id ? "semibold" : "regular"}>
-                            {section.name || "Unnamed section"}
-                        </Text>
+                        {isEditingThisSection ? (
+                            <Input
+                                autoFocus
+                                className={styles.sectionNameInlineInput}
+                                value={sectionNameDraft}
+                                onClick={(event) => event.stopPropagation()}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onChange={(_, data) => setSectionNameDraft(data.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter") confirmEditingSectionName();
+                                    if (event.key === "Escape") setEditingSectionId("");
+                                }}
+                                onBlur={confirmEditingSectionName}
+                            />
+                        ) : (
+                            <Text className={styles.sectionRowText} weight={depth === 0 || selectedSectionId === section.id ? "semibold" : "regular"}>
+                                {section.name || "Unnamed section"}
+                            </Text>
+                        )}
                     </div>
                     <div className={styles.rowActions}>
+                        <Button
+                            aria-label="Edit section name"
+                            appearance="subtle"
+                            className={styles.sectionEditButton}
+                            icon={<EditRegular />}
+                            style={{ visibility: hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
+                            disabled={Boolean(draftSection || draftItem)}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                startEditSectionName(section);
+                            }}
+                        />
                         <Button
                             aria-label="Delete section"
                             appearance="subtle"
@@ -2778,32 +2840,7 @@ function ChecklistDetails({
                             <div className={styles.contentsColumn}>
                                 <div className={styles.contentsColumnHeader}>
                                     <div>
-                                        {selectedSection && isEditingSectionName ? (
-                                            <div className={styles.selectedSectionTitleRow}>
-                                                <Input
-                                                    autoFocus
-                                                    className={styles.selectedSectionNameInput}
-                                                    value={sectionNameDraft}
-                                                    onChange={(_, data) => setSectionNameDraft(data.value)}
-                                                    onKeyDown={(event) => {
-                                                        if (event.key === "Enter") confirmSelectedSectionName();
-                                                        if (event.key === "Escape") {
-                                                            setSectionNameDraft(selectedSection.name || "");
-                                                            setIsEditingSectionName(false);
-                                                        }
-                                                    }}
-                                                    onBlur={confirmSelectedSectionName}
-                                                />
-                                                <Button
-                                                    aria-label="Confirm section name"
-                                                    appearance="primary"
-                                                    icon={<CheckmarkRegular />}
-                                                    disabled={!sectionNameDraft.trim()}
-                                                    onMouseDown={(event) => event.preventDefault()}
-                                                    onClick={confirmSelectedSectionName}
-                                                />
-                                            </div>
-                                        ) : selectedSectionPath.length ? (
+                                        {selectedSectionPath.length ? (
                                             <div className={styles.selectedSectionTitleRow}>
                                                 <div className={styles.sectionPathTitle}>
                                                     {selectedSectionPath.map((section, index) => (
@@ -2818,15 +2855,6 @@ function ChecklistDetails({
                                                         </React.Fragment>
                                                     ))}
                                                 </div>
-                                                <Button
-                                                    aria-label="Edit selected section name"
-                                                    appearance="subtle"
-                                                    icon={<EditRegular />}
-                                                    onClick={() => {
-                                                        setSectionNameDraft(selectedSection?.name || "");
-                                                        setIsEditingSectionName(true);
-                                                    }}
-                                                />
                                             </div>
                                         ) : (
                                             <Text block weight="semibold">Select a section</Text>
