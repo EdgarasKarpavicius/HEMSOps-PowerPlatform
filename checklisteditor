@@ -2185,20 +2185,16 @@ function ChecklistDetails({
         }, 2200);
     };
     const startContextualSection = () => {
-        if (keyboardPane === "sections" && highlightedSection) {
-            startNewSection(highlightedSection.parentId);
-            return;
-        }
+        const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
+        if (targetSection?.parentId) selectSection("");
         startNewSection(null);
     };
     const startContextualChildSection = () => {
-        const parentSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
+        const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
+        const targetPath = findSectionPathById(sections, targetSection?.id || null);
+        const parentSection = targetPath.length > 1 ? targetPath[0] : targetSection;
         if (!parentSection) {
-            showShortcutNotice("Highlight a top-level section before adding a child section.");
-            return;
-        }
-        if (parentSection.parentId) {
-            showShortcutNotice("Child sections can only be added to top-level sections.");
+            showShortcutNotice("Highlight a section before adding a child section.");
             return;
         }
         if (parentSection.items.length > 0) {
