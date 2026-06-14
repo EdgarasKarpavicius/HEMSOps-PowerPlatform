@@ -2561,7 +2561,7 @@ function ChecklistDetails({
                 ? updateItemInSection(current, sectionId, item)
                 : appendItemToSection(current, sectionId, item)
         );
-        setSelectedItemId(item.id);
+        setSelectedItemId(continueAdding ? "" : item.id);
         setDraftItem(continueAdding ? { sectionId, name: "", description: "", quantity: "" } : null);
         return true;
     };
