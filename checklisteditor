@@ -755,6 +755,12 @@ const useStyles = makeStyles({
         width: "24px",
         height: "24px",
     },
+    itemDeleteButton: {
+        color: "#b10e1c",
+        minWidth: "24px",
+        width: "24px",
+        height: "24px",
+    },
     sectionEditButton: {
         color: tokens.colorNeutralForeground2,
         minWidth: "24px",
@@ -2167,6 +2173,7 @@ function ChecklistDetails({
     const [shortcutNotice, setShortcutNotice] = useState("");
     const shortcutNoticeTimerRef = useRef<number | null>(null);
     const [hoveredSectionId, setHoveredSectionId] = useState("");
+    const [hoveredItemId, setHoveredItemId] = useState("");
     const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
         () => new Set(getSectionIdsWithChildren(version.definition.checklistVersionContents.sections))
     );
@@ -3493,6 +3500,8 @@ function ChecklistDetails({
                                                         onPointerMove={handleItemPointerMove}
                                                         onPointerUp={handleItemPointerUp}
                                                         onPointerCancel={handleItemPointerCancel}
+                                                        onMouseEnter={() => setHoveredItemId(item.id)}
+                                                        onMouseLeave={() => setHoveredItemId((current) => (current === item.id ? "" : current))}
                                                     >
                                                         <div className={styles.itemReadOnlyText}>
                                                             <Text weight="semibold">{item.name || "Unnamed item"}</Text>
@@ -3507,7 +3516,9 @@ function ChecklistDetails({
                                                             <Button
                                                                 aria-label="Delete item"
                                                                 appearance="subtle"
+                                                                className={styles.itemDeleteButton}
                                                                 icon={<DeleteRegular />}
+                                                                style={{ visibility: hoveredItemId === item.id ? "visible" : "hidden" }}
                                                                 onClick={(event) => {
                                                                     event.stopPropagation();
                                                                     requestDeleteItem(selectedSection.id, item);
