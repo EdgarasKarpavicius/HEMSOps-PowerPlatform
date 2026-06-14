@@ -589,8 +589,8 @@ const useStyles = makeStyles({
         marginLeft: "20px",
         minHeight: "30px",
         padding: "4px 8px",
-        backgroundColor: tokens.colorNeutralBackground1,
-        borderLeftColor: tokens.colorBrandStroke1,
+        backgroundColor: "transparent",
+        borderLeftColor: tokens.colorNeutralStroke2,
         borderLeftWidth: "3px",
         borderLeftStyle: "solid",
     },
@@ -671,8 +671,7 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground1,
         borderColor: tokens.colorBrandStroke1,
         borderLeftColor: tokens.colorBrandStroke1,
-        borderLeftWidth: "5px",
-        boxShadow: `inset 0 0 0 1px ${tokens.colorBrandStroke2}`,
+        borderLeftWidth: "3px",
         fontWeight: tokens.fontWeightSemibold,
     },
     draggingRow: {
@@ -2489,6 +2488,14 @@ function ChecklistDetails({
                         }
                         setSelectedSectionId(section.id);
                         setDraftItem(null);
+                        if (hasChildren) {
+                            setCollapsedSectionIds((current) => {
+                                if (!current.has(section.id)) return current;
+                                const next = new Set(current);
+                                next.delete(section.id);
+                                return next;
+                            });
+                        }
                     }}
                     onPointerDown={(event) => handleSectionPointerDown(event, section)}
                     onPointerMove={handleSectionPointerMove}
