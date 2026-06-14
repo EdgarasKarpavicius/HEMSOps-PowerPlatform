@@ -334,8 +334,8 @@ const useStyles = makeStyles({
         height: "100%",
         minHeight: 0,
         boxSizing: "border-box",
-        padding: "22px 24px",
-        rowGap: "14px",
+        padding: "14px 18px 16px",
+        rowGap: "10px",
         overflow: "hidden",
     },
     header: {
@@ -389,8 +389,8 @@ const useStyles = makeStyles({
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "space-between",
-        gap: "12px",
-        padding: "16px 18px",
+        gap: "10px",
+        padding: "12px 14px",
         backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
@@ -408,7 +408,7 @@ const useStyles = makeStyles({
         flexBasis: 0,
         height: "100%",
         minHeight: 0,
-        rowGap: "16px",
+        rowGap: "10px",
         overflow: "hidden",
     },
     statusPill: {
@@ -456,8 +456,8 @@ const useStyles = makeStyles({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: "12px",
-        padding: "0 0 6px",
+        gap: "10px",
+        padding: "0 0 4px",
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
     tabLabel: {
@@ -475,12 +475,12 @@ const useStyles = makeStyles({
         flexBasis: 0,
         minHeight: 0,
         overflow: "hidden",
-        padding: "14px 0 0",
+        padding: "8px 0 0",
     },
     formStack: {
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
-        gap: "18px",
+        gap: "12px",
         alignItems: "start",
     },
     optionsList: {
@@ -514,11 +514,11 @@ const useStyles = makeStyles({
     generalSection: {
         display: "flex",
         flexDirection: "column",
-        gap: "14px",
+        gap: "10px",
         width: "100%",
         boxSizing: "border-box",
         minHeight: "100%",
-        padding: "16px",
+        padding: "12px",
         backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
@@ -545,12 +545,12 @@ const useStyles = makeStyles({
         boxShadow: tokens.shadow16,
     },
     contentsPlaceholder: {
-        minHeight: "260px",
+        minHeight: "220px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: "12px",
+        gap: "10px",
         color: tokens.colorNeutralForeground3,
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "dashed", tokens.colorNeutralStroke2),
@@ -566,7 +566,7 @@ const useStyles = makeStyles({
     contentsLayout: {
         display: "grid",
         gridTemplateColumns: "minmax(280px, 35%) minmax(0, 1fr)",
-        gap: "18px",
+        gap: "12px",
         flexGrow: 1,
         flexBasis: 0,
         height: "100%",
@@ -587,18 +587,28 @@ const useStyles = makeStyles({
     },
     shortcutHelpPanel: {
         display: "flex",
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: "8px",
+        marginBottom: "8px",
+        color: tokens.colorNeutralForeground2,
+    },
+    shortcutHelpToggle: {
+        alignSelf: "flex-start",
+        color: tokens.colorNeutralForeground2,
+        fontWeight: tokens.fontWeightSemibold,
+        minWidth: "auto",
+        padding: "0",
+    },
+    shortcutHelpContent: {
+        display: "flex",
         alignItems: "center",
-        gap: "10px",
+        gap: "8px",
         flexWrap: "wrap",
         padding: "8px 10px",
-        marginBottom: "10px",
-        color: tokens.colorNeutralForeground2,
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
-    },
-    shortcutHelpLabel: {
-        fontWeight: tokens.fontWeightSemibold,
     },
     shortcutKey: {
         minWidth: "20px",
@@ -620,8 +630,8 @@ const useStyles = makeStyles({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: "12px",
-        padding: "12px 14px",
+        gap: "10px",
+        padding: "10px 12px",
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
     contentsActions: {
@@ -637,7 +647,7 @@ const useStyles = makeStyles({
         flexGrow: 1,
         minHeight: 0,
         overflow: "auto",
-        padding: "12px 12px 28px",
+        padding: "10px 10px 22px",
     },
     sectionRow: {
         display: "flex",
@@ -849,16 +859,16 @@ const useStyles = makeStyles({
     itemList: {
         display: "flex",
         flexDirection: "column",
-        gap: "8px",
+        gap: "6px",
         minHeight: 0,
     },
     itemRow: {
         display: "grid",
         gridTemplateColumns: "minmax(0, 1fr) auto",
         alignItems: "center",
-        gap: "12px",
-        minHeight: "40px",
-        padding: "8px 10px",
+        gap: "10px",
+        minHeight: "36px",
+        padding: "7px 9px",
         cursor: "grab",
         userSelect: "none",
         backgroundColor: tokens.colorNeutralBackground2,
@@ -879,7 +889,7 @@ const useStyles = makeStyles({
         gridTemplateColumns: "minmax(0, 1fr) 120px auto",
         gap: "8px",
         alignItems: "end",
-        padding: "10px",
+        padding: "9px",
         backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
         borderRadius: tokens.borderRadiusMedium,
@@ -899,9 +909,9 @@ const useStyles = makeStyles({
     itemWorkspace: {
         display: "flex",
         flexDirection: "column",
-        gap: "14px",
+        gap: "10px",
         flexGrow: 1,
-        padding: "14px 14px 30px",
+        padding: "10px 10px 24px",
         minHeight: 0,
         overflow: "auto",
     },
@@ -2139,6 +2149,7 @@ function ChecklistDetails({
     const [selectedItemId, setSelectedItemId] = useState("");
     const [keyboardPane, setKeyboardPane] = useState<KeyboardPane>("sections");
     const [keyboardNavigationActive, setKeyboardNavigationActive] = useState(false);
+    const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
     const [editingSectionId, setEditingSectionId] = useState("");
@@ -3325,15 +3336,26 @@ function ChecklistDetails({
                 ) : activeTab === "contents" ? (
                     <div className={styles.tabPanel}>
                         <div className={styles.shortcutHelpPanel}>
-                            <Text className={styles.shortcutHelpLabel}>Keyboard</Text>
-                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Up/Down</span><Text>Move highlight</Text></span>
-                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Tab</span><Text>Switch pane</Text></span>
-                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Space</span><span className={styles.shortcutKey}>Enter</span><Text>Select or edit</Text></span>
-                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>S</span><Text>Section</Text></span>
-                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Shift+S</span><Text>Child section</Text></span>
-                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>I</span><Text>Item</Text></span>
-                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Ctrl/Cmd+S</span><Text>Save</Text></span>
-                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Delete</span><Text>Remove</Text></span>
+                            <Button
+                                appearance="subtle"
+                                className={styles.shortcutHelpToggle}
+                                icon={isShortcutHelpOpen ? <ChevronDownRegular /> : <ChevronRightRegular />}
+                                onClick={() => setIsShortcutHelpOpen((current) => !current)}
+                            >
+                                Keyboard shortcuts
+                            </Button>
+                            {isShortcutHelpOpen && (
+                                <div className={styles.shortcutHelpContent}>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Up/Down</span><Text>Move highlight</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Tab</span><Text>Switch pane</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Space</span><span className={styles.shortcutKey}>Enter</span><Text>Select or edit</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>S</span><Text>Section</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Shift+S</span><Text>Child section</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>I</span><Text>Item</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Ctrl/Cmd+S</span><Text>Save</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Delete</span><Text>Remove</Text></span>
+                                </div>
+                            )}
                         </div>
                         <div className={styles.contentsLayout}>
                             <div
