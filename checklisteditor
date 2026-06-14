@@ -576,6 +576,37 @@ const useStyles = makeStyles({
     activeContentsColumn: {
         ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
     },
+    shortcutHelpPanel: {
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        flexWrap: "wrap",
+        padding: "8px 10px",
+        marginBottom: "10px",
+        color: tokens.colorNeutralForeground2,
+        backgroundColor: tokens.colorNeutralBackground2,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusMedium,
+    },
+    shortcutHelpLabel: {
+        fontWeight: tokens.fontWeightSemibold,
+    },
+    shortcutKey: {
+        minWidth: "20px",
+        padding: "1px 5px",
+        color: tokens.colorNeutralForeground1,
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke1),
+        borderRadius: tokens.borderRadiusSmall,
+        fontFamily: "monospace",
+        fontSize: "12px",
+        textAlign: "center",
+    },
+    shortcutHelpItem: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "4px",
+    },
     contentsColumnHeader: {
         display: "flex",
         alignItems: "center",
@@ -2289,7 +2320,10 @@ function ChecklistDetails({
             });
             return;
         }
-        selectSection(highlightedSection.id);
+        if (selectedSectionId !== highlightedSection.id) {
+            selectSection(highlightedSection.id);
+            return;
+        }
         if (highlightedSection.items.length === 0) startNewItem(highlightedSection.id);
     };
     useEffect(() => {
@@ -3191,6 +3225,17 @@ function ChecklistDetails({
                     </div>
                 ) : activeTab === "contents" ? (
                     <div className={styles.tabPanel}>
+                        <div className={styles.shortcutHelpPanel}>
+                            <Text className={styles.shortcutHelpLabel}>Keyboard</Text>
+                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Up/Down</span><Text>Move highlight</Text></span>
+                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Tab</span><Text>Switch pane</Text></span>
+                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Space</span><span className={styles.shortcutKey}>Enter</span><Text>Select or edit</Text></span>
+                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>S</span><Text>Section</Text></span>
+                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Shift+S</span><Text>Child section</Text></span>
+                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>I</span><Text>Item</Text></span>
+                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Ctrl/Cmd+S</span><Text>Save</Text></span>
+                            <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Delete</span><Text>Remove</Text></span>
+                        </div>
                         <div className={styles.contentsLayout}>
                             <div
                                 className={[
