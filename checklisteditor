@@ -458,9 +458,6 @@ const useStyles = makeStyles({
         ":focus-visible": {
             outlineStyle: "none",
         },
-        "::after": {
-            display: "none",
-        },
     },
     tabPanel: {
         display: "flex",
