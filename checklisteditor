@@ -166,6 +166,8 @@ type PendingValidationMessage = {
     message: string;
 } | null;
 
+type KeyboardPane = "sections" | "items";
+
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     return (
@@ -787,6 +789,10 @@ const useStyles = makeStyles({
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
     },
+    selectedItemRow: {
+        backgroundColor: tokens.colorBrandBackground2,
+        ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
+    },
     itemReadOnlyText: {
         display: "flex",
         flexDirection: "column",
@@ -1114,6 +1120,13 @@ function flattenSections(sections: ChecklistSection[], depth = 0): FlatChecklist
     return sections.flatMap((section) => [
         { section, depth },
         ...flattenSections(section.sections, depth + 1),
+    ]);
+}
+
+function flattenVisibleSections(sections: ChecklistSection[], collapsedSectionIds: Set<string>, depth = 0): FlatChecklistSection[] {
+    return sections.flatMap((section) => [
+        { section, depth },
+        ...(collapsedSectionIds.has(section.id) ? [] : flattenVisibleSections(section.sections, collapsedSectionIds, depth + 1)),
     ]);
 }
 
@@ -2007,6 +2020,8 @@ function ChecklistDetails({
     const [selectedSectionId, setSelectedSectionId] = useState(
         flattenSections(version.definition.checklistVersionContents.sections)[0]?.section.id || ""
     );
+    const [selectedItemId, setSelectedItemId] = useState("");
+    const [keyboardPane, setKeyboardPane] = useState<KeyboardPane>("sections");
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
     const [editingSectionId, setEditingSectionId] = useState("");
@@ -2058,6 +2073,7 @@ function ChecklistDetails({
         );
     };
     const flattenedSections = useMemo(() => flattenSections(sections), [sections]);
+    const visibleSections = useMemo(() => flattenVisibleSections(sections, collapsedSectionIds), [collapsedSectionIds, sections]);
     const selectedSection = useMemo(
         () => findSectionById(sections, selectedSectionId),
         [sections, selectedSectionId]
@@ -2074,9 +2090,46 @@ function ChecklistDetails({
         selectedSection.items.length === 0 &&
         selectedSection.sections.length === 0
     );
+    const selectedItem = useMemo(
+        () => selectedSection?.items.find((item) => item.id === selectedItemId) || null,
+        [selectedItemId, selectedSection]
+    );
+    const canStartItemForSelectedSection = Boolean(selectedSection && !selectedSectionHasChildren);
     const canDropSectionAtTopLevelEnd = Boolean(
         draggedItem?.type === "section" && canMoveSectionToTopLevelEnd(sections, draggedItem.id)
     );
+    const selectSection = (sectionId: string) => {
+        setSelectedSectionId(sectionId);
+        setSelectedItemId("");
+    };
+    const selectSectionPane = (sectionId: string) => {
+        setKeyboardPane("sections");
+        selectSection(sectionId);
+    };
+    const moveSectionHighlight = (direction: 1 | -1) => {
+        if (!visibleSections.length) return;
+        const currentIndex = visibleSections.findIndex(({ section }) => section.id === selectedSectionId);
+        const nextIndex =
+            currentIndex < 0
+                ? 0
+                : Math.min(visibleSections.length - 1, Math.max(0, currentIndex + direction));
+        selectSection(visibleSections[nextIndex].section.id);
+    };
+    const moveItemHighlight = (direction: 1 | -1) => {
+        if (!selectedSection?.items.length) return;
+        const currentIndex = selectedSection.items.findIndex((item) => item.id === selectedItemId);
+        const nextIndex =
+            currentIndex < 0
+                ? 0
+                : Math.min(selectedSection.items.length - 1, Math.max(0, currentIndex + direction));
+        setSelectedItemId(selectedSection.items[nextIndex].id);
+    };
+    const moveKeyboardPane = (pane: KeyboardPane) => {
+        setKeyboardPane(pane);
+        if (pane === "items" && selectedSection?.items.length && !selectedItem) {
+            setSelectedItemId(selectedSection.items[0].id);
+        }
+    };
     const expandTopLevelSectionOnly = (current: Set<string>, sectionId: string) => {
         const next = new Set(current);
         sections.forEach((section) => {
@@ -2090,6 +2143,7 @@ function ChecklistDetails({
         return next;
     };
     const startNewSection = (parentId: string | null) => {
+        setKeyboardPane("sections");
         setDraftSection({ parentId, name: "" });
         setDraftItem(null);
         if (parentId) {
@@ -2110,9 +2164,49 @@ function ChecklistDetails({
             if (draftSection || draftItem || editingSectionId) return;
 
             const key = event.key.toLowerCase();
+            if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                moveKeyboardPane("sections");
+                return;
+            }
+            if (event.key === "ArrowRight") {
+                if (!canStartItemForSelectedSection) return;
+                event.preventDefault();
+                moveKeyboardPane("items");
+                return;
+            }
+            if (event.key === "ArrowUp") {
+                event.preventDefault();
+                if (keyboardPane === "sections") {
+                    moveSectionHighlight(-1);
+                } else {
+                    moveItemHighlight(-1);
+                }
+                return;
+            }
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                if (keyboardPane === "sections") {
+                    moveSectionHighlight(1);
+                } else {
+                    moveItemHighlight(1);
+                }
+                return;
+            }
+            if (event.key === "Enter" && keyboardPane === "items" && selectedSection && selectedItem) {
+                event.preventDefault();
+                startEditItem(selectedSection.id, selectedItem);
+                return;
+            }
             if (key === "n") {
                 event.preventDefault();
                 startNewSection(null);
+                return;
+            }
+            if (key === "i") {
+                if (!selectedSection || !canStartItemForSelectedSection) return;
+                event.preventDefault();
+                startNewItem(selectedSection.id);
                 return;
             }
             if (key === "c") {
@@ -2125,12 +2219,25 @@ function ChecklistDetails({
 
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [activeTab, draftItem, draftSection, editingSectionId, selectedSectionPath]);
+    }, [
+        activeTab,
+        canStartItemForSelectedSection,
+        draftItem,
+        draftSection,
+        editingSectionId,
+        keyboardPane,
+        selectedItem,
+        selectedItemId,
+        selectedSection,
+        selectedSectionId,
+        selectedSectionPath,
+        visibleSections,
+    ]);
     const confirmDraftSection = () => {
         if (!draftSection?.name.trim()) return;
         const newSection = createEmptySection(draftSection.name, draftSection.parentId);
         setSections((current) => appendSection(current, draftSection.parentId, newSection));
-        setSelectedSectionId(newSection.id);
+        selectSection(newSection.id);
         setDraftSection(null);
     };
     const toggleCollapsedSection = (sectionId: string, depth = 0) => {
@@ -2148,11 +2255,13 @@ function ChecklistDetails({
         });
     };
     const startNewItem = (sectionId: string) => {
+        setKeyboardPane("items");
+        setSelectedItemId("");
         setDraftItem({ sectionId, name: "", description: "", quantity: "" });
         setDraftSection(null);
     };
     const startEditSectionName = (section: ChecklistSection) => {
-        setSelectedSectionId(section.id);
+        selectSectionPane(section.id);
         setSectionNameDraft(section.name || "");
         setEditingSectionId(section.id);
         setDraftItem(null);
@@ -2173,6 +2282,8 @@ function ChecklistDetails({
         setEditingSectionId("");
     };
     const startEditItem = (sectionId: string, item: ChecklistItem) => {
+        setKeyboardPane("items");
+        setSelectedItemId(item.id);
         setDraftItem({
             sectionId,
             itemId: item.id,
@@ -2182,20 +2293,23 @@ function ChecklistDetails({
         });
         setDraftSection(null);
     };
-    const confirmDraftItem = () => {
-        if (!draftItem?.name.trim()) return;
+    const confirmDraftItem = (continueAdding = false) => {
+        if (!draftItem?.name.trim()) return false;
         const item = createChecklistItemFromDraft(draftItem);
+        const sectionId = draftItem.sectionId;
         setSections((current) =>
             draftItem.itemId
-                ? updateItemInSection(current, draftItem.sectionId, item)
-                : appendItemToSection(current, draftItem.sectionId, item)
+                ? updateItemInSection(current, sectionId, item)
+                : appendItemToSection(current, sectionId, item)
         );
-        setDraftItem(null);
+        setSelectedItemId(item.id);
+        setDraftItem(continueAdding ? { sectionId, name: "", description: "", quantity: "" } : null);
+        return true;
     };
-    const handleItemEditKeyDown = (event: React.KeyboardEvent, allowShiftEnter = false) => {
-        if (event.key === "Enter" && (!allowShiftEnter || !event.shiftKey)) {
+    const handleItemEditKeyDown = (event: React.KeyboardEvent) => {
+        if (event.key === "Enter") {
             event.preventDefault();
-            confirmDraftItem();
+            confirmDraftItem(event.shiftKey);
         }
         if (event.key === "Escape") setDraftItem(null);
     };
@@ -2224,7 +2338,7 @@ function ChecklistDetails({
         setSections((current) =>
             moveSectionToParentEnd(current, draggedSectionId, parentSectionId)
         );
-        setSelectedSectionId(draggedSectionId);
+        selectSection(draggedSectionId);
         setCollapsedSectionIds((current) => {
             const next = new Set(current);
             next.delete(parentSectionId);
@@ -2237,7 +2351,7 @@ function ChecklistDetails({
     const handleSectionChildrenEndDropById = (draggedSectionId: string, parentSectionId: string) => {
         if (!canMoveSectionToChildrenEnd(sections, draggedSectionId, parentSectionId)) return;
         setSections((current) => moveSectionToParentEnd(current, draggedSectionId, parentSectionId));
-        setSelectedSectionId(draggedSectionId);
+        selectSection(draggedSectionId);
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
         setDragOverTarget(null);
@@ -2245,7 +2359,7 @@ function ChecklistDetails({
     const handleSectionTopLevelEndDropById = (draggedSectionId: string) => {
         if (!canMoveSectionToTopLevelEnd(sections, draggedSectionId)) return;
         setSections((current) => moveSectionToTopLevelEnd(current, draggedSectionId));
-        setSelectedSectionId(draggedSectionId);
+        selectSection(draggedSectionId);
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
         setDragOverTarget(null);
@@ -2417,10 +2531,11 @@ function ChecklistDetails({
         if (!pendingDelete) return;
         if (pendingDelete.type === "section") {
             setSections((current) => removeSectionById(current, pendingDelete.id).sections);
-            if (selectedSectionPath.some((candidate) => candidate.id === pendingDelete.id)) setSelectedSectionId("");
+            if (selectedSectionPath.some((candidate) => candidate.id === pendingDelete.id)) selectSection("");
         } else {
             setSections((current) => removeItemFromSection(current, pendingDelete.sectionId, pendingDelete.id));
             if (draftItem?.itemId === pendingDelete.id) setDraftItem(null);
+            if (selectedItemId === pendingDelete.id) setSelectedItemId("");
         }
         setPendingDelete(null);
     };
@@ -2500,7 +2615,7 @@ function ChecklistDetails({
                     onChange={(_, data) =>
                         setDraftItem((current) => current ? { ...current, description: data.value } : current)
                     }
-                    onKeyDown={(event) => handleItemEditKeyDown(event, true)}
+                    onKeyDown={(event) => handleItemEditKeyDown(event)}
                 />
             </Field>
             <Button
@@ -2509,7 +2624,7 @@ function ChecklistDetails({
                 className={styles.itemConfirmButton}
                 icon={<CheckmarkRegular />}
                 disabled={!draftItem?.name.trim()}
-                onClick={confirmDraftItem}
+                onClick={() => confirmDraftItem()}
             />
         </div>
     );
@@ -2577,7 +2692,7 @@ function ChecklistDetails({
                             ignoreNextSectionClickRef.current = false;
                             return;
                         }
-                        setSelectedSectionId(section.id);
+                        selectSectionPane(section.id);
                         setDraftItem(null);
                         if (hasChildren) {
                             setCollapsedSectionIds((current) => {
@@ -2607,7 +2722,7 @@ function ChecklistDetails({
                                 icon={isCollapsed ? <ChevronRightRegular /> : <ChevronDownRegular />}
                                 onClick={(event) => {
                                     event.stopPropagation();
-                                    setSelectedSectionId(section.id);
+                                    selectSectionPane(section.id);
                                     setDraftItem(null);
                                     toggleCollapsedSection(section.id, depth);
                                 }}
@@ -2978,6 +3093,7 @@ function ChecklistDetails({
                                                     <div
                                                         className={[
                                                             styles.itemRow,
+                                                            keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
                                                             draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
                                                             dragOverTarget?.type === "item" && dragOverTarget.id === item.id ? styles.dropBeforeRow : "",
                                                         ].filter(Boolean).join(" ")}
