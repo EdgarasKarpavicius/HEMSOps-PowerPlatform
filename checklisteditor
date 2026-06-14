@@ -166,6 +166,16 @@ type PendingValidationMessage = {
     message: string;
 } | null;
 
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return (
+        target.isContentEditable ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT"
+    );
+}
+
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
 const TEMP_DEV_CHECKLIST_VERSION_ID = "24e8d1ae-fa66-f111-ab0c-000d3a7ecf04";
@@ -610,6 +620,11 @@ const useStyles = makeStyles({
         display: "flex",
         justifyContent: "flex-start",
         marginLeft: "56px",
+        padding: "4px 8px 2px",
+    },
+    sectionAddTopLevelRow: {
+        display: "flex",
+        justifyContent: "flex-start",
         padding: "4px 8px 2px",
     },
     sectionAddAnotherButton: {
@@ -2087,6 +2102,30 @@ function ChecklistDetails({
             });
         }
     };
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (activeTab !== "contents") return;
+            if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+            if (isEditableKeyboardTarget(event.target)) return;
+            if (draftSection || draftItem || editingSectionId) return;
+
+            const key = event.key.toLowerCase();
+            if (key === "n") {
+                event.preventDefault();
+                startNewSection(null);
+                return;
+            }
+            if (key === "c") {
+                const topLevelSection = selectedSectionPath[0];
+                if (!topLevelSection || topLevelSection.items.length > 0) return;
+                event.preventDefault();
+                startNewSection(topLevelSection.id);
+            }
+        };
+
+        document.addEventListener("keydown", handleKeyDown);
+        return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [activeTab, draftItem, draftSection, editingSectionId, selectedSectionPath]);
     const confirmDraftSection = () => {
         if (!draftSection?.name.trim()) return;
         const newSection = createEmptySection(draftSection.name, draftSection.parentId);
@@ -2506,17 +2545,13 @@ function ChecklistDetails({
                       color: tokens.colorNeutralForeground1,
                   }
                 : undefined;
-        const selectedSectionTopParentId = selectedSectionPath[0]?.id || "";
         const canDropAtChildrenEnd = Boolean(
             draggedItem?.type === "section" && canMoveSectionToChildrenEnd(sections, draggedItem.id, section.id)
         );
         const canAddAnotherChild =
             depth === 0 &&
-            selectedSectionTopParentId === section.id &&
             section.sections.length > 0 &&
-            !isCollapsed &&
-            !draftSection &&
-            !draftItem;
+            !isCollapsed;
 
         return (
             <React.Fragment key={section.id}>
@@ -2672,6 +2707,7 @@ function ChecklistDetails({
                         <Button
                             appearance="subtle"
                             className={styles.sectionAddAnotherButton}
+                            disabled={Boolean(draftSection || draftItem)}
                             onClick={() => startNewSection(section.id)}
                         >
                             + Add a child section
@@ -2844,14 +2880,6 @@ function ChecklistDetails({
                                             {`${sectionCount} section${sectionCount === 1 ? "" : "s"}`}
                                         </Caption1>
                                     </div>
-                                    <Button
-                                        appearance="primary"
-                                        icon={<AddRegular />}
-                                        disabled={Boolean(draftSection || draftItem)}
-                                        onClick={() => startNewSection(null)}
-                                    >
-                                        Add section
-                                    </Button>
                                 </div>
                                 <div className={styles.contentsColumnBody}>
                                     {sections.map((section) => renderSectionRow(section))}
@@ -2870,6 +2898,16 @@ function ChecklistDetails({
                                             <Text weight="semibold">No sections have been defined.</Text>
                                         </div>
                                     )}
+                                    <div className={styles.sectionAddTopLevelRow}>
+                                        <Button
+                                            appearance="subtle"
+                                            className={styles.sectionAddAnotherButton}
+                                            disabled={Boolean(draftSection || draftItem)}
+                                            onClick={() => startNewSection(null)}
+                                        >
+                                            + Add a section
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
                             <div className={styles.contentsColumn}>
