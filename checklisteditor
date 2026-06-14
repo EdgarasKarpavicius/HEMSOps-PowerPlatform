@@ -514,6 +514,19 @@ const useStyles = makeStyles({
     controlFullWidth: {
         width: "100%",
     },
+    shortcutToast: {
+        position: "fixed",
+        top: "18px",
+        right: "18px",
+        zIndex: 10,
+        maxWidth: "360px",
+        padding: "10px 12px",
+        color: tokens.colorNeutralForeground1,
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
+        borderRadius: tokens.borderRadiusMedium,
+        boxShadow: tokens.shadow16,
+    },
     contentsPlaceholder: {
         minHeight: "260px",
         display: "flex",
@@ -2039,6 +2052,8 @@ function ChecklistDetails({
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
     const [pendingValidationMessage, setPendingValidationMessage] = useState<PendingValidationMessage>(null);
+    const [shortcutNotice, setShortcutNotice] = useState("");
+    const shortcutNoticeTimerRef = useRef<number | null>(null);
     const [hoveredSectionId, setHoveredSectionId] = useState("");
     const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
         () => new Set(getSectionIdsWithChildren(version.definition.checklistVersionContents.sections))
@@ -2053,6 +2068,12 @@ function ChecklistDetails({
             isMounted = false;
         };
     }, [checklist.targetTypeValue]);
+
+    useEffect(() => {
+        return () => {
+            if (shortcutNoticeTimerRef.current) window.clearTimeout(shortcutNoticeTimerRef.current);
+        };
+    }, []);
 
     const currentDefinition = useMemo(
         () =>
@@ -2144,6 +2165,14 @@ function ChecklistDetails({
             setSelectedItemId(selectedSection.items[0].id);
         }
     };
+    const showShortcutNotice = (message: string) => {
+        setShortcutNotice(message);
+        if (shortcutNoticeTimerRef.current) window.clearTimeout(shortcutNoticeTimerRef.current);
+        shortcutNoticeTimerRef.current = window.setTimeout(() => {
+            setShortcutNotice("");
+            shortcutNoticeTimerRef.current = null;
+        }, 2200);
+    };
     const startContextualSection = () => {
         if (keyboardPane === "sections" && highlightedSection) {
             startNewSection(highlightedSection.parentId);
@@ -2153,26 +2182,32 @@ function ChecklistDetails({
     };
     const startContextualChildSection = () => {
         const parentSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
-        if (!parentSection || parentSection.parentId || parentSection.items.length > 0) return;
+        if (!parentSection) {
+            showShortcutNotice("Highlight a top-level section before adding a child section.");
+            return;
+        }
+        if (parentSection.parentId) {
+            showShortcutNotice("Child sections can only be added to top-level sections.");
+            return;
+        }
+        if (parentSection.items.length > 0) {
+            showShortcutNotice("Child sections cannot be added because this section already contains checklist items.");
+            return;
+        }
         startNewSection(parentSection.id);
     };
     const startContextualItem = () => {
         const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
-        if (!targetSection || targetSection.sections.length > 0) return;
-        selectSection(targetSection.id);
-        startNewItem(targetSection.id);
-    };
-    const startContextualCreate = () => {
-        const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
         if (!targetSection) {
-            startContextualSection();
+            showShortcutNotice("Highlight a section before adding an item.");
             return;
         }
         if (targetSection.sections.length > 0) {
-            startContextualChildSection();
+            showShortcutNotice("Items cannot be added because this section contains child sections.");
             return;
         }
-        startContextualItem();
+        selectSection(targetSection.id);
+        startNewItem(targetSection.id);
     };
     const expandTopLevelSectionOnly = (current: Set<string>, sectionId: string) => {
         const next = new Set(current);
@@ -2202,12 +2237,18 @@ function ChecklistDetails({
     };
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || event.altKey) return;
+            const key = event.key.toLowerCase();
+            if (key === "s" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                if (hasDefinitionChanges && !isSaving) handleSave();
+                return;
+            }
             if (activeTab !== "contents") return;
-            if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+            if (event.ctrlKey || event.metaKey) return;
             if (isEditableKeyboardTarget(event.target)) return;
             if (draftSection || draftItem || editingSectionId) return;
 
-            const key = event.key.toLowerCase();
             if (event.key === "Tab") {
                 event.preventDefault();
                 if (keyboardPane === "sections" && canStartItemForSelectedSection) {
@@ -2270,18 +2311,18 @@ function ChecklistDetails({
                 requestDeleteItem(selectedSection.id, selectedItem);
                 return;
             }
-            if (event.key === "+" || event.key === "=") {
+            if (key === "s") {
                 event.preventDefault();
-                if (event.shiftKey && event.key === "+") {
+                if (event.shiftKey) {
                     startContextualChildSection();
                     return;
                 }
-                startContextualCreate();
+                startContextualSection();
                 return;
             }
-            if (key === "s" && event.shiftKey) {
+            if (key === "i") {
                 event.preventDefault();
-                if (hasDefinitionChanges && !isSaving) handleSave();
+                startContextualItem();
             }
         };
 
@@ -2927,6 +2968,11 @@ function ChecklistDetails({
 
     return (
         <div className={styles.detailsPage}>
+            {shortcutNotice && (
+                <div className={styles.shortcutToast}>
+                    <Text>{shortcutNotice}</Text>
+                </div>
+            )}
             <div className={styles.editorHeader}>
                 <div className={styles.titleStack}>
                     <Text className={styles.eyebrow}>{checklistHeaderLabel}</Text>
