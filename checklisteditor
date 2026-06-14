@@ -2551,12 +2551,31 @@ function ChecklistDetails({
         setDraftItem(continueAdding ? { sectionId, name: "", description: "", quantity: "" } : null);
         return true;
     };
+    const cancelDraftItem = () => {
+        const cancelledDraft = draftItem;
+        setDraftItem(null);
+        if (!cancelledDraft || cancelledDraft.itemId) return;
+        const draftSection = findSectionById(sections, cancelledDraft.sectionId);
+        const isFreshEmptySection = Boolean(
+            draftSection &&
+            draftSection.items.length === 0 &&
+            draftSection.sections.length === 0
+        );
+        if (!isFreshEmptySection) return;
+        setKeyboardPane("sections");
+        setHighlightedSectionId(cancelledDraft.sectionId);
+        setSelectedItemId("");
+        setKeyboardNavigationActive(true);
+    };
     const handleItemEditKeyDown = (event: React.KeyboardEvent) => {
         if (event.key === "Enter") {
             event.preventDefault();
             confirmDraftItem(event.shiftKey);
         }
-        if (event.key === "Escape") setDraftItem(null);
+        if (event.key === "Escape") {
+            event.preventDefault();
+            cancelDraftItem();
+        }
     };
     const handleSectionDropById = (draggedSectionId: string, targetSectionId: string) => {
         if (!draggedSectionId || !targetSectionId) return;
