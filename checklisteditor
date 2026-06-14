@@ -2080,6 +2080,7 @@ function ChecklistDetails({
     );
     const [selectedItemId, setSelectedItemId] = useState("");
     const [keyboardPane, setKeyboardPane] = useState<KeyboardPane>("sections");
+    const [keyboardNavigationActive, setKeyboardNavigationActive] = useState(false);
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
     const [editingSectionId, setEditingSectionId] = useState("");
@@ -2287,6 +2288,7 @@ function ChecklistDetails({
 
             if (event.key === "Tab") {
                 event.preventDefault();
+                if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
                 if (keyboardPane === "sections" && canStartItemForSelectedSection) {
                     moveKeyboardPane("items");
                 } else {
@@ -2296,6 +2298,7 @@ function ChecklistDetails({
             }
             if (event.key === "ArrowUp") {
                 event.preventDefault();
+                setKeyboardNavigationActive(true);
                 if (keyboardPane === "sections") {
                     moveSectionHighlight(-1);
                 } else {
@@ -2305,6 +2308,7 @@ function ChecklistDetails({
             }
             if (event.key === "ArrowDown") {
                 event.preventDefault();
+                setKeyboardNavigationActive(true);
                 if (keyboardPane === "sections") {
                     moveSectionHighlight(1);
                 } else {
@@ -2379,6 +2383,7 @@ function ChecklistDetails({
         highlightedSectionDepth,
         hasDefinitionChanges,
         isSaving,
+        keyboardNavigationActive,
         keyboardPane,
         selectedItem,
         selectedItemId,
@@ -2809,7 +2814,7 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isSelectedSection = selectedSectionId === section.id;
-        const isHighlightedSection = keyboardPane === "sections" && highlightedSectionId === section.id;
+        const isHighlightedSection = keyboardNavigationActive && keyboardPane === "sections" && highlightedSectionId === section.id;
         const isEditingThisSection = editingSectionId === section.id;
         const isSelectedAncestorSection =
             depth === 0 &&
@@ -3026,6 +3031,13 @@ function ChecklistDetails({
     };
     const sectionCount = flattenedSections.length;
     const checklistHeaderLabel = `${checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist"}${checklist.targetType ? ` - ${checklist.targetType}` : ""}`;
+    const handleTabSelect = (_: any, data: any) => {
+        setActiveTab(String(data.value));
+        setKeyboardNavigationActive(false);
+    };
+    const clearTabFocus = (event: React.FocusEvent<HTMLElement> | React.MouseEvent<HTMLElement>) => {
+        event.currentTarget.blur();
+    };
 
     return (
         <div className={styles.detailsPage}>
@@ -3083,11 +3095,11 @@ function ChecklistDetails({
                 <div className={styles.tabHeader}>
                     <TabList
                         selectedValue={activeTab}
-                        onTabSelect={(_, data) => setActiveTab(String(data.value))}
+                        onTabSelect={handleTabSelect}
                     >
-                        <Tab className={styles.tabLabel} value="general">General</Tab>
-                        <Tab className={styles.tabLabel} value="contents">Contents</Tab>
-                        <Tab className={styles.tabLabel} value="options">Options</Tab>
+                        <Tab className={styles.tabLabel} value="general" onFocus={clearTabFocus} onClick={clearTabFocus}>General</Tab>
+                        <Tab className={styles.tabLabel} value="contents" onFocus={clearTabFocus} onClick={clearTabFocus}>Contents</Tab>
+                        <Tab className={styles.tabLabel} value="options" onFocus={clearTabFocus} onClick={clearTabFocus}>Options</Tab>
                     </TabList>
                     {hasDefinitionChanges && (
                         <Button
@@ -3174,7 +3186,7 @@ function ChecklistDetails({
                             <div
                                 className={[
                                     styles.contentsColumn,
-                                    keyboardPane === "sections" ? styles.activeContentsColumn : "",
+                                    keyboardNavigationActive && keyboardPane === "sections" ? styles.activeContentsColumn : "",
                                 ].filter(Boolean).join(" ")}
                             >
                                 <div className={styles.contentsColumnHeader}>
@@ -3217,7 +3229,7 @@ function ChecklistDetails({
                             <div
                                 className={[
                                     styles.contentsColumn,
-                                    keyboardPane === "items" ? styles.activeContentsColumn : "",
+                                    keyboardNavigationActive && keyboardPane === "items" ? styles.activeContentsColumn : "",
                                 ].filter(Boolean).join(" ")}
                             >
                                 <div className={styles.contentsColumnHeader}>
@@ -3287,8 +3299,8 @@ function ChecklistDetails({
                                                     <div
                                                         className={[
                                                             styles.itemRow,
-                                                            keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
-                                                            keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
+                                                            keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
+                                                            keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
                                                             draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
                                                             dragOverTarget?.type === "item" && dragOverTarget.id === item.id ? styles.dropBeforeRow : "",
                                                         ].filter(Boolean).join(" ")}
