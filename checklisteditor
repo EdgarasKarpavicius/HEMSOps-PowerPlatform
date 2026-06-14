@@ -451,6 +451,17 @@ const useStyles = makeStyles({
         padding: "0 0 6px",
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
+    tabLabel: {
+        ":focus": {
+            outlineStyle: "none",
+        },
+        ":focus-visible": {
+            outlineStyle: "none",
+        },
+        "::after": {
+            display: "none",
+        },
+    },
     tabPanel: {
         display: "flex",
         flexDirection: "column",
@@ -3024,9 +3035,9 @@ function ChecklistDetails({
                         selectedValue={activeTab}
                         onTabSelect={(_, data) => setActiveTab(String(data.value))}
                     >
-                        <Tab value="general">General</Tab>
-                        <Tab value="contents">Contents</Tab>
-                        <Tab value="options">Options</Tab>
+                        <Tab className={styles.tabLabel} value="general">General</Tab>
+                        <Tab className={styles.tabLabel} value="contents">Contents</Tab>
+                        <Tab className={styles.tabLabel} value="options">Options</Tab>
                     </TabList>
                     {hasDefinitionChanges && (
                         <Button
