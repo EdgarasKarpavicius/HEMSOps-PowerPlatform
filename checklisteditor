@@ -667,11 +667,6 @@ const useStyles = makeStyles({
         boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
     },
     selectedChildSectionRow: {
-        backgroundColor: tokens.colorBrandBackground2,
-        color: tokens.colorNeutralForeground1,
-        borderColor: tokens.colorBrandStroke1,
-        borderLeftColor: tokens.colorBrandStroke1,
-        borderLeftWidth: "3px",
         fontWeight: tokens.fontWeightSemibold,
     },
     draggingRow: {
@@ -2452,6 +2447,16 @@ function ChecklistDetails({
         const isInvalidDropTarget =
             dragOverTarget?.type === "invalidSectionChild" &&
             dragOverTarget.id === section.id;
+        const isAnyDropTarget = isDropBeforeTarget || isDropAfterTarget || isDropChildTarget || isInvalidDropTarget;
+        const selectedChildSectionStyle: React.CSSProperties | undefined =
+            isSelectedSection && depth > 0 && !isAnyDropTarget
+                ? {
+                      backgroundColor: tokens.colorBrandBackground2,
+                      color: tokens.colorNeutralForeground1,
+                      borderColor: tokens.colorBrandStroke1,
+                      borderLeftColor: tokens.colorBrandStroke1,
+                  }
+                : undefined;
         const selectedSectionTopParentId = selectedSectionPath[0]?.id || "";
         const canDropAtChildrenEnd = Boolean(
             draggedItem?.type === "section" && canMoveSectionToChildrenEnd(sections, draggedItem.id, section.id)
@@ -2481,6 +2486,7 @@ function ChecklistDetails({
                         isDropChildTarget ? styles.dropIntoSectionRow : "",
                         isInvalidDropTarget ? styles.invalidDropSectionRow : "",
                     ].filter(Boolean).join(" ")}
+                    style={selectedChildSectionStyle}
                     onClick={() => {
                         if (ignoreNextSectionClickRef.current) {
                             ignoreNextSectionClickRef.current = false;
