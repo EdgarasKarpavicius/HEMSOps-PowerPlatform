@@ -143,13 +143,22 @@ type DraggedItem =
 type DragOverTarget =
     | { type: "section"; id: string; placement?: "before" | "after" | "child" }
     | { type: "invalidSectionChild"; id: string; reason: string }
-    | { type: "item"; id: string }
+    | { type: "item"; id: string; placement?: "before" | "after" }
     | { type: "topLevelEnd" }
     | { type: "sectionChildrenEnd"; parentId: string }
     | null;
 
 type SectionPointerDrag = {
     id: string;
+    startX: number;
+    startY: number;
+    isDragging: boolean;
+    pointerId: number;
+} | null;
+
+type ItemPointerDrag = {
+    id: string;
+    sectionId: string;
     startX: number;
     startY: number;
     isDragging: boolean;
@@ -786,12 +795,18 @@ const useStyles = makeStyles({
     },
     dropIntoSectionRow: {
         backgroundColor: tokens.colorNeutralBackground2,
-        borderColor: tokens.colorBrandStroke1,
+        borderTopColor: tokens.colorBrandStroke1,
+        borderRightColor: tokens.colorBrandStroke1,
+        borderBottomColor: tokens.colorBrandStroke1,
+        borderLeftColor: tokens.colorBrandStroke1,
         boxShadow: `inset 2px 0 0 ${tokens.colorBrandStroke1}`,
     },
     invalidDropSectionRow: {
         backgroundColor: tokens.colorPaletteRedBackground1,
-        borderColor: tokens.colorPaletteRedBorder2,
+        borderTopColor: tokens.colorPaletteRedBorder2,
+        borderRightColor: tokens.colorPaletteRedBorder2,
+        borderBottomColor: tokens.colorPaletteRedBorder2,
+        borderLeftColor: tokens.colorPaletteRedBorder2,
         boxShadow: `inset 3px 0 0 ${tokens.colorPaletteRedBorder2}`,
     },
     topLevelEndDropTarget: {
@@ -1324,14 +1339,20 @@ function updateItemInSection(sections: ChecklistSection[], sectionId: string, it
     });
 }
 
-function reorderById<T extends { id: string }>(items: T[], draggedId: string, targetId: string) {
+function reorderByIdWithPlacement<T extends { id: string }>(
+    items: T[],
+    draggedId: string,
+    targetId: string,
+    placement: "before" | "after"
+) {
     if (draggedId === targetId) return items;
     const draggedIndex = items.findIndex((item) => item.id === draggedId);
-    const targetIndex = items.findIndex((item) => item.id === targetId);
-    if (draggedIndex < 0 || targetIndex < 0) return items;
+    if (draggedIndex < 0) return items;
     const nextItems = [...items];
     const [draggedItem] = nextItems.splice(draggedIndex, 1);
-    nextItems.splice(targetIndex, 0, draggedItem);
+    const targetIndex = nextItems.findIndex((item) => item.id === targetId);
+    if (targetIndex < 0) return items;
+    nextItems.splice(placement === "after" ? targetIndex + 1 : targetIndex, 0, draggedItem);
     return nextItems;
 }
 
@@ -1490,17 +1511,23 @@ function canMoveSectionToTopLevelEnd(sections: ChecklistSection[], draggedId: st
     return sections[sections.length - 1]?.id !== draggedId || draggedPath.length > 1;
 }
 
-function reorderSectionItems(sections: ChecklistSection[], sectionId: string, draggedId: string, targetId: string): ChecklistSection[] {
+function reorderSectionItems(
+    sections: ChecklistSection[],
+    sectionId: string,
+    draggedId: string,
+    targetId: string,
+    placement: "before" | "after"
+): ChecklistSection[] {
     return sections.map((candidate) => {
         if (candidate.id === sectionId) {
             return {
                 ...candidate,
-                items: reorderById(candidate.items, draggedId, targetId),
+                items: reorderByIdWithPlacement(candidate.items, draggedId, targetId, placement),
             };
         }
         return {
             ...candidate,
-            sections: reorderSectionItems(candidate.sections, sectionId, draggedId, targetId),
+            sections: reorderSectionItems(candidate.sections, sectionId, draggedId, targetId, placement),
         };
     });
 }
@@ -2120,7 +2147,9 @@ function ChecklistDetails({
     const draggedSectionIdRef = useRef("");
     const draggedItemRef = useRef<DraggedItem>(null);
     const sectionPointerDragRef = useRef<SectionPointerDrag>(null);
+    const itemPointerDragRef = useRef<ItemPointerDrag>(null);
     const ignoreNextSectionClickRef = useRef(false);
+    const ignoreNextItemClickRef = useRef(false);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
     const [pendingValidationMessage, setPendingValidationMessage] = useState<PendingValidationMessage>(null);
@@ -2562,15 +2591,24 @@ function ChecklistDetails({
         draggedSectionIdRef.current = "";
         setDragOverTarget(null);
     };
-    const handleItemDrop = (targetItem: ChecklistItem) => {
+    const handleItemDrop = (targetItemId: string, placement: "before" | "after") => {
         const currentDraggedItem = draggedItem?.type === "item" ? draggedItem : draggedItemRef.current;
         if (currentDraggedItem?.type !== "item" || currentDraggedItem.sectionId !== selectedSectionId) return;
         setSections((current) =>
-            reorderSectionItems(current, selectedSectionId, currentDraggedItem.id, targetItem.id)
+            reorderSectionItems(current, selectedSectionId, currentDraggedItem.id, targetItemId, placement)
         );
         draggedItemRef.current = null;
         setDraggedItem(null);
         setDragOverTarget(null);
+    };
+    const getItemDropTargetFromPoint = (clientX: number, clientY: number, draggedItemId: string): DragOverTarget => {
+        const element = document.elementFromPoint(clientX, clientY);
+        const itemElement = element?.closest?.("[data-item-id]");
+        const itemId = itemElement instanceof HTMLElement ? itemElement.dataset.itemId || "" : "";
+        if (!itemId || itemId === draggedItemId) return null;
+        const rowBounds = itemElement instanceof HTMLElement ? itemElement.getBoundingClientRect() : null;
+        const placement = rowBounds && clientY > rowBounds.top + rowBounds.height / 2 ? "after" : "before";
+        return { type: "item", id: itemId, placement };
     };
     const getSectionDropTargetFromPoint = (clientX: number, clientY: number, draggedSectionId: string) => {
         const element = document.elementFromPoint(clientX, clientY);
@@ -2709,12 +2747,73 @@ function ChecklistDetails({
         setDraggedItem(null);
         setDragOverTarget(null);
     };
-    const canDropItemOnTarget = (targetItem: ChecklistItem) => {
+    const handleItemPointerDown = (event: React.PointerEvent<HTMLDivElement>, item: ChecklistItem) => {
+        if (event.button !== 0 || draftSection || draftItem || !selectedSection) return;
+        const target = event.target as HTMLElement;
+        if (target.closest("button,input,textarea,select,[role='button']")) return;
+        event.preventDefault();
+        window.getSelection?.()?.removeAllRanges();
+        itemPointerDragRef.current = {
+            id: item.id,
+            sectionId: selectedSection.id,
+            startX: event.clientX,
+            startY: event.clientY,
+            isDragging: false,
+            pointerId: event.pointerId,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+    };
+    const handleItemPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = itemPointerDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+        if (!drag.isDragging && distance < 6) return;
+        if (!drag.isDragging) {
+            drag.isDragging = true;
+            ignoreNextItemClickRef.current = true;
+            const nextDraggedItem: DraggedItem = { type: "item", id: drag.id, sectionId: drag.sectionId };
+            draggedItemRef.current = nextDraggedItem;
+            setDraggedItem(nextDraggedItem);
+        }
+        const target = getItemDropTargetFromPoint(event.clientX, event.clientY, drag.id);
+        if (target?.type === "item" && canDropItemOnTarget(target.id)) {
+            setDragOverTarget(target);
+            return;
+        }
+        setDragOverTarget(null);
+    };
+    const handleItemPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = itemPointerDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        try {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch {
+            // Pointer capture can already be released by the browser.
+        }
+        const target = drag.isDragging ? getItemDropTargetFromPoint(event.clientX, event.clientY, drag.id) : null;
+        itemPointerDragRef.current = null;
+        if (target?.type === "item" && target.placement && drag.sectionId === selectedSectionId) {
+            handleItemDrop(target.id, target.placement);
+            return;
+        }
+        draggedItemRef.current = null;
+        setDraggedItem(null);
+        setDragOverTarget(null);
+    };
+    const handleItemPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = itemPointerDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        itemPointerDragRef.current = null;
+        draggedItemRef.current = null;
+        setDraggedItem(null);
+        setDragOverTarget(null);
+    };
+    const canDropItemOnTarget = (targetItemId: string) => {
         const currentDraggedItem = draggedItem?.type === "item" ? draggedItem : draggedItemRef.current;
         return Boolean(
             currentDraggedItem?.type === "item" &&
             currentDraggedItem.sectionId === selectedSectionId &&
-            currentDraggedItem.id !== targetItem.id
+            currentDraggedItem.id !== targetItemId
         );
     };
     const requestDeleteSection = (section: ChecklistSection) => {
@@ -3356,39 +3455,22 @@ function ChecklistDetails({
                                                             keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
                                                             keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
                                                             draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
-                                                            dragOverTarget?.type === "item" && dragOverTarget.id === item.id ? styles.dropBeforeRow : "",
+                                                            dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement !== "after" ? styles.dropBeforeRow : "",
+                                                            dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement === "after" ? styles.dropAfterRow : "",
                                                         ].filter(Boolean).join(" ")}
                                                         key={item.id}
-                                                        draggable
-                                                        onClick={() => startEditItem(selectedSection.id, item)}
-                                                        onDragStart={(event) => {
-                                                            window.getSelection?.()?.removeAllRanges();
-                                                            event.dataTransfer.effectAllowed = "move";
-                                                            event.dataTransfer.setData("text/plain", item.id);
-                                                            const nextDraggedItem: DraggedItem = { type: "item", id: item.id, sectionId: selectedSection.id };
-                                                            draggedItemRef.current = nextDraggedItem;
-                                                            setDraggedItem(nextDraggedItem);
-                                                        }}
-                                                        onDragOver={(event) => {
-                                                            if (!canDropItemOnTarget(item)) {
-                                                                if (dragOverTarget?.type === "item" && dragOverTarget.id === item.id) setDragOverTarget(null);
+                                                        data-item-id={item.id}
+                                                        onClick={() => {
+                                                            if (ignoreNextItemClickRef.current) {
+                                                                ignoreNextItemClickRef.current = false;
                                                                 return;
                                                             }
-                                                            event.preventDefault();
-                                                            setDragOverTarget({ type: "item", id: item.id });
+                                                            startEditItem(selectedSection.id, item);
                                                         }}
-                                                        onDrop={(event) => {
-                                                            event.preventDefault();
-                                                            handleItemDrop(item);
-                                                        }}
-                                                        onDragLeave={() => {
-                                                            if (dragOverTarget?.type === "item" && dragOverTarget.id === item.id) setDragOverTarget(null);
-                                                        }}
-                                                        onDragEnd={() => {
-                                                            draggedItemRef.current = null;
-                                                            setDraggedItem(null);
-                                                            setDragOverTarget(null);
-                                                        }}
+                                                        onPointerDown={(event) => handleItemPointerDown(event, item)}
+                                                        onPointerMove={handleItemPointerMove}
+                                                        onPointerUp={handleItemPointerUp}
+                                                        onPointerCancel={handleItemPointerCancel}
                                                     >
                                                         <div className={styles.itemReadOnlyText}>
                                                             <Text weight="semibold">{item.name || "Unnamed item"}</Text>
