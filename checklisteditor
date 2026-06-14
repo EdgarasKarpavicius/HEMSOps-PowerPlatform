@@ -124,12 +124,14 @@ type FlatChecklistSection = {
 
 type DraftSection = {
     parentId: string | null;
+    afterSectionId?: string | null;
     name: string;
 };
 
 type DraftItem = {
     sectionId: string;
     itemId?: string;
+    afterItemId?: string | null;
     name: string;
     description: string;
     quantity: string;
@@ -1266,6 +1268,11 @@ function appendSection(sections: ChecklistSection[], parentId: string | null, se
     });
 }
 
+function addSection(sections: ChecklistSection[], parentId: string | null, section: ChecklistSection, afterSectionId?: string | null): ChecklistSection[] {
+    if (afterSectionId) return insertSectionAfterTarget(sections, section, afterSectionId, parentId);
+    return appendSection(sections, parentId, section);
+}
+
 function removeSectionById(sections: ChecklistSection[], sectionId: string): { sections: ChecklistSection[]; removed: ChecklistSection | null } {
     let removed: ChecklistSection | null = null;
     const nextSections = sections.reduce<ChecklistSection[]>((acc, section) => {
@@ -1312,17 +1319,20 @@ function countSectionContents(section: ChecklistSection): { sections: number; it
     );
 }
 
-function appendItemToSection(sections: ChecklistSection[], sectionId: string, item: ChecklistItem): ChecklistSection[] {
+function addItemToSection(sections: ChecklistSection[], sectionId: string, item: ChecklistItem, afterItemId?: string | null): ChecklistSection[] {
     return sections.map((candidate) => {
         if (candidate.id === sectionId) {
+            const targetIndex = afterItemId ? candidate.items.findIndex((candidateItem) => candidateItem.id === afterItemId) : -1;
+            const nextItems = [...candidate.items];
+            nextItems.splice(targetIndex >= 0 ? targetIndex + 1 : nextItems.length, 0, item);
             return {
                 ...candidate,
-                items: [...candidate.items, item],
+                items: nextItems,
             };
         }
         return {
             ...candidate,
-            sections: appendItemToSection(candidate.sections, sectionId, item),
+            sections: addItemToSection(candidate.sections, sectionId, item, afterItemId),
         };
     });
 }
@@ -2306,37 +2316,42 @@ function ChecklistDetails({
             shortcutNoticeTimerRef.current = null;
         }, 2200);
     };
-    const startContextualSection = () => {
-        const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
-        if (targetSection?.parentId) selectSection("");
-        startNewSection(null);
+    const startSectionAfterFocus = () => {
+        const focusedSection = keyboardNavigationActive ? highlightedSection : null;
+        if (!focusedSection) {
+            startNewSection(null);
+            return;
+        }
+        const targetPath = findSectionPathById(sections, focusedSection.id);
+        const parentSection = targetPath.length > 1 ? targetPath[targetPath.length - 2] : null;
+        startNewSection(parentSection?.id || null, focusedSection.id);
     };
-    const startContextualChildSection = () => {
-        const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
-        const targetPath = findSectionPathById(sections, targetSection?.id || null);
-        const parentSection = targetPath.length > 1 ? targetPath[0] : targetSection;
-        if (!parentSection) {
+    const startChildSectionFromFocus = () => {
+        const focusedSection = keyboardNavigationActive ? highlightedSection : null;
+        if (!focusedSection) {
             showShortcutNotice("Highlight a section before adding a child section.");
             return;
         }
-        if (parentSection.items.length > 0) {
+        if (focusedSection.parentId) {
+            showShortcutNotice("Child sections can only be added beneath top-level sections.");
+            return;
+        }
+        if (focusedSection.items.length > 0) {
             showShortcutNotice("Child sections cannot be added because this section already contains checklist items.");
             return;
         }
-        startNewSection(parentSection.id);
+        startNewSection(focusedSection.id);
     };
-    const startContextualItem = () => {
-        const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
-        if (!targetSection) {
-            showShortcutNotice("Highlight a section before adding an item.");
+    const startItemAfterFocus = () => {
+        if (!selectedSection) {
+            showShortcutNotice("Select a section before adding an item.");
             return;
         }
-        if (targetSection.sections.length > 0) {
+        if (selectedSection.sections.length > 0) {
             showShortcutNotice("Items cannot be added because this section contains child sections.");
             return;
         }
-        selectSection(targetSection.id);
-        startNewItem(targetSection.id);
+        startNewItem(selectedSection.id, keyboardNavigationActive ? selectedItemId || null : null);
     };
     const expandTopLevelSectionOnly = (current: Set<string>, sectionId: string) => {
         const next = new Set(current);
@@ -2350,9 +2365,9 @@ function ChecklistDetails({
         });
         return next;
     };
-    const startNewSection = (parentId: string | null) => {
+    const startNewSection = (parentId: string | null, afterSectionId: string | null = null) => {
         setKeyboardPane("sections");
-        setDraftSection({ parentId, name: "" });
+        setDraftSection({ parentId, afterSectionId, name: "" });
         setDraftItem(null);
         if (parentId) {
             setCollapsedSectionIds((current) => {
@@ -2385,7 +2400,6 @@ function ChecklistDetails({
             selectSection(highlightedSection.id);
             return;
         }
-        if (highlightedSection.items.length === 0) startNewItem(highlightedSection.id);
     };
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -2431,17 +2445,26 @@ function ChecklistDetails({
                 }
                 return;
             }
-            if ((event.key === " " || event.key === "Enter") && keyboardPane === "sections" && highlightedSection) {
+            if (event.key === "Enter" && keyboardPane === "sections") {
+                event.preventDefault();
+                if (event.shiftKey) {
+                    startChildSectionFromFocus();
+                } else {
+                    startSectionAfterFocus();
+                }
+                return;
+            }
+            if (event.key === " " && keyboardPane === "sections" && keyboardNavigationActive && highlightedSection) {
                 event.preventDefault();
                 confirmHighlightedSection();
                 return;
             }
-            if (event.key === " " && keyboardPane === "items" && selectedSection && selectedItem) {
+            if (event.key === "Enter" && keyboardPane === "items") {
                 event.preventDefault();
-                startEditItem(selectedSection.id, selectedItem);
+                startItemAfterFocus();
                 return;
             }
-            if (event.key === "Enter" && keyboardPane === "items" && selectedSection && selectedItem) {
+            if (event.key === " " && keyboardPane === "items" && keyboardNavigationActive && selectedSection && selectedItem) {
                 event.preventDefault();
                 startEditItem(selectedSection.id, selectedItem);
                 return;
@@ -2455,19 +2478,6 @@ function ChecklistDetails({
                 event.preventDefault();
                 requestDeleteItem(selectedSection.id, selectedItem);
                 return;
-            }
-            if (key === "s") {
-                event.preventDefault();
-                if (event.shiftKey) {
-                    startContextualChildSection();
-                    return;
-                }
-                startContextualSection();
-                return;
-            }
-            if (key === "i") {
-                event.preventDefault();
-                startContextualItem();
             }
         };
 
@@ -2495,7 +2505,7 @@ function ChecklistDetails({
     const confirmDraftSection = () => {
         if (!draftSection?.name.trim()) return;
         const newSection = createEmptySection(draftSection.name, draftSection.parentId);
-        setSections((current) => appendSection(current, draftSection.parentId, newSection));
+        setSections((current) => addSection(current, draftSection.parentId, newSection, draftSection.afterSectionId));
         selectSection(newSection.id);
         setDraftSection(null);
     };
@@ -2513,10 +2523,10 @@ function ChecklistDetails({
             return next;
         });
     };
-    const startNewItem = (sectionId: string) => {
+    const startNewItem = (sectionId: string, afterItemId: string | null = null) => {
         setKeyboardPane("items");
         setSelectedItemId("");
-        setDraftItem({ sectionId, name: "", description: "", quantity: "" });
+        setDraftItem({ sectionId, afterItemId, name: "", description: "", quantity: "" });
         setDraftSection(null);
     };
     const startEditSectionName = (section: ChecklistSection) => {
@@ -2559,10 +2569,10 @@ function ChecklistDetails({
         setSections((current) =>
             draftItem.itemId
                 ? updateItemInSection(current, sectionId, item)
-                : appendItemToSection(current, sectionId, item)
+                : addItemToSection(current, sectionId, item, draftItem.afterItemId)
         );
         setSelectedItemId(continueAdding ? "" : item.id);
-        setDraftItem(continueAdding ? { sectionId, name: "", description: "", quantity: "" } : null);
+        setDraftItem(continueAdding ? { sectionId, afterItemId: item.id, name: "", description: "", quantity: "" } : null);
         return true;
     };
     const cancelDraftItem = () => {
@@ -3182,6 +3192,9 @@ function ChecklistDetails({
                             <React.Fragment key={childSection.id}>
                                 {index > 0 && <div className={styles.childSectionDivider} />}
                                 {renderSectionRow(childSection, depth + 1)}
+                                {draftSection?.parentId === section.id &&
+                                    draftSection.afterSectionId === childSection.id &&
+                                    renderDraftSectionRow(depth + 1)}
                             </React.Fragment>
                         ))}
                         {canDropAtChildrenEnd && (
@@ -3209,7 +3222,7 @@ function ChecklistDetails({
                         </Button>
                     </div>
                 )}
-                {draftSection?.parentId === section.id && renderDraftSectionRow(depth + 1)}
+                {draftSection?.parentId === section.id && !draftSection.afterSectionId && renderDraftSectionRow(depth + 1)}
             </React.Fragment>
         );
     };
@@ -3391,10 +3404,9 @@ function ChecklistDetails({
                                 <div className={styles.shortcutHelpContent}>
                                     <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Up/Down</span><Text>Move highlight</Text></span>
                                     <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Tab</span><Text>Switch pane</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Space</span><span className={styles.shortcutKey}>Enter</span><Text>Select or edit</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>S</span><Text>Section</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Shift+S</span><Text>Child section</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>I</span><Text>Item</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Enter</span><Text>Add after focus</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Shift+Enter</span><Text>Add child section</Text></span>
+                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Space</span><Text>Select or edit</Text></span>
                                     <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Ctrl/Cmd+S</span><Text>Save</Text></span>
                                     <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Delete</span><Text>Remove</Text></span>
                                 </div>
@@ -3416,7 +3428,14 @@ function ChecklistDetails({
                                     </div>
                                 </div>
                                 <div className={styles.contentsColumnBody}>
-                                    {sections.map((section) => renderSectionRow(section))}
+                                    {sections.map((section) => (
+                                        <React.Fragment key={section.id}>
+                                            {renderSectionRow(section)}
+                                            {draftSection?.parentId === null &&
+                                                draftSection.afterSectionId === section.id &&
+                                                renderDraftSectionRow(0)}
+                                        </React.Fragment>
+                                    ))}
                                     {canDropSectionAtTopLevelEnd && (
                                         <div
                                             data-section-top-level-end="true"
@@ -3426,7 +3445,7 @@ function ChecklistDetails({
                                             ].filter(Boolean).join(" ")}
                                         />
                                     )}
-                                    {draftSection?.parentId === null && renderDraftSectionRow(0)}
+                                    {draftSection?.parentId === null && !draftSection.afterSectionId && renderDraftSectionRow(0)}
                                     {!flattenedSections.length && !draftSection && (
                                         <div className={styles.contentsPlaceholder}>
                                             <Text weight="semibold">No sections have been defined.</Text>
@@ -3511,60 +3530,68 @@ function ChecklistDetails({
                                     ) : (
                                         <div className={styles.itemList}>
                                             {selectedSection.items.map((item) => (
-                                                draftItem?.itemId === item.id ? (
-                                                    <React.Fragment key={item.id}>{renderDraftItemRow()}</React.Fragment>
-                                                ) : (
-                                                    <div
-                                                        className={[
-                                                            styles.itemRow,
-                                                            keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
-                                                            keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
-                                                            draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
-                                                            dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement !== "after" ? styles.dropBeforeRow : "",
-                                                            dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement === "after" ? styles.dropAfterRow : "",
-                                                        ].filter(Boolean).join(" ")}
-                                                        key={item.id}
-                                                        data-item-id={item.id}
-                                                        onClick={() => {
-                                                            if (ignoreNextItemClickRef.current) {
-                                                                ignoreNextItemClickRef.current = false;
-                                                                return;
-                                                            }
-                                                            startEditItem(selectedSection.id, item);
-                                                        }}
-                                                        onPointerDown={(event) => handleItemPointerDown(event, item)}
-                                                        onPointerMove={handleItemPointerMove}
-                                                        onPointerUp={handleItemPointerUp}
-                                                        onPointerCancel={handleItemPointerCancel}
-                                                        onMouseEnter={() => setHoveredItemId(item.id)}
-                                                        onMouseLeave={() => setHoveredItemId((current) => (current === item.id ? "" : current))}
-                                                    >
-                                                        <div className={styles.itemReadOnlyText}>
-                                                            <Text weight="semibold">{item.name || "Unnamed item"}</Text>
-                                                            {item.description && (
-                                                                <Caption1 className={styles.mutedText}>{item.description}</Caption1>
-                                                            )}
+                                                <React.Fragment key={item.id}>
+                                                    {draftItem?.itemId === item.id ? (
+                                                        renderDraftItemRow()
+                                                    ) : (
+                                                        <div
+                                                            className={[
+                                                                styles.itemRow,
+                                                                keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
+                                                                keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
+                                                                draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
+                                                                dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement !== "after" ? styles.dropBeforeRow : "",
+                                                                dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement === "after" ? styles.dropAfterRow : "",
+                                                            ].filter(Boolean).join(" ")}
+                                                            data-item-id={item.id}
+                                                            onClick={() => {
+                                                                if (ignoreNextItemClickRef.current) {
+                                                                    ignoreNextItemClickRef.current = false;
+                                                                    return;
+                                                                }
+                                                                startEditItem(selectedSection.id, item);
+                                                            }}
+                                                            onPointerDown={(event) => handleItemPointerDown(event, item)}
+                                                            onPointerMove={handleItemPointerMove}
+                                                            onPointerUp={handleItemPointerUp}
+                                                            onPointerCancel={handleItemPointerCancel}
+                                                            onMouseEnter={() => setHoveredItemId(item.id)}
+                                                            onMouseLeave={() => setHoveredItemId((current) => (current === item.id ? "" : current))}
+                                                        >
+                                                            <div className={styles.itemReadOnlyText}>
+                                                                <Text weight="semibold">{item.name || "Unnamed item"}</Text>
+                                                                {item.description && (
+                                                                    <Caption1 className={styles.mutedText}>{item.description}</Caption1>
+                                                                )}
+                                                            </div>
+                                                            <div className={styles.rowActions}>
+                                                                {item.quantity !== null && item.quantity !== undefined && (
+                                                                    <Caption1 className={styles.mutedText}>{`Quantity ${item.quantity}`}</Caption1>
+                                                                )}
+                                                                <Button
+                                                                    aria-label="Delete item"
+                                                                    appearance="subtle"
+                                                                    className={styles.itemDeleteButton}
+                                                                    icon={<DeleteRegular />}
+                                                                    style={{ visibility: hoveredItemId === item.id ? "visible" : "hidden" }}
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation();
+                                                                        requestDeleteItem(selectedSection.id, item);
+                                                                    }}
+                                                                />
+                                                            </div>
                                                         </div>
-                                                        <div className={styles.rowActions}>
-                                                            {item.quantity !== null && item.quantity !== undefined && (
-                                                                <Caption1 className={styles.mutedText}>{`Quantity ${item.quantity}`}</Caption1>
-                                                            )}
-                                                            <Button
-                                                                aria-label="Delete item"
-                                                                appearance="subtle"
-                                                                className={styles.itemDeleteButton}
-                                                                icon={<DeleteRegular />}
-                                                                style={{ visibility: hoveredItemId === item.id ? "visible" : "hidden" }}
-                                                                onClick={(event) => {
-                                                                    event.stopPropagation();
-                                                                    requestDeleteItem(selectedSection.id, item);
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                )
+                                                    )}
+                                                    {draftItem?.sectionId === selectedSection.id &&
+                                                        !draftItem.itemId &&
+                                                        draftItem.afterItemId === item.id &&
+                                                        renderDraftItemRow()}
+                                                </React.Fragment>
                                             ))}
-                                            {draftItem?.sectionId === selectedSection.id && !draftItem.itemId && renderDraftItemRow()}
+                                            {draftItem?.sectionId === selectedSection.id &&
+                                                !draftItem.itemId &&
+                                                !draftItem.afterItemId &&
+                                                renderDraftItemRow()}
                                             {selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && !draftSection && (
                                                 <div className={styles.contentsPlaceholder}>
                                                     <Text weight="semibold">No content has been defined for this section.</Text>
