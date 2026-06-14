@@ -1529,7 +1529,6 @@ function serializeChecklistSections(sections: ChecklistSection[]): any[] {
             name: section.name,
         };
         if (section.bulkServiceable) serialized.bulkServiceable = true;
-        if (section.parentId) serialized.parentId = section.parentId;
         if (section.sections.length > 0) {
             serialized.sections = serializeChecklistSections(section.sections);
         } else if (section.items.length > 0) {
