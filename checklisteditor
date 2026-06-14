@@ -552,6 +552,9 @@ const useStyles = makeStyles({
         borderRadius: tokens.borderRadiusMedium,
         overflow: "hidden",
     },
+    activeContentsColumn: {
+        ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
+    },
     contentsColumnHeader: {
         display: "flex",
         alignItems: "center",
@@ -697,11 +700,11 @@ const useStyles = makeStyles({
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
         color: tokens.colorNeutralForeground1,
-        borderColor: tokens.colorBrandStroke1,
+        ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
     },
     selectedAncestorSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
-        borderColor: tokens.colorBrandStroke2,
+        ...shorthands.border("1px", "solid", tokens.colorBrandStroke2),
         boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
     },
     selectedChildSectionRow: {
@@ -2141,6 +2144,36 @@ function ChecklistDetails({
             setSelectedItemId(selectedSection.items[0].id);
         }
     };
+    const startContextualSection = () => {
+        if (keyboardPane === "sections" && highlightedSection) {
+            startNewSection(highlightedSection.parentId);
+            return;
+        }
+        startNewSection(null);
+    };
+    const startContextualChildSection = () => {
+        const parentSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
+        if (!parentSection || parentSection.parentId || parentSection.items.length > 0) return;
+        startNewSection(parentSection.id);
+    };
+    const startContextualItem = () => {
+        const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
+        if (!targetSection || targetSection.sections.length > 0) return;
+        selectSection(targetSection.id);
+        startNewItem(targetSection.id);
+    };
+    const startContextualCreate = () => {
+        const targetSection = keyboardPane === "sections" ? highlightedSection : selectedSection;
+        if (!targetSection) {
+            startContextualSection();
+            return;
+        }
+        if (targetSection.sections.length > 0) {
+            startContextualChildSection();
+            return;
+        }
+        startContextualItem();
+    };
     const expandTopLevelSectionOnly = (current: Set<string>, sectionId: string) => {
         const next = new Set(current);
         sections.forEach((section) => {
@@ -2237,22 +2270,18 @@ function ChecklistDetails({
                 requestDeleteItem(selectedSection.id, selectedItem);
                 return;
             }
-            if (key === "n") {
+            if (event.key === "+" || event.key === "=") {
                 event.preventDefault();
-                startNewSection(null);
+                if (event.shiftKey && event.key === "+") {
+                    startContextualChildSection();
+                    return;
+                }
+                startContextualCreate();
                 return;
             }
-            if (key === "i") {
-                if (!selectedSection || !canStartItemForSelectedSection) return;
+            if (key === "s" && event.shiftKey) {
                 event.preventDefault();
-                startNewItem(selectedSection.id);
-                return;
-            }
-            if (key === "c") {
-                const topLevelSection = selectedSectionPath[0];
-                if (!topLevelSection || topLevelSection.items.length > 0) return;
-                event.preventDefault();
-                startNewSection(topLevelSection.id);
+                if (hasDefinitionChanges && !isSaving) handleSave();
             }
         };
 
@@ -2266,6 +2295,8 @@ function ChecklistDetails({
         editingSectionId,
         highlightedSection,
         highlightedSectionDepth,
+        hasDefinitionChanges,
+        isSaving,
         keyboardPane,
         selectedItem,
         selectedItemId,
@@ -3033,7 +3064,12 @@ function ChecklistDetails({
                 ) : activeTab === "contents" ? (
                     <div className={styles.tabPanel}>
                         <div className={styles.contentsLayout}>
-                            <div className={styles.contentsColumn}>
+                            <div
+                                className={[
+                                    styles.contentsColumn,
+                                    keyboardPane === "sections" ? styles.activeContentsColumn : "",
+                                ].filter(Boolean).join(" ")}
+                            >
                                 <div className={styles.contentsColumnHeader}>
                                     <div>
                                         <Text block weight="semibold">Sections</Text>
@@ -3071,7 +3107,12 @@ function ChecklistDetails({
                                     </div>
                                 </div>
                             </div>
-                            <div className={styles.contentsColumn}>
+                            <div
+                                className={[
+                                    styles.contentsColumn,
+                                    keyboardPane === "items" ? styles.activeContentsColumn : "",
+                                ].filter(Boolean).join(" ")}
+                            >
                                 <div className={styles.contentsColumnHeader}>
                                     <div>
                                         {selectedSectionPath.length ? (
