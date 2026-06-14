@@ -2272,6 +2272,26 @@ function ChecklistDetails({
             });
         }
     };
+    const confirmHighlightedSection = () => {
+        if (!highlightedSection) return;
+        if (highlightedSection.sections.length > 0) {
+            setCollapsedSectionIds((current) => {
+                if (highlightedSectionDepth === 0 && current.has(highlightedSection.id)) {
+                    return expandTopLevelSectionOnly(current, highlightedSection.id);
+                }
+                const next = new Set(current);
+                if (next.has(highlightedSection.id)) {
+                    next.delete(highlightedSection.id);
+                } else {
+                    next.add(highlightedSection.id);
+                }
+                return next;
+            });
+            return;
+        }
+        selectSection(highlightedSection.id);
+        if (highlightedSection.items.length === 0) startNewItem(highlightedSection.id);
+    };
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.defaultPrevented || event.altKey) return;
@@ -2316,24 +2336,9 @@ function ChecklistDetails({
                 }
                 return;
             }
-            if (event.key === " " && keyboardPane === "sections" && highlightedSection) {
+            if ((event.key === " " || event.key === "Enter") && keyboardPane === "sections" && highlightedSection) {
                 event.preventDefault();
-                if (highlightedSection.sections.length > 0) {
-                    setCollapsedSectionIds((current) => {
-                        if (highlightedSectionDepth === 0 && current.has(highlightedSection.id)) {
-                            return expandTopLevelSectionOnly(current, highlightedSection.id);
-                        }
-                        const next = new Set(current);
-                        if (next.has(highlightedSection.id)) {
-                            next.delete(highlightedSection.id);
-                        } else {
-                            next.add(highlightedSection.id);
-                        }
-                        return next;
-                    });
-                } else {
-                    selectSection(highlightedSection.id);
-                }
+                confirmHighlightedSection();
                 return;
             }
             if (event.key === " " && keyboardPane === "items" && selectedSection && selectedItem) {
@@ -2814,7 +2819,11 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isSelectedSection = selectedSectionId === section.id;
-        const isHighlightedSection = keyboardNavigationActive && keyboardPane === "sections" && highlightedSectionId === section.id;
+        const isHighlightedSection =
+            keyboardNavigationActive &&
+            keyboardPane === "sections" &&
+            highlightedSectionId === section.id &&
+            highlightedSectionId !== selectedSectionId;
         const isEditingThisSection = editingSectionId === section.id;
         const isSelectedAncestorSection =
             depth === 0 &&
