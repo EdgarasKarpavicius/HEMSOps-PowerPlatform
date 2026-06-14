@@ -671,6 +671,8 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground1,
         borderColor: tokens.colorBrandStroke1,
         borderLeftColor: tokens.colorBrandStroke1,
+        borderLeftWidth: "5px",
+        boxShadow: `inset 0 0 0 1px ${tokens.colorBrandStroke2}`,
         fontWeight: tokens.fontWeightSemibold,
     },
     draggingRow: {
