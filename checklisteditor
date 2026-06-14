@@ -2453,8 +2453,6 @@ function ChecklistDetails({
                 ? {
                       backgroundColor: tokens.colorBrandBackground2,
                       color: tokens.colorNeutralForeground1,
-                      borderColor: tokens.colorBrandStroke1,
-                      borderLeftColor: tokens.colorBrandStroke1,
                   }
                 : undefined;
         const selectedSectionTopParentId = selectedSectionPath[0]?.id || "";
