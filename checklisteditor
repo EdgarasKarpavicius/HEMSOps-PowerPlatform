@@ -205,8 +205,7 @@ const translations: Record<string, Record<string, string>> = {
         version: "Version",
         loadingChecklist: "Loading checklist version",
         loadFallback: "Dataverse is unavailable. Local checklist data is being used for this session.",
-        noFocusedChecklist: "No checklist version was found for the current context.",
-        focusedContext: "Focused context",
+        noChecklistVersionParameter: "No checklist version was passed to this page. Contact an administrator for assistance if this issue persists.",
     },
 };
 
@@ -2083,18 +2082,10 @@ function FocusedChecklistEmpty({
     const styles = useStyles();
     return (
         <div className={styles.detailsPage}>
-            <div className={styles.header}>
-                <div className={styles.titleStack}>
-                    <Text className={styles.eyebrow}>{t("focusedContext")}</Text>
-                    <Text as="h1" className={styles.pageTitle}>
-                        {t("noFocusedChecklist")}
-                    </Text>
-                </div>
-            </div>
             <div className={styles.versionsSurface}>
                 <div className={styles.emptyVersionPlaceholder}>
                     <div>
-                        <Text block weight="semibold">{t("noFocusedChecklist")}</Text>
+                        <Text block weight="semibold">{t("noChecklistVersionParameter")}</Text>
                     </div>
                 </div>
             </div>
