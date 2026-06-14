@@ -731,6 +731,12 @@ const useStyles = makeStyles({
     selectedChildSectionRow: {
         fontWeight: tokens.fontWeightSemibold,
     },
+    keyboardFocusRow: {
+        outlineWidth: "2px",
+        outlineStyle: "solid",
+        outlineColor: tokens.colorStrokeFocus2,
+        outlineOffset: "-2px",
+    },
     draggingRow: {
         opacity: 0.55,
         pointerEvents: "none",
@@ -814,8 +820,7 @@ const useStyles = makeStyles({
         borderRadius: tokens.borderRadiusMedium,
     },
     selectedItemRow: {
-        backgroundColor: tokens.colorBrandBackground2,
-        ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
+        ...shorthands.border("1px", "solid", tokens.colorStrokeFocus2),
     },
     itemReadOnlyText: {
         display: "flex",
@@ -2081,6 +2086,7 @@ function ChecklistDetails({
     const [sectionNameDraft, setSectionNameDraft] = useState("");
     const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
     const draggedSectionIdRef = useRef("");
+    const draggedItemRef = useRef<DraggedItem>(null);
     const sectionPointerDragRef = useRef<SectionPointerDrag>(null);
     const ignoreNextSectionClickRef = useRef(false);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
@@ -2326,6 +2332,11 @@ function ChecklistDetails({
                 }
                 return;
             }
+            if (event.key === " " && keyboardPane === "items" && selectedSection && selectedItem) {
+                event.preventDefault();
+                startEditItem(selectedSection.id, selectedItem);
+                return;
+            }
             if (event.key === "Enter" && keyboardPane === "items" && selectedSection && selectedItem) {
                 event.preventDefault();
                 startEditItem(selectedSection.id, selectedItem);
@@ -2508,10 +2519,12 @@ function ChecklistDetails({
         setDragOverTarget(null);
     };
     const handleItemDrop = (targetItem: ChecklistItem) => {
-        if (draggedItem?.type !== "item" || draggedItem.sectionId !== selectedSectionId) return;
+        const currentDraggedItem = draggedItem?.type === "item" ? draggedItem : draggedItemRef.current;
+        if (currentDraggedItem?.type !== "item" || currentDraggedItem.sectionId !== selectedSectionId) return;
         setSections((current) =>
-            reorderSectionItems(current, selectedSectionId, draggedItem.id, targetItem.id)
+            reorderSectionItems(current, selectedSectionId, currentDraggedItem.id, targetItem.id)
         );
+        draggedItemRef.current = null;
         setDraggedItem(null);
         setDragOverTarget(null);
     };
@@ -2532,7 +2545,9 @@ function ChecklistDetails({
         if (!sectionId) return null;
         const depth = sectionElement instanceof HTMLElement ? Number(sectionElement.dataset.sectionDepth || "0") : 0;
         const rowBounds = sectionElement instanceof HTMLElement ? sectionElement.getBoundingClientRect() : null;
-        const isIndentedOverTopLevel = depth === 0 && rowBounds ? clientX > rowBounds.left + 56 : false;
+        const isMiddleOfRow =
+            rowBounds ? clientY > rowBounds.top + rowBounds.height * 0.3 && clientY < rowBounds.bottom - rowBounds.height * 0.3 : false;
+        const isIndentedOverTopLevel = depth === 0 && rowBounds ? clientX > rowBounds.left + 112 && isMiddleOfRow : false;
         if (isIndentedOverTopLevel) {
             if (canMoveSectionToParentEnd(sections, draggedSectionId, sectionId)) {
                 return { type: "section", id: sectionId, placement: "child" } as DragOverTarget;
@@ -2650,8 +2665,14 @@ function ChecklistDetails({
         setDraggedItem(null);
         setDragOverTarget(null);
     };
-    const canDropItemOnTarget = (targetItem: ChecklistItem) =>
-        Boolean(draggedItem?.type === "item" && draggedItem.sectionId === selectedSectionId && draggedItem.id !== targetItem.id);
+    const canDropItemOnTarget = (targetItem: ChecklistItem) => {
+        const currentDraggedItem = draggedItem?.type === "item" ? draggedItem : draggedItemRef.current;
+        return Boolean(
+            currentDraggedItem?.type === "item" &&
+            currentDraggedItem.sectionId === selectedSectionId &&
+            currentDraggedItem.id !== targetItem.id
+        );
+    };
     const requestDeleteSection = (section: ChecklistSection) => {
         const totals = countSectionContents(section);
         setPendingDelete({
@@ -2811,7 +2832,7 @@ function ChecklistDetails({
             dragOverTarget.id === section.id;
         const isAnyDropTarget = isDropBeforeTarget || isDropAfterTarget || isDropChildTarget || isInvalidDropTarget;
         const selectedChildSectionStyle: React.CSSProperties | undefined =
-            (isSelectedSection || isHighlightedSection) && depth > 0 && !isAnyDropTarget
+            isSelectedSection && depth > 0 && !isAnyDropTarget
                 ? {
                       backgroundColor: tokens.colorBrandBackground2,
                       color: tokens.colorNeutralForeground1,
@@ -2834,8 +2855,9 @@ function ChecklistDetails({
                         styles.sectionRow,
                         depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
                         isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
-                        isSelectedSection || isHighlightedSection ? styles.selectedSectionRow : "",
-                        (isSelectedSection || isHighlightedSection) && depth > 0 ? styles.selectedChildSectionRow : "",
+                        isSelectedSection ? styles.selectedSectionRow : "",
+                        isHighlightedSection ? styles.keyboardFocusRow : "",
+                        isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropBeforeTarget ? styles.dropBeforeRow : "",
                         isDropAfterTarget ? styles.dropAfterRow : "",
@@ -2918,7 +2940,7 @@ function ChecklistDetails({
                                 />
                             </div>
                         ) : (
-                            <Text className={styles.sectionRowText} weight={depth === 0 || isSelectedSection || isHighlightedSection ? "semibold" : "regular"}>
+                            <Text className={styles.sectionRowText} weight={depth === 0 || isSelectedSection ? "semibold" : "regular"}>
                                 {section.name || "Unnamed section"}
                             </Text>
                         )}
@@ -3266,6 +3288,7 @@ function ChecklistDetails({
                                                         className={[
                                                             styles.itemRow,
                                                             keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
+                                                            keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
                                                             draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
                                                             dragOverTarget?.type === "item" && dragOverTarget.id === item.id ? styles.dropBeforeRow : "",
                                                         ].filter(Boolean).join(" ")}
@@ -3276,7 +3299,9 @@ function ChecklistDetails({
                                                             window.getSelection?.()?.removeAllRanges();
                                                             event.dataTransfer.effectAllowed = "move";
                                                             event.dataTransfer.setData("text/plain", item.id);
-                                                            setDraggedItem({ type: "item", id: item.id, sectionId: selectedSection.id });
+                                                            const nextDraggedItem: DraggedItem = { type: "item", id: item.id, sectionId: selectedSection.id };
+                                                            draggedItemRef.current = nextDraggedItem;
+                                                            setDraggedItem(nextDraggedItem);
                                                         }}
                                                         onDragOver={(event) => {
                                                             if (!canDropItemOnTarget(item)) {
@@ -3294,6 +3319,7 @@ function ChecklistDetails({
                                                             if (dragOverTarget?.type === "item" && dragOverTarget.id === item.id) setDragOverTarget(null);
                                                         }}
                                                         onDragEnd={() => {
+                                                            draggedItemRef.current = null;
                                                             setDraggedItem(null);
                                                             setDragOverTarget(null);
                                                         }}
