@@ -2020,6 +2020,9 @@ function ChecklistDetails({
     const [selectedSectionId, setSelectedSectionId] = useState(
         flattenSections(version.definition.checklistVersionContents.sections)[0]?.section.id || ""
     );
+    const [highlightedSectionId, setHighlightedSectionId] = useState(
+        flattenSections(version.definition.checklistVersionContents.sections)[0]?.section.id || ""
+    );
     const [selectedItemId, setSelectedItemId] = useState("");
     const [keyboardPane, setKeyboardPane] = useState<KeyboardPane>("sections");
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
@@ -2078,6 +2081,11 @@ function ChecklistDetails({
         () => findSectionById(sections, selectedSectionId),
         [sections, selectedSectionId]
     );
+    const highlightedSection = useMemo(
+        () => findSectionById(sections, highlightedSectionId),
+        [highlightedSectionId, sections]
+    );
+    const highlightedSectionDepth = flattenedSections.find(({ section }) => section.id === highlightedSectionId)?.depth ?? 0;
     const selectedSectionPath = useMemo(
         () => findSectionPathById(sections, selectedSectionId),
         [sections, selectedSectionId]
@@ -2100,6 +2108,7 @@ function ChecklistDetails({
     );
     const selectSection = (sectionId: string) => {
         setSelectedSectionId(sectionId);
+        setHighlightedSectionId(sectionId);
         setSelectedItemId("");
     };
     const selectSectionPane = (sectionId: string) => {
@@ -2108,12 +2117,14 @@ function ChecklistDetails({
     };
     const moveSectionHighlight = (direction: 1 | -1) => {
         if (!visibleSections.length) return;
-        const currentIndex = visibleSections.findIndex(({ section }) => section.id === selectedSectionId);
+        const currentIndex = visibleSections.findIndex(({ section }) => section.id === highlightedSectionId);
         const nextIndex =
             currentIndex < 0
                 ? 0
                 : Math.min(visibleSections.length - 1, Math.max(0, currentIndex + direction));
-        selectSection(visibleSections[nextIndex].section.id);
+        setKeyboardPane("sections");
+        setHighlightedSectionId(visibleSections[nextIndex].section.id);
+        setSelectedItemId("");
     };
     const moveItemHighlight = (direction: 1 | -1) => {
         if (!selectedSection?.items.length) return;
@@ -2164,15 +2175,13 @@ function ChecklistDetails({
             if (draftSection || draftItem || editingSectionId) return;
 
             const key = event.key.toLowerCase();
-            if (event.key === "ArrowLeft") {
+            if (event.key === "Tab") {
                 event.preventDefault();
-                moveKeyboardPane("sections");
-                return;
-            }
-            if (event.key === "ArrowRight") {
-                if (!canStartItemForSelectedSection) return;
-                event.preventDefault();
-                moveKeyboardPane("items");
+                if (keyboardPane === "sections" && canStartItemForSelectedSection) {
+                    moveKeyboardPane("items");
+                } else {
+                    moveKeyboardPane("sections");
+                }
                 return;
             }
             if (event.key === "ArrowUp") {
@@ -2193,9 +2202,39 @@ function ChecklistDetails({
                 }
                 return;
             }
+            if (event.key === " " && keyboardPane === "sections" && highlightedSection) {
+                event.preventDefault();
+                if (highlightedSection.sections.length > 0) {
+                    setCollapsedSectionIds((current) => {
+                        if (highlightedSectionDepth === 0 && current.has(highlightedSection.id)) {
+                            return expandTopLevelSectionOnly(current, highlightedSection.id);
+                        }
+                        const next = new Set(current);
+                        if (next.has(highlightedSection.id)) {
+                            next.delete(highlightedSection.id);
+                        } else {
+                            next.add(highlightedSection.id);
+                        }
+                        return next;
+                    });
+                } else {
+                    selectSection(highlightedSection.id);
+                }
+                return;
+            }
             if (event.key === "Enter" && keyboardPane === "items" && selectedSection && selectedItem) {
                 event.preventDefault();
                 startEditItem(selectedSection.id, selectedItem);
+                return;
+            }
+            if ((event.key === "Delete" || event.key === "Backspace") && keyboardPane === "sections" && highlightedSection) {
+                event.preventDefault();
+                requestDeleteSection(highlightedSection);
+                return;
+            }
+            if ((event.key === "Delete" || event.key === "Backspace") && keyboardPane === "items" && selectedSection && selectedItem) {
+                event.preventDefault();
+                requestDeleteItem(selectedSection.id, selectedItem);
                 return;
             }
             if (key === "n") {
@@ -2225,6 +2264,8 @@ function ChecklistDetails({
         draftItem,
         draftSection,
         editingSectionId,
+        highlightedSection,
+        highlightedSectionDepth,
         keyboardPane,
         selectedItem,
         selectedItemId,
@@ -2531,7 +2572,11 @@ function ChecklistDetails({
         if (!pendingDelete) return;
         if (pendingDelete.type === "section") {
             setSections((current) => removeSectionById(current, pendingDelete.id).sections);
-            if (selectedSectionPath.some((candidate) => candidate.id === pendingDelete.id)) selectSection("");
+            if (selectedSectionPath.some((candidate) => candidate.id === pendingDelete.id)) {
+                selectSection("");
+            } else {
+                setHighlightedSectionId((current) => (current === pendingDelete.id ? selectedSectionId : current));
+            }
         } else {
             setSections((current) => removeItemFromSection(current, pendingDelete.sectionId, pendingDelete.id));
             if (draftItem?.itemId === pendingDelete.id) setDraftItem(null);
@@ -2632,6 +2677,7 @@ function ChecklistDetails({
         const hasChildren = section.sections.length > 0;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isSelectedSection = selectedSectionId === section.id;
+        const isHighlightedSection = keyboardPane === "sections" && highlightedSectionId === section.id;
         const isEditingThisSection = editingSectionId === section.id;
         const isSelectedAncestorSection =
             depth === 0 &&
@@ -2654,7 +2700,7 @@ function ChecklistDetails({
             dragOverTarget.id === section.id;
         const isAnyDropTarget = isDropBeforeTarget || isDropAfterTarget || isDropChildTarget || isInvalidDropTarget;
         const selectedChildSectionStyle: React.CSSProperties | undefined =
-            isSelectedSection && depth > 0 && !isAnyDropTarget
+            (isSelectedSection || isHighlightedSection) && depth > 0 && !isAnyDropTarget
                 ? {
                       backgroundColor: tokens.colorBrandBackground2,
                       color: tokens.colorNeutralForeground1,
@@ -2677,8 +2723,8 @@ function ChecklistDetails({
                         styles.sectionRow,
                         depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
                         isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
-                        isSelectedSection ? styles.selectedSectionRow : "",
-                        isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
+                        isSelectedSection || isHighlightedSection ? styles.selectedSectionRow : "",
+                        (isSelectedSection || isHighlightedSection) && depth > 0 ? styles.selectedChildSectionRow : "",
                         draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
                         isDropBeforeTarget ? styles.dropBeforeRow : "",
                         isDropAfterTarget ? styles.dropAfterRow : "",
@@ -2761,7 +2807,7 @@ function ChecklistDetails({
                                 />
                             </div>
                         ) : (
-                            <Text className={styles.sectionRowText} weight={depth === 0 || selectedSectionId === section.id ? "semibold" : "regular"}>
+                            <Text className={styles.sectionRowText} weight={depth === 0 || isSelectedSection || isHighlightedSection ? "semibold" : "regular"}>
                                 {section.name || "Unnamed section"}
                             </Text>
                         )}
@@ -3258,7 +3304,18 @@ function ChecklistDetails({
                     if (!data.open) setPendingDelete(null);
                 }}
             >
-                <DialogSurface>
+                <DialogSurface
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                            event.preventDefault();
+                            confirmDelete();
+                        }
+                        if (event.key === "Escape") {
+                            event.preventDefault();
+                            setPendingDelete(null);
+                        }
+                    }}
+                >
                     <DialogBody>
                         <DialogTitle>
                             {pendingDelete?.type === "item" ? "Confirm item deletion" : "Confirm section deletion"}
