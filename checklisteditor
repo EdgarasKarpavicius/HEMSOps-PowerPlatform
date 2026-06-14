@@ -2639,7 +2639,7 @@ function ChecklistDetails({
                             className={styles.sectionAddAnotherButton}
                             onClick={() => startNewSection(section.id)}
                         >
-                            Add another child section
+                            + Add a child section
                         </Button>
                     </div>
                 )}
