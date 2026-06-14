@@ -157,7 +157,7 @@ type SectionPointerDrag = {
 } | null;
 
 type PendingDelete =
-    | { type: "section"; id: string; name: string }
+    | { type: "section"; id: string; name: string; sectionCount: number; itemCount: number }
     | { type: "item"; sectionId: string; id: string; name: string }
     | null;
 
@@ -622,6 +622,7 @@ const useStyles = makeStyles({
         display: "flex",
         alignItems: "center",
         gap: "8px",
+        flex: 1,
         minWidth: 0,
     },
     sectionChevron: {
@@ -630,9 +631,21 @@ const useStyles = makeStyles({
         height: "28px",
     },
     sectionNameInlineInput: {
-        minWidth: "140px",
-        maxWidth: "260px",
+        minWidth: "180px",
         width: "100%",
+    },
+    sectionNameEditRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        flex: 1,
+        minWidth: 0,
+    },
+    sectionNameConfirmButton: {
+        minWidth: "28px",
+        width: "28px",
+        height: "28px",
+        flexShrink: 0,
     },
     rowActions: {
         display: "flex",
@@ -2345,16 +2358,12 @@ function ChecklistDetails({
         Boolean(draggedItem?.type === "item" && draggedItem.sectionId === selectedSectionId && draggedItem.id !== targetItem.id);
     const requestDeleteSection = (section: ChecklistSection) => {
         const totals = countSectionContents(section);
-        const requiresConfirmation = totals.sections > 0 || totals.items > 0;
-        if (!requiresConfirmation) {
-            setSections((current) => removeSectionById(current, section.id).sections);
-            if (selectedSectionPath.some((candidate) => candidate.id === section.id)) setSelectedSectionId("");
-            return;
-        }
         setPendingDelete({
             type: "section",
             id: section.id,
             name: section.name || "Unnamed section",
+            sectionCount: totals.sections,
+            itemCount: totals.items,
         });
     };
     const requestDeleteItem = (sectionId: string, item: ChecklistItem) => {
@@ -2375,6 +2384,16 @@ function ChecklistDetails({
             if (draftItem?.itemId === pendingDelete.id) setDraftItem(null);
         }
         setPendingDelete(null);
+    };
+    const getDeleteConfirmationMessage = () => {
+        if (!pendingDelete) return "";
+        if (pendingDelete.type === "item") {
+            return `This action will permanently remove "${pendingDelete.name}" from the checklist version.`;
+        }
+        if (pendingDelete.sectionCount > 0 || pendingDelete.itemCount > 0) {
+            return `This action will permanently remove "${pendingDelete.name}" and all contained sections and items from the checklist version.`;
+        }
+        return `This action will permanently remove "${pendingDelete.name}" from the checklist version.`;
     };
     const getSectionCountText = (section: ChecklistSection) => {
         if (section.sections.length) {
@@ -2562,19 +2581,35 @@ function ChecklistDetails({
                             <span className={styles.sectionChevron} />
                         )}
                         {isEditingThisSection ? (
-                            <Input
-                                autoFocus
-                                className={styles.sectionNameInlineInput}
-                                value={sectionNameDraft}
+                            <div
+                                className={styles.sectionNameEditRow}
                                 onClick={(event) => event.stopPropagation()}
                                 onPointerDown={(event) => event.stopPropagation()}
-                                onChange={(_, data) => setSectionNameDraft(data.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === "Enter") confirmEditingSectionName();
-                                    if (event.key === "Escape") setEditingSectionId("");
-                                }}
-                                onBlur={confirmEditingSectionName}
-                            />
+                            >
+                                <Input
+                                    autoFocus
+                                    className={styles.sectionNameInlineInput}
+                                    value={sectionNameDraft}
+                                    onChange={(_, data) => setSectionNameDraft(data.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter") confirmEditingSectionName();
+                                        if (event.key === "Escape") setEditingSectionId("");
+                                    }}
+                                    onBlur={confirmEditingSectionName}
+                                />
+                                <Button
+                                    aria-label="Confirm section name"
+                                    appearance="primary"
+                                    className={styles.sectionNameConfirmButton}
+                                    icon={<CheckmarkRegular />}
+                                    disabled={!sectionNameDraft.trim()}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        confirmEditingSectionName();
+                                    }}
+                                />
+                            </div>
                         ) : (
                             <Text className={styles.sectionRowText} weight={depth === 0 || selectedSectionId === section.id ? "semibold" : "regular"}>
                                 {section.name || "Unnamed section"}
@@ -3075,11 +3110,7 @@ function ChecklistDetails({
                             {pendingDelete?.type === "item" ? "Confirm item deletion" : "Confirm section deletion"}
                         </DialogTitle>
                         <DialogContent>
-                            <Text>
-                                {pendingDelete?.type === "item"
-                                    ? `This action will permanently remove "${pendingDelete.name}" from the checklist version.`
-                                    : `This action will permanently remove "${pendingDelete?.name || "this section"}" and all contained sections and items from the checklist version.`}
-                            </Text>
+                            <Text>{getDeleteConfirmationMessage()}</Text>
                         </DialogContent>
                         <DialogActions>
                             <Button appearance="secondary" onClick={() => setPendingDelete(null)}>
