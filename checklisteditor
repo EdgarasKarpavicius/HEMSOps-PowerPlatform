@@ -388,9 +388,9 @@ const CHECKLIST_OPTION_DEFINITIONS = [
 const useStyles = makeStyles({
     page: {
         width: "100%",
-        height: "100dvh",
+        height: "calc(100dvh - 72px)",
         minHeight: 0,
-        maxHeight: "100dvh",
+        maxHeight: "calc(100dvh - 72px)",
         boxSizing: "border-box",
         backgroundColor: tokens.colorNeutralBackground3,
         color: tokens.colorNeutralForeground1,
@@ -404,6 +404,7 @@ const useStyles = makeStyles({
         flexGrow: 1,
         flexBasis: 0,
         height: "100%",
+        maxHeight: "100%",
         minHeight: 0,
         boxSizing: "border-box",
         padding: "14px 18px 16px",
@@ -592,11 +593,15 @@ const useStyles = makeStyles({
         gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
         gap: "12px",
         alignItems: "start",
+        minHeight: 0,
+        overflow: "auto",
     },
     optionsList: {
         display: "flex",
         flexDirection: "column",
         gap: "12px",
+        minHeight: 0,
+        overflow: "auto",
     },
     optionRow: {
         display: "flex",
@@ -676,6 +681,7 @@ const useStyles = makeStyles({
     contentsLayout: {
         display: "grid",
         gridTemplateColumns: "minmax(280px, 35%) minmax(0, 1fr)",
+        gridTemplateRows: "minmax(0, 1fr)",
         gap: "12px",
         flexGrow: 1,
         flexBasis: 0,
@@ -1094,6 +1100,7 @@ const useStyles = makeStyles({
         flexDirection: "column",
         gap: "10px",
         flexGrow: 1,
+        flexBasis: 0,
         padding: "10px 10px 24px",
         minHeight: 0,
         overflow: "auto",
