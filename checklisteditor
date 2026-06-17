@@ -22,6 +22,9 @@ import {
     Text,
     Textarea,
     Tooltip,
+    Tree,
+    TreeItem,
+    TreeItemLayout,
     makeStyles,
     shorthands,
     tokens,
@@ -832,6 +835,26 @@ const useStyles = makeStyles({
         gap: "3px",
         marginTop: "5px",
         marginBottom: "2px",
+    },
+    sectionTree: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "6px",
+        flexGrow: 1,
+        minHeight: 0,
+    },
+    sectionTreeItem: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "0",
+    },
+    sectionTreeItemLayout: {
+        padding: "0",
+        minHeight: "auto",
+        backgroundColor: "transparent",
+        ":hover": {
+            backgroundColor: "transparent",
+        },
     },
     childSectionDivider: {
         height: "1px",
@@ -3652,7 +3675,7 @@ function ChecklistDetails({
         const verticalPlacement = rowBounds && clientY > rowBounds.top + rowBounds.height / 2 ? "after" : "before";
         return { type: "section", id: sectionId, placement: verticalPlacement } as DragOverTarget;
     };
-    const handleSectionPointerDown = (event: React.PointerEvent<HTMLDivElement>, section: ChecklistSection) => {
+    const handleSectionPointerDown = (event: React.PointerEvent<HTMLElement>, section: ChecklistSection) => {
         if (!isVersionEditable) return;
         if (event.button !== 0 || draftSection || draftItem) return;
         const target = event.target as HTMLElement;
@@ -3668,7 +3691,7 @@ function ChecklistDetails({
         };
         event.currentTarget.setPointerCapture(event.pointerId);
     };
-    const handleSectionPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const handleSectionPointerMove = (event: React.PointerEvent<HTMLElement>) => {
         const drag = sectionPointerDragRef.current;
         if (!drag || drag.pointerId !== event.pointerId) return;
         const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
@@ -3710,7 +3733,7 @@ function ChecklistDetails({
         }
         setDragOverTarget(null);
     };
-    const handleSectionPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const handleSectionPointerUp = (event: React.PointerEvent<HTMLElement>) => {
         const drag = sectionPointerDragRef.current;
         if (!drag || drag.pointerId !== event.pointerId) return;
         try {
@@ -3749,7 +3772,7 @@ function ChecklistDetails({
         }
         if (target?.type === "section") handleSectionDropById(drag.id, target.id);
     };
-    const handleSectionPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    const handleSectionPointerCancel = (event: React.PointerEvent<HTMLElement>) => {
         const drag = sectionPointerDragRef.current;
         if (!drag || drag.pointerId !== event.pointerId) return;
         sectionPointerDragRef.current = null;
@@ -4243,158 +4266,168 @@ function ChecklistDetails({
 
         return (
             <React.Fragment key={section.id}>
-                <div
-                    data-section-id={section.id}
-                    data-section-depth={depth}
-                    className={[
-                        styles.sectionRow,
-                        canUseHoverBackground ? styles.sectionRowHoverable : "",
-                        depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
-                        isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
-                        isSelectedSection ? styles.selectedSectionRow : "",
-                        isHighlightedSection ? styles.keyboardFocusRow : "",
-                        isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
-                        draggedItem?.type === "section" ? styles.sectionDraggingCursor : "",
-                        draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
-                        isDropBeforeTarget ? styles.dropBeforeRow : "",
-                        isDropAfterTarget ? styles.dropAfterRow : "",
-                        isDropChildTarget ? styles.dropIntoSectionRow : "",
-                        isInvalidDropTarget ? styles.invalidDropSectionRow : "",
-                    ].filter(Boolean).join(" ")}
-                    style={selectedChildSectionStyle}
-                    onClick={() => {
-                        if (isEditingThisSection) return;
-                        if (ignoreNextSectionClickRef.current) {
-                            ignoreNextSectionClickRef.current = false;
-                            return;
-                        }
-                        selectSectionPane(section.id);
-                        setDraftItem(null);
-                        if (hasChildren) {
-                            toggleCollapsedSection(section.id, depth);
-                        }
-                    }}
-                    onPointerDown={(event) => handleSectionPointerDown(event, section)}
-                    onPointerMove={handleSectionPointerMove}
-                    onPointerUp={handleSectionPointerUp}
-                    onPointerCancel={handleSectionPointerCancel}
-                    onPointerEnter={() => setHoveredSectionId(section.id)}
-                    onPointerLeave={() => {
-                        setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
-                    }}
+                <TreeItem
+                    itemType={hasChildren ? "branch" : "leaf"}
+                    value={section.id}
+                    open={hasChildren ? !isCollapsed : undefined}
+                    className={styles.sectionTreeItem}
                 >
-                    <div className={styles.sectionMain}>
-                        {hasChildren ? (
-                            <Button
-                                aria-label={isCollapsed ? "Expand section" : "Collapse section"}
-                                appearance="subtle"
-                                className={styles.sectionChevron}
-                                icon={isCollapsed ? <ChevronRightRegular /> : <ChevronDownRegular />}
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    selectSectionPane(section.id);
-                                    setDraftItem(null);
+                    <TreeItemLayout className={styles.sectionTreeItemLayout} expandIcon={null}>
+                        <div
+                            data-section-id={section.id}
+                            data-section-depth={depth}
+                            className={[
+                                styles.sectionRow,
+                                canUseHoverBackground ? styles.sectionRowHoverable : "",
+                                depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
+                                isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
+                                isSelectedSection ? styles.selectedSectionRow : "",
+                                isHighlightedSection ? styles.keyboardFocusRow : "",
+                                isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
+                                draggedItem?.type === "section" ? styles.sectionDraggingCursor : "",
+                                draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
+                                isDropBeforeTarget ? styles.dropBeforeRow : "",
+                                isDropAfterTarget ? styles.dropAfterRow : "",
+                                isDropChildTarget ? styles.dropIntoSectionRow : "",
+                                isInvalidDropTarget ? styles.invalidDropSectionRow : "",
+                            ].filter(Boolean).join(" ")}
+                            style={selectedChildSectionStyle}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                if (isEditingThisSection) return;
+                                if (ignoreNextSectionClickRef.current) {
+                                    ignoreNextSectionClickRef.current = false;
+                                    return;
+                                }
+                                selectSectionPane(section.id);
+                                setDraftItem(null);
+                                if (hasChildren) {
                                     toggleCollapsedSection(section.id, depth);
-                                }}
-                            />
-                        ) : (
-                            <span className={styles.sectionChevron} />
-                        )}
-                        {isEditingThisSection ? (
-                            <div
-                                className={styles.sectionNameEditRow}
-                                onClick={(event) => event.stopPropagation()}
-                                onPointerDown={(event) => event.stopPropagation()}
-                            >
-                                <Input
-                                    autoFocus
-                                    className={styles.sectionNameInlineInput}
-                                    value={sectionNameDraft}
-                                    onChange={(_, data) => setSectionNameDraft(data.value)}
-                                    onKeyDown={(event) => {
-                                        if (event.key === "Enter") confirmEditingSectionName();
-                                        if (event.key === "Escape") setEditingSectionId("");
-                                    }}
-                                    onBlur={confirmEditingSectionName}
-                                />
+                                }
+                            }}
+                            onPointerDown={(event) => handleSectionPointerDown(event, section)}
+                            onPointerMove={handleSectionPointerMove}
+                            onPointerUp={handleSectionPointerUp}
+                            onPointerCancel={handleSectionPointerCancel}
+                            onPointerEnter={() => setHoveredSectionId(section.id)}
+                            onPointerLeave={() => {
+                                setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
+                            }}
+                        >
+                            <div className={styles.sectionMain}>
+                                {hasChildren ? (
+                                    <Button
+                                        aria-label={isCollapsed ? "Expand section" : "Collapse section"}
+                                        appearance="subtle"
+                                        className={styles.sectionChevron}
+                                        icon={isCollapsed ? <ChevronRightRegular /> : <ChevronDownRegular />}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            selectSectionPane(section.id);
+                                            setDraftItem(null);
+                                            toggleCollapsedSection(section.id, depth);
+                                        }}
+                                    />
+                                ) : (
+                                    <span className={styles.sectionChevron} />
+                                )}
+                                {isEditingThisSection ? (
+                                    <div
+                                        className={styles.sectionNameEditRow}
+                                        onClick={(event) => event.stopPropagation()}
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                    >
+                                        <Input
+                                            autoFocus
+                                            className={styles.sectionNameInlineInput}
+                                            value={sectionNameDraft}
+                                            onChange={(_, data) => setSectionNameDraft(data.value)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter") confirmEditingSectionName();
+                                                if (event.key === "Escape") setEditingSectionId("");
+                                            }}
+                                            onBlur={confirmEditingSectionName}
+                                        />
+                                        <Button
+                                            aria-label="Confirm section name"
+                                            appearance="primary"
+                                            className={styles.sectionNameConfirmButton}
+                                            icon={<CheckmarkRegular />}
+                                            disabled={!sectionNameDraft.trim()}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                confirmEditingSectionName();
+                                            }}
+                                        />
+                                    </div>
+                                ) : (
+                                    <>
+                                        <Text className={styles.sectionRowText} weight={depth === 0 || isSelectedSection ? "semibold" : "regular"}>
+                                            {section.name || "Unnamed section"}
+                                        </Text>
+                                        {section.bulkServiceable && (
+                                            <span className={styles.sectionBulkPill}>Bulk check</span>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                            <div className={styles.rowActions}>
                                 <Button
-                                    aria-label="Confirm section name"
-                                    appearance="primary"
-                                    className={styles.sectionNameConfirmButton}
-                                    icon={<CheckmarkRegular />}
-                                    disabled={!sectionNameDraft.trim()}
-                                    onMouseDown={(event) => event.preventDefault()}
+                                    aria-label="Edit section name"
+                                    appearance="subtle"
+                                    className={styles.sectionEditButton}
+                                    icon={<EditRegular />}
+                                    style={{ visibility: hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
+                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
                                     onClick={(event) => {
                                         event.stopPropagation();
-                                        confirmEditingSectionName();
+                                        startEditSectionName(section);
                                     }}
                                 />
+                                <Button
+                                    aria-label="Delete section"
+                                    appearance="subtle"
+                                    className={styles.sectionDeleteButton}
+                                    icon={<DeleteRegular />}
+                                    style={{ visibility: hoveredSectionId === section.id ? "visible" : "hidden" }}
+                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        requestDeleteSection(section);
+                                    }}
+                                />
+                                <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
+                                    {getSectionCountText(section)}
+                                </Caption1>
                             </div>
-                        ) : (
-                            <>
-                                <Text className={styles.sectionRowText} weight={depth === 0 || isSelectedSection ? "semibold" : "regular"}>
-                                    {section.name || "Unnamed section"}
-                                </Text>
-                                {section.bulkServiceable && (
-                                    <span className={styles.sectionBulkPill}>Bulk check</span>
-                                )}
-                            </>
-                        )}
-                    </div>
-                    <div className={styles.rowActions}>
-                        <Button
-                            aria-label="Edit section name"
-                            appearance="subtle"
-                            className={styles.sectionEditButton}
-                            icon={<EditRegular />}
-                            style={{ visibility: hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
-                            disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                startEditSectionName(section);
-                            }}
-                        />
-                        <Button
-                            aria-label="Delete section"
-                            appearance="subtle"
-                            className={styles.sectionDeleteButton}
-                            icon={<DeleteRegular />}
-                            style={{ visibility: hoveredSectionId === section.id ? "visible" : "hidden" }}
-                            disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                requestDeleteSection(section);
-                            }}
-                        />
-                        <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
-                            {getSectionCountText(section)}
-                        </Caption1>
-                    </div>
-                </div>
-                {hasChildren && !isCollapsed && (
-                    <div className={styles.sectionChildren}>
-                        {section.sections.map((childSection, index) => (
-                            <React.Fragment key={childSection.id}>
-                                {index > 0 && <div className={styles.childSectionDivider} />}
-                                {renderSectionRow(childSection, depth + 1)}
-                                {draftSection?.parentId === section.id &&
-                                    draftSection.afterSectionId === childSection.id &&
-                                    renderDraftSectionRow(depth + 1)}
-                            </React.Fragment>
-                        ))}
-                        {canDropAtChildrenEnd && (
-                            <div
-                                data-section-children-end={section.id}
-                                className={[
-                                    styles.topLevelEndDropTarget,
-                                    dragOverTarget?.type === "sectionChildrenEnd" && dragOverTarget.parentId === section.id
-                                        ? styles.activeTopLevelEndDropTarget
-                                        : "",
-                                ].filter(Boolean).join(" ")}
-                            />
-                        )}
-                    </div>
-                )}
+                        </div>
+                    </TreeItemLayout>
+                    {hasChildren && !isCollapsed && (
+                        <Tree aria-label={`${section.name || "Unnamed section"} child sections`} className={styles.sectionChildren}>
+                            {section.sections.map((childSection, index) => (
+                                <React.Fragment key={childSection.id}>
+                                    {index > 0 && <div className={styles.childSectionDivider} />}
+                                    {renderSectionRow(childSection, depth + 1)}
+                                    {draftSection?.parentId === section.id &&
+                                        draftSection.afterSectionId === childSection.id &&
+                                        renderDraftSectionRow(depth + 1)}
+                                </React.Fragment>
+                            ))}
+                            {canDropAtChildrenEnd && (
+                                <div
+                                    data-section-children-end={section.id}
+                                    className={[
+                                        styles.topLevelEndDropTarget,
+                                        dragOverTarget?.type === "sectionChildrenEnd" && dragOverTarget.parentId === section.id
+                                            ? styles.activeTopLevelEndDropTarget
+                                            : "",
+                                    ].filter(Boolean).join(" ")}
+                                />
+                            )}
+                        </Tree>
+                    )}
+                </TreeItem>
                 {canAddAnotherChild && (
                     <div className={styles.sectionAddAnotherRow}>
                         <Button
@@ -4799,14 +4832,16 @@ function ChecklistDetails({
                                     </div>
                                 </div>
                                 <div className={styles.contentsColumnBody}>
-                                    {sections.map((section) => (
-                                        <React.Fragment key={section.id}>
-                                            {renderSectionRow(section)}
-                                            {draftSection?.parentId === null &&
-                                                draftSection.afterSectionId === section.id &&
-                                                renderDraftSectionRow(0)}
-                                        </React.Fragment>
-                                    ))}
+                                    <Tree aria-label="Checklist sections" className={styles.sectionTree}>
+                                        {sections.map((section) => (
+                                            <React.Fragment key={section.id}>
+                                                {renderSectionRow(section)}
+                                                {draftSection?.parentId === null &&
+                                                    draftSection.afterSectionId === section.id &&
+                                                    renderDraftSectionRow(0)}
+                                            </React.Fragment>
+                                        ))}
+                                    </Tree>
                                     {canDropSectionAtTopLevelEnd && (
                                         <div
                                             data-section-top-level-end="true"
