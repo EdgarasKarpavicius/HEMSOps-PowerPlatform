@@ -388,9 +388,9 @@ const CHECKLIST_OPTION_DEFINITIONS = [
 const useStyles = makeStyles({
     page: {
         width: "100%",
-        height: "calc(100dvh - 72px)",
+        height: "var(--checklist-editor-height, 100dvh)",
         minHeight: 0,
-        maxHeight: "calc(100dvh - 72px)",
+        maxHeight: "var(--checklist-editor-height, 100dvh)",
         boxSizing: "border-box",
         backgroundColor: tokens.colorNeutralBackground3,
         color: tokens.colorNeutralForeground1,
@@ -1014,15 +1014,16 @@ const useStyles = makeStyles({
     itemRow: {
         display: "grid",
         gridTemplateColumns: "minmax(0, 1fr) auto",
-        alignItems: "center",
+        alignItems: "start",
         gap: "10px",
-        minHeight: "36px",
-        padding: "7px 9px",
+        minHeight: "auto",
+        padding: "8px 9px",
         cursor: "grab",
         userSelect: "none",
         backgroundColor: tokens.colorNeutralBackground2,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
+        boxSizing: "border-box",
     },
     selectedItemRow: {
         ...shorthands.border("1px", "solid", tokens.colorStrokeFocus2),
@@ -1030,8 +1031,9 @@ const useStyles = makeStyles({
     itemReadOnlyText: {
         display: "flex",
         flexDirection: "column",
-        gap: "3px",
+        gap: "4px",
         minWidth: 0,
+        alignItems: "flex-start",
     },
     itemIdentificationBadge: {
         display: "inline-flex",
@@ -1045,12 +1047,18 @@ const useStyles = makeStyles({
         color: tokens.colorBrandForeground1,
         fontWeight: tokens.fontWeightSemibold,
         overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
+        whiteSpace: "normal",
+        lineHeight: "16px",
     },
     itemIdentificationBadgeIcon: {
         flexShrink: 0,
         fontSize: "14px",
+    },
+    itemIdentificationBadgeText: {
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "normal",
     },
     itemEditCard: {
         display: "grid",
@@ -2325,6 +2333,31 @@ async function loadChecklistFromDataverse(checklistId: string): Promise<Checklis
     }
 }
 
+function getMeasuredHostHeight(rootElement: HTMLDivElement | null) {
+    const candidates: number[] = [];
+    const addCandidate = (value: unknown) => {
+        const height = Number(value);
+        if (Number.isFinite(height) && height > 120) candidates.push(height);
+    };
+
+    addCandidate(window.visualViewport?.height);
+    addCandidate(window.innerHeight);
+    addCandidate(document.documentElement?.clientHeight);
+    addCandidate(document.body?.clientHeight);
+
+    try {
+        addCandidate(window.frameElement?.getBoundingClientRect?.().height);
+    } catch {
+        // Access can be blocked when the page is hosted cross-frame.
+    }
+
+    if (rootElement?.parentElement) {
+        addCandidate(rootElement.parentElement.getBoundingClientRect().height);
+    }
+
+    return candidates.length ? Math.floor(Math.min(...candidates)) : 0;
+}
+
 function getExpandedChecklist(record: Record<string, any>, relationshipName: string): Checklist | null {
     const expanded = record[relationshipName];
     return expanded ? mapChecklistRecord(expanded) : null;
@@ -2508,6 +2541,40 @@ const GeneratedComponent = () => {
     const [message, setMessage] = useState("");
     const [statusOptions, setStatusOptions] = useState<Record<number, StatusOption>>({});
     const [pageInput] = useState<GenerativePageInput>(() => getGenerativePageInput());
+    const pageRef = useRef<HTMLDivElement>(null);
+    const [availablePageHeight, setAvailablePageHeight] = useState(0);
+
+    useEffect(() => {
+        const updateAvailableHeight = () => {
+            const measuredHeight = getMeasuredHostHeight(pageRef.current);
+            if (measuredHeight) setAvailablePageHeight(measuredHeight);
+        };
+        updateAvailableHeight();
+
+        const resizeObserver =
+            typeof ResizeObserver !== "undefined"
+                ? new ResizeObserver(() => {
+                      window.requestAnimationFrame(updateAvailableHeight);
+                  })
+                : null;
+
+        if (resizeObserver) {
+            if (pageRef.current?.parentElement) resizeObserver.observe(pageRef.current.parentElement);
+            resizeObserver.observe(document.documentElement);
+            if (document.body) resizeObserver.observe(document.body);
+        }
+
+        window.addEventListener("resize", updateAvailableHeight);
+        window.visualViewport?.addEventListener("resize", updateAvailableHeight);
+        window.visualViewport?.addEventListener("scroll", updateAvailableHeight);
+
+        return () => {
+            resizeObserver?.disconnect();
+            window.removeEventListener("resize", updateAvailableHeight);
+            window.visualViewport?.removeEventListener("resize", updateAvailableHeight);
+            window.visualViewport?.removeEventListener("scroll", updateAvailableHeight);
+        };
+    }, []);
 
     useEffect(() => {
         let isMounted = true;
@@ -2555,7 +2622,16 @@ const GeneratedComponent = () => {
     }, [pageInput, t]);
 
     return (
-        <div dir={isRTL ? "rtl" : "ltr"} className={styles.page}>
+        <div
+            ref={pageRef}
+            dir={isRTL ? "rtl" : "ltr"}
+            className={styles.page}
+            style={
+                availablePageHeight
+                    ? ({ "--checklist-editor-height": `${availablePageHeight}px` } as React.CSSProperties)
+                    : undefined
+            }
+        >
             <div className={styles.shell}>
                 {message && (
                     <MessageBar intent="warning">
@@ -4771,7 +4847,7 @@ function ChecklistDetails({
                                                                 {item.requestItemIdentification && (
                                                                     <Caption1 className={styles.itemIdentificationBadge}>
                                                                         <TagRegular className={styles.itemIdentificationBadgeIcon} />
-                                                                        <span>
+                                                                        <span className={styles.itemIdentificationBadgeText}>
                                                                             {`Identify ${getIdentificationTargetTypeLabel(item.identificationTargetTypeValue).toLowerCase() || "item"}${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`}
                                                                         </span>
                                                                     </Caption1>
