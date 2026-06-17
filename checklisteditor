@@ -267,7 +267,11 @@ const translations: Record<string, Record<string, string>> = {
         version: "Version",
         loadingChecklist: "Loading checklist version",
         loadFallback: "Dataverse is unavailable. Local checklist data is being used for this session.",
-        noChecklistVersionParameter: "No checklist version was passed to this page. Contact an administrator for assistance if this issue persists.",
+        noChecklistVersionParameter: "No checklist version context was passed to this page.",
+        noChecklistVersionHelp: "Paste a checklist version id to load it directly while testing this editor.",
+        enterVersionId: "Enter version id",
+        checklistVersionId: "Checklist version id",
+        loadVersion: "Load version",
     },
 };
 
@@ -646,6 +650,24 @@ const useStyles = makeStyles({
     controlFullWidth: {
         width: "100%",
     },
+    manualVersionPrompt: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "10px",
+        width: "min(100%, 520px)",
+    },
+    manualVersionForm: {
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        gap: "8px",
+        width: "100%",
+        alignItems: "end",
+    },
+    manualVersionActions: {
+        display: "flex",
+        justifyContent: "center",
+    },
     shortcutToast: {
         position: "fixed",
         top: "18px",
@@ -765,7 +787,8 @@ const useStyles = makeStyles({
         flexGrow: 1,
         minHeight: 0,
         overflow: "auto",
-        padding: "10px 10px 22px",
+        padding: "10px 10px 44px",
+        scrollPaddingBottom: "44px",
     },
     sectionRow: {
         display: "flex",
@@ -819,17 +842,17 @@ const useStyles = makeStyles({
         display: "flex",
         justifyContent: "flex-start",
         marginLeft: "56px",
-        padding: "4px 8px 2px",
+        padding: "6px 8px 12px",
     },
     sectionAddTopLevelRow: {
         display: "flex",
         justifyContent: "flex-start",
-        padding: "4px 8px 2px",
+        padding: "8px 8px 18px",
     },
     itemAddAnotherRow: {
         display: "flex",
         justifyContent: "flex-start",
-        padding: "4px 8px 2px",
+        padding: "8px 8px 22px",
     },
     sectionAddAnotherButton: {
         color: tokens.colorBrandForeground1,
@@ -1066,6 +1089,7 @@ const useStyles = makeStyles({
         gap: "8px",
         alignItems: "end",
         padding: "9px",
+        marginBottom: "10px",
         backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
         borderRadius: tokens.borderRadiusMedium,
@@ -1109,7 +1133,8 @@ const useStyles = makeStyles({
         gap: "10px",
         flexGrow: 1,
         flexBasis: 0,
-        padding: "10px 10px 24px",
+        padding: "10px 10px 52px",
+        scrollPaddingBottom: "52px",
         minHeight: 0,
         overflow: "auto",
     },
@@ -2541,8 +2566,20 @@ const GeneratedComponent = () => {
     const [message, setMessage] = useState("");
     const [statusOptions, setStatusOptions] = useState<Record<number, StatusOption>>({});
     const [pageInput] = useState<GenerativePageInput>(() => getGenerativePageInput());
+    const [manualVersionId, setManualVersionId] = useState("");
+    const [showManualVersionInput, setShowManualVersionInput] = useState(false);
+    const [isManualVersionLoading, setIsManualVersionLoading] = useState(false);
     const pageRef = useRef<HTMLDivElement>(null);
     const [availablePageHeight, setAvailablePageHeight] = useState(0);
+    const pageChecklistVersionId = useMemo(
+        () =>
+            normalizeLookupValue(
+                pageInput.data?.checklistVersionId ||
+                    pageInput.data?.int_checklistversionid ||
+                    pageInput.recordId
+            ),
+        [pageInput]
+    );
 
     useEffect(() => {
         const updateAvailableHeight = () => {
@@ -2582,12 +2619,7 @@ const GeneratedComponent = () => {
             setIsLoading(true);
             try {
                 if (hasDataverse()) {
-                    const versionId = normalizeLookupValue(
-                        pageInput.data?.checklistVersionId ||
-                            pageInput.data?.int_checklistversionid ||
-                            pageInput.recordId
-                    );
-                    if (!versionId) {
+                    if (!pageChecklistVersionId) {
                         if (isMounted) {
                             setMessage("");
                             setSelectedVersion(null);
@@ -2595,7 +2627,7 @@ const GeneratedComponent = () => {
                         return;
                     }
                     const [version, statusMetadata] = await Promise.all([
-                        loadChecklistVersionFromDataverse(versionId),
+                        loadChecklistVersionFromDataverse(pageChecklistVersionId),
                         loadStatusOptions(VERSION_TABLE_NAME),
                     ]);
                     if (isMounted) {
@@ -2619,7 +2651,35 @@ const GeneratedComponent = () => {
         return () => {
             isMounted = false;
         };
-    }, [pageInput, t]);
+    }, [pageChecklistVersionId, t]);
+
+    const loadManualVersion = async () => {
+        const versionId = normalizeLookupValue(manualVersionId);
+        if (!versionId || isManualVersionLoading) return;
+
+        setIsManualVersionLoading(true);
+        setMessage("");
+        try {
+            if (!hasDataverse()) {
+                setMessage(t("loadFallback"));
+                setSelectedVersion(null);
+                return;
+            }
+
+            const [version, statusMetadata] = await Promise.all([
+                loadChecklistVersionFromDataverse(versionId),
+                loadStatusOptions(VERSION_TABLE_NAME),
+            ]);
+            setSelectedVersion(version);
+            setStatusOptions(statusMetadata);
+            setShowManualVersionInput(false);
+        } catch (error) {
+            setSelectedVersion(null);
+            setMessage(error instanceof Error ? error.message : t("loadFallback"));
+        } finally {
+            setIsManualVersionLoading(false);
+        }
+    };
 
     return (
         <div
@@ -2648,7 +2708,15 @@ const GeneratedComponent = () => {
                         t={t}
                     />
                 ) : (
-                    <FocusedChecklistEmpty t={t} />
+                    <FocusedChecklistEmpty
+                        t={t}
+                        manualVersionId={manualVersionId}
+                        showManualVersionInput={showManualVersionInput}
+                        isManualVersionLoading={isManualVersionLoading}
+                        onManualVersionIdChange={setManualVersionId}
+                        onShowManualVersionInput={() => setShowManualVersionInput(true)}
+                        onLoadManualVersion={loadManualVersion}
+                    />
                 )}
             </div>
         </div>
@@ -2678,16 +2746,62 @@ function FocusedChecklistLoading({ t }: { t: (key: string) => string }) {
 
 function FocusedChecklistEmpty({
     t,
+    manualVersionId,
+    showManualVersionInput,
+    isManualVersionLoading,
+    onManualVersionIdChange,
+    onShowManualVersionInput,
+    onLoadManualVersion,
 }: {
     t: (key: string) => string;
+    manualVersionId: string;
+    showManualVersionInput: boolean;
+    isManualVersionLoading: boolean;
+    onManualVersionIdChange: (value: string) => void;
+    onShowManualVersionInput: () => void;
+    onLoadManualVersion: () => void;
 }) {
     const styles = useStyles();
+    const canLoadManualVersion = Boolean(normalizeLookupValue(manualVersionId));
+
     return (
         <div className={styles.detailsPage}>
             <div className={styles.versionsSurface}>
                 <div className={styles.emptyVersionPlaceholder}>
-                    <div>
+                    <div className={styles.manualVersionPrompt}>
                         <Text block weight="semibold">{t("noChecklistVersionParameter")}</Text>
+                        <Caption1 className={styles.mutedText}>{t("noChecklistVersionHelp")}</Caption1>
+                        {showManualVersionInput ? (
+                            <div className={styles.manualVersionForm}>
+                                <Field label={t("checklistVersionId")}>
+                                    <Input
+                                        value={manualVersionId}
+                                        placeholder="00000000-0000-0000-0000-000000000000"
+                                        onChange={(_, data) => onManualVersionIdChange(data.value)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Enter" && canLoadManualVersion) onLoadManualVersion();
+                                        }}
+                                    />
+                                </Field>
+                                <Button
+                                    appearance="primary"
+                                    disabled={!canLoadManualVersion || isManualVersionLoading}
+                                    onClick={onLoadManualVersion}
+                                >
+                                    {isManualVersionLoading ? t("loadingChecklist") : t("loadVersion")}
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className={styles.manualVersionActions}>
+                                <Button
+                                    appearance="subtle"
+                                    className={styles.sectionAddAnotherButton}
+                                    onClick={onShowManualVersionInput}
+                                >
+                                    {t("enterVersionId")}
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
