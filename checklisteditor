@@ -458,6 +458,13 @@ const useStyles = makeStyles({
         fontSize: "12px",
         lineHeight: "18px",
     },
+    titleMetadataRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        flexWrap: "wrap",
+        marginTop: "2px",
+    },
     empty: {
         display: "flex",
         alignItems: "center",
@@ -512,9 +519,10 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground2,
     },
     headerStatusPill: {
-        padding: "6px 14px",
-        fontSize: "14px",
-        lineHeight: "22px",
+        alignSelf: "flex-start",
+        padding: "2px 9px",
+        fontSize: "12px",
+        lineHeight: "18px",
     },
     publishButton: {
         backgroundColor: "#107C10",
@@ -4668,10 +4676,20 @@ function ChecklistDetails({
                         )}
                     </div>
                     {version.statecode === 1 && (
-                        <Caption1 block className={styles.pageSubtitle}>
-                            {`${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`}
-                        </Caption1>
+                        <div className={styles.titleMetadataRow}>
+                            <Caption1 className={styles.pageSubtitle}>
+                                {`${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`}
+                            </Caption1>
+                        </div>
                     )}
+                    <div className={styles.titleMetadataRow}>
+                        <StatusPill
+                            statuscode={version.statuscode}
+                            fallbackLabel={version.statusLabel}
+                            statusOptions={statusOptions}
+                            className={`${styles.statusPill} ${styles.headerStatusPill}`}
+                        />
+                    </div>
                 </div>
                 <div className={styles.headerAction}>
                     {canRespondToReview && (
@@ -4709,12 +4727,6 @@ function ChecklistDetails({
                             {versionActionLabel}
                         </Button>
                     )}
-                    <StatusPill
-                        statuscode={version.statuscode}
-                        fallbackLabel={version.statusLabel}
-                        statusOptions={statusOptions}
-                        className={`${styles.statusPill} ${styles.headerStatusPill}`}
-                    />
                 </div>
             </div>
             {isPendingReview && (
