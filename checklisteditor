@@ -3508,6 +3508,35 @@ function ChecklistDetails({
             cancelDraftItem();
         }
     };
+    const handleSectionTreeKeyDown = (event: React.KeyboardEvent) => {
+        if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+        if (isEditableKeyboardTarget(event.target)) return;
+        if (draftSection || draftItem || editingSectionId || editingSelectedSectionTitleId) return;
+
+        if (event.key === "ArrowUp") {
+            event.preventDefault();
+            event.stopPropagation();
+            setKeyboardNavigationActive(true);
+            setKeyboardPane("sections");
+            moveSectionHighlight(-1);
+            return;
+        }
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+            event.stopPropagation();
+            setKeyboardNavigationActive(true);
+            setKeyboardPane("sections");
+            moveSectionHighlight(1);
+            return;
+        }
+        if (event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            setKeyboardNavigationActive(true);
+            setKeyboardPane("sections");
+            confirmHighlightedSection();
+        }
+    };
     useEffect(() => {
         const handlePageEscapeKeyDown = (event: KeyboardEvent) => {
             if (event.key !== "Escape") return;
@@ -4850,7 +4879,11 @@ function ChecklistDetails({
                                     </div>
                                 </div>
                                 <div className={styles.contentsColumnBody}>
-                                    <Tree aria-label="Checklist sections" className={styles.sectionTree}>
+                                    <Tree
+                                        aria-label="Checklist sections"
+                                        className={styles.sectionTree}
+                                        onKeyDown={handleSectionTreeKeyDown}
+                                    >
                                         {sections.map((section) => (
                                             <React.Fragment key={section.id}>
                                                 {renderSectionRow(section)}
