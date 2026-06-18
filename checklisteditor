@@ -3532,7 +3532,8 @@ function ChecklistDetails({
         }
     };
     const handleSectionTreeKeyDown = (event: React.KeyboardEvent) => {
-        if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+        if (event.altKey || event.ctrlKey || event.metaKey) return;
+        if (event.defaultPrevented && event.key !== "ArrowUp" && event.key !== "ArrowDown" && event.key !== " ") return;
         if (isEditableKeyboardTarget(event.target)) return;
         if (draftSection || draftItem || editingSectionId || editingSelectedSectionTitleId) return;
 
@@ -4912,7 +4913,7 @@ function ChecklistDetails({
                                     <Tree
                                         aria-label="Checklist sections"
                                         className={styles.sectionTree}
-                                        onKeyDown={handleSectionTreeKeyDown}
+                                        onKeyDownCapture={handleSectionTreeKeyDown}
                                     >
                                         {sections.map((section) => (
                                             <React.Fragment key={section.id}>
