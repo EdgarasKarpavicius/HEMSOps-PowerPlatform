@@ -1001,6 +1001,10 @@ const useStyles = makeStyles({
         outlineColor: tokens.colorStrokeFocus2,
         outlineOffset: "-2px",
     },
+    sectionKeyboardFocusRow: {
+        backgroundColor: tokens.colorPaletteYellowBackground2,
+        boxShadow: `inset 4px 0 0 ${tokens.colorPaletteYellowBorder2}, ${tokens.shadow4}`,
+    },
     draggingRow: {
         opacity: 0.55,
         pointerEvents: "none",
@@ -4360,7 +4364,7 @@ function ChecklistDetails({
                   }
                 : isHighlightedSection && !isAnyDropTarget
                 ? {
-                      backgroundColor: tokens.colorPaletteYellowBackground1,
+                      backgroundColor: tokens.colorPaletteYellowBackground2,
                       color: tokens.colorNeutralForeground1,
                   }
                 : undefined;
@@ -4391,6 +4395,7 @@ function ChecklistDetails({
                             isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
                             isSelectedSection ? styles.selectedSectionRow : "",
                             isHighlightedSection ? styles.keyboardFocusRow : "",
+                            isHighlightedSection ? styles.sectionKeyboardFocusRow : "",
                             isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
                             draggedItem?.type === "section" ? styles.sectionDraggingCursor : "",
                             draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
