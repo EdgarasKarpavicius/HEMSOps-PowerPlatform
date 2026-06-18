@@ -990,12 +990,12 @@ const useStyles = makeStyles({
         fontWeight: tokens.fontWeightSemibold,
     },
     keyboardFocusRow: {
-        backgroundColor: tokens.colorBrandBackground2,
-        borderTopColor: tokens.colorBrandStroke2,
-        borderRightColor: tokens.colorBrandStroke2,
-        borderBottomColor: tokens.colorBrandStroke2,
-        borderLeftColor: tokens.colorBrandStroke2,
-        boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
+        backgroundColor: tokens.colorPaletteYellowBackground1,
+        borderTopColor: tokens.colorPaletteYellowBorder2,
+        borderRightColor: tokens.colorPaletteYellowBorder2,
+        borderBottomColor: tokens.colorPaletteYellowBorder2,
+        borderLeftColor: tokens.colorPaletteYellowBorder2,
+        boxShadow: `inset 3px 0 0 ${tokens.colorPaletteYellowBorder2}`,
         outlineWidth: "2px",
         outlineStyle: "solid",
         outlineColor: tokens.colorStrokeFocus2,
@@ -1131,7 +1131,8 @@ const useStyles = makeStyles({
         boxSizing: "border-box",
     },
     selectedItemRow: {
-        ...shorthands.border("1px", "solid", tokens.colorStrokeFocus2),
+        backgroundColor: tokens.colorPaletteYellowBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorPaletteYellowBorder2),
     },
     itemReadOnlyText: {
         display: "flex",
@@ -2960,6 +2961,7 @@ function ChecklistDetails({
     const [pendingSubmissionResponse, setPendingSubmissionResponse] = useState<PendingSubmissionResponse>(null);
     const [shortcutNotice, setShortcutNotice] = useState("");
     const shortcutNoticeTimerRef = useRef<number | null>(null);
+    const sectionFocusResetTimerRef = useRef<number | null>(null);
     const [hoveredSectionId, setHoveredSectionId] = useState("");
     const [hoveredItemId, setHoveredItemId] = useState("");
     const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
@@ -3003,6 +3005,7 @@ function ChecklistDetails({
     useEffect(() => {
         return () => {
             if (shortcutNoticeTimerRef.current) window.clearTimeout(shortcutNoticeTimerRef.current);
+            if (sectionFocusResetTimerRef.current) window.clearTimeout(sectionFocusResetTimerRef.current);
         };
     }, []);
 
@@ -3127,6 +3130,10 @@ function ChecklistDetails({
         draftItem?.identificationTarget,
     ]);
     const selectSection = (sectionId: string) => {
+        if (sectionFocusResetTimerRef.current) {
+            window.clearTimeout(sectionFocusResetTimerRef.current);
+            sectionFocusResetTimerRef.current = null;
+        }
         setSelectedSectionId(sectionId);
         setHighlightedSectionId(sectionId);
         setSelectedItemId("");
@@ -3145,6 +3152,12 @@ function ChecklistDetails({
         setKeyboardPane("sections");
         setHighlightedSectionId(visibleSections[nextIndex].section.id);
         setSelectedItemId("");
+        if (sectionFocusResetTimerRef.current) window.clearTimeout(sectionFocusResetTimerRef.current);
+        sectionFocusResetTimerRef.current = window.setTimeout(() => {
+            setHighlightedSectionId(selectedSectionId);
+            setKeyboardNavigationActive(false);
+            sectionFocusResetTimerRef.current = null;
+        }, 5000);
     };
     const moveItemHighlight = (direction: 1 | -1) => {
         if (!selectedSection?.items.length) return;
@@ -3235,6 +3248,10 @@ function ChecklistDetails({
     };
     const confirmHighlightedSection = () => {
         if (!highlightedSection) return;
+        if (sectionFocusResetTimerRef.current) {
+            window.clearTimeout(sectionFocusResetTimerRef.current);
+            sectionFocusResetTimerRef.current = null;
+        }
         if (highlightedSection.sections.length > 0) {
             setCollapsedSectionIds((current) => {
                 if (highlightedSectionDepth === 0 && current.has(highlightedSection.id)) {
@@ -4343,7 +4360,7 @@ function ChecklistDetails({
                   }
                 : isHighlightedSection && !isAnyDropTarget
                 ? {
-                      backgroundColor: tokens.colorBrandBackground2,
+                      backgroundColor: tokens.colorPaletteYellowBackground1,
                       color: tokens.colorNeutralForeground1,
                   }
                 : undefined;
