@@ -4131,7 +4131,7 @@ function ChecklistDetails({
                     >
                         <Checkbox
                             checked={Boolean(draftItem?.requestItemIdentification)}
-                            label="Request item identification"
+                            label="Requires identification"
                             onChange={(_, data) =>
                                 setDraftItem((current) =>
                                     current
