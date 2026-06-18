@@ -798,12 +798,15 @@ const useStyles = makeStyles({
         alignItems: "center",
         justifyContent: "space-between",
         gap: "8px",
-        minHeight: "32px",
-        padding: "5px 8px",
+        width: "100%",
+        minHeight: "36px",
+        padding: "6px 10px",
         borderRadius: tokens.borderRadiusMedium,
         cursor: "default",
         color: tokens.colorNeutralForeground2,
         userSelect: "none",
+        boxSizing: "border-box",
+        backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", "transparent"),
     },
     sectionDraggingCursor: {
@@ -811,30 +814,28 @@ const useStyles = makeStyles({
     },
     sectionRowHoverable: {
         ":hover": {
-            backgroundColor: tokens.colorNeutralBackground2,
+            backgroundColor: tokens.colorNeutralBackground2Hover,
         },
     },
     parentSectionRow: {
-        backgroundColor: tokens.colorNeutralBackground2,
-        minHeight: "38px",
+        minHeight: "40px",
         padding: "7px 10px",
         fontWeight: tokens.fontWeightSemibold,
     },
     childSectionRow: {
-        marginLeft: "20px",
-        minHeight: "30px",
-        padding: "4px 8px",
-        backgroundColor: "transparent",
-        borderLeftColor: tokens.colorNeutralStroke2,
-        borderLeftWidth: "3px",
-        borderLeftStyle: "solid",
+        marginLeft: "32px",
+        width: "calc(100% - 32px)",
+        minHeight: "34px",
+        padding: "5px 10px",
+        backgroundColor: tokens.colorNeutralBackground1,
     },
     sectionChildren: {
         display: "flex",
         flexDirection: "column",
-        gap: "3px",
-        marginTop: "5px",
-        marginBottom: "2px",
+        gap: "4px",
+        width: "100%",
+        marginTop: "4px",
+        marginBottom: "4px",
     },
     sectionTree: {
         display: "flex",
@@ -842,24 +843,23 @@ const useStyles = makeStyles({
         gap: "6px",
         flexGrow: 1,
         minHeight: 0,
+        width: "100%",
     },
     sectionTreeItem: {
         display: "flex",
         flexDirection: "column",
         gap: "0",
+        width: "100%",
     },
     sectionTreeItemLayout: {
-        padding: "0",
-        minHeight: "auto",
-        backgroundColor: "transparent",
-        ":hover": {
-            backgroundColor: "transparent",
-        },
+        width: "100%",
+        boxSizing: "border-box",
     },
     childSectionDivider: {
         height: "1px",
-        marginLeft: "28px",
+        marginLeft: "64px",
         backgroundColor: tokens.colorNeutralStroke2,
+        opacity: 0.45,
     },
     sectionAddAnotherRow: {
         display: "flex",
@@ -893,9 +893,10 @@ const useStyles = makeStyles({
         minWidth: 0,
     },
     sectionChevron: {
-        minWidth: "28px",
-        width: "28px",
-        height: "28px",
+        minWidth: "24px",
+        width: "24px",
+        height: "24px",
+        color: tokens.colorNeutralForeground3,
     },
     sectionNameInlineInput: {
         minWidth: "180px",
@@ -957,11 +958,18 @@ const useStyles = makeStyles({
     selectedSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
         color: tokens.colorNeutralForeground1,
-        ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
+        borderTopColor: tokens.colorBrandStroke1,
+        borderRightColor: tokens.colorBrandStroke1,
+        borderBottomColor: tokens.colorBrandStroke1,
+        borderLeftColor: tokens.colorBrandStroke1,
+        boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
     },
     selectedAncestorSectionRow: {
         backgroundColor: tokens.colorBrandBackground2,
-        ...shorthands.border("1px", "solid", tokens.colorBrandStroke2),
+        borderTopColor: tokens.colorBrandStroke2,
+        borderRightColor: tokens.colorBrandStroke2,
+        borderBottomColor: tokens.colorBrandStroke2,
+        borderLeftColor: tokens.colorBrandStroke2,
         boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
     },
     selectedChildSectionRow: {
@@ -1037,6 +1045,19 @@ const useStyles = makeStyles({
         alignItems: "center",
         gap: "6px",
         flexWrap: "wrap",
+        minWidth: 0,
+    },
+    selectedSectionTitleEditRow: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        minWidth: "220px",
+        maxWidth: "420px",
+        flex: "0 1 420px",
+    },
+    selectedSectionTitleInput: {
+        minWidth: "180px",
+        flex: "1 1 auto",
     },
     sectionPathPart: {
         color: tokens.colorNeutralForeground3,
@@ -4272,135 +4293,135 @@ function ChecklistDetails({
                     open={hasChildren ? !isCollapsed : undefined}
                     className={styles.sectionTreeItem}
                 >
-                    <TreeItemLayout className={styles.sectionTreeItemLayout} expandIcon={null}>
-                        <div
-                            data-section-id={section.id}
-                            data-section-depth={depth}
-                            className={[
-                                styles.sectionRow,
-                                canUseHoverBackground ? styles.sectionRowHoverable : "",
-                                depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
-                                isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
-                                isSelectedSection ? styles.selectedSectionRow : "",
-                                isHighlightedSection ? styles.keyboardFocusRow : "",
-                                isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
-                                draggedItem?.type === "section" ? styles.sectionDraggingCursor : "",
-                                draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
-                                isDropBeforeTarget ? styles.dropBeforeRow : "",
-                                isDropAfterTarget ? styles.dropAfterRow : "",
-                                isDropChildTarget ? styles.dropIntoSectionRow : "",
-                                isInvalidDropTarget ? styles.invalidDropSectionRow : "",
-                            ].filter(Boolean).join(" ")}
-                            style={selectedChildSectionStyle}
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                if (isEditingThisSection) return;
-                                if (ignoreNextSectionClickRef.current) {
-                                    ignoreNextSectionClickRef.current = false;
-                                    return;
-                                }
-                                selectSectionPane(section.id);
-                                setDraftItem(null);
-                                if (hasChildren) {
-                                    toggleCollapsedSection(section.id, depth);
-                                }
-                            }}
-                            onPointerDown={(event) => handleSectionPointerDown(event, section)}
-                            onPointerMove={handleSectionPointerMove}
-                            onPointerUp={handleSectionPointerUp}
-                            onPointerCancel={handleSectionPointerCancel}
-                            onPointerEnter={() => setHoveredSectionId(section.id)}
-                            onPointerLeave={() => {
-                                setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
-                            }}
-                        >
-                            <div className={styles.sectionMain}>
-                                {hasChildren ? (
+                    <TreeItemLayout
+                        data-section-id={section.id}
+                        data-section-depth={depth}
+                        className={[
+                            styles.sectionTreeItemLayout,
+                            styles.sectionRow,
+                            canUseHoverBackground ? styles.sectionRowHoverable : "",
+                            depth === 0 ? styles.parentSectionRow : styles.childSectionRow,
+                            isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
+                            isSelectedSection ? styles.selectedSectionRow : "",
+                            isHighlightedSection ? styles.keyboardFocusRow : "",
+                            isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
+                            draggedItem?.type === "section" ? styles.sectionDraggingCursor : "",
+                            draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
+                            isDropBeforeTarget ? styles.dropBeforeRow : "",
+                            isDropAfterTarget ? styles.dropAfterRow : "",
+                            isDropChildTarget ? styles.dropIntoSectionRow : "",
+                            isInvalidDropTarget ? styles.invalidDropSectionRow : "",
+                        ].filter(Boolean).join(" ")}
+                        style={selectedChildSectionStyle}
+                        expandIcon={null}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            if (isEditingThisSection) return;
+                            if (ignoreNextSectionClickRef.current) {
+                                ignoreNextSectionClickRef.current = false;
+                                return;
+                            }
+                            selectSectionPane(section.id);
+                            setDraftItem(null);
+                            if (hasChildren) {
+                                toggleCollapsedSection(section.id, depth);
+                            }
+                        }}
+                        onPointerDown={(event) => handleSectionPointerDown(event, section)}
+                        onPointerMove={handleSectionPointerMove}
+                        onPointerUp={handleSectionPointerUp}
+                        onPointerCancel={handleSectionPointerCancel}
+                        onPointerEnter={() => setHoveredSectionId(section.id)}
+                        onPointerLeave={() => {
+                            setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
+                        }}
+                    >
+                        <div className={styles.sectionMain}>
+                            {hasChildren ? (
+                                <Button
+                                    aria-label={isCollapsed ? "Expand section" : "Collapse section"}
+                                    appearance="subtle"
+                                    className={styles.sectionChevron}
+                                    icon={isCollapsed ? <ChevronRightRegular /> : <ChevronDownRegular />}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        selectSectionPane(section.id);
+                                        setDraftItem(null);
+                                        toggleCollapsedSection(section.id, depth);
+                                    }}
+                                />
+                            ) : (
+                                <span className={styles.sectionChevron} />
+                            )}
+                            {isEditingThisSection ? (
+                                <div
+                                    className={styles.sectionNameEditRow}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                >
+                                    <Input
+                                        autoFocus
+                                        className={styles.sectionNameInlineInput}
+                                        value={sectionNameDraft}
+                                        onChange={(_, data) => setSectionNameDraft(data.value)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Enter") confirmEditingSectionName();
+                                            if (event.key === "Escape") setEditingSectionId("");
+                                        }}
+                                        onBlur={confirmEditingSectionName}
+                                    />
                                     <Button
-                                        aria-label={isCollapsed ? "Expand section" : "Collapse section"}
-                                        appearance="subtle"
-                                        className={styles.sectionChevron}
-                                        icon={isCollapsed ? <ChevronRightRegular /> : <ChevronDownRegular />}
+                                        aria-label="Confirm section name"
+                                        appearance="primary"
+                                        className={styles.sectionNameConfirmButton}
+                                        icon={<CheckmarkRegular />}
+                                        disabled={!sectionNameDraft.trim()}
+                                        onMouseDown={(event) => event.preventDefault()}
                                         onClick={(event) => {
                                             event.stopPropagation();
-                                            selectSectionPane(section.id);
-                                            setDraftItem(null);
-                                            toggleCollapsedSection(section.id, depth);
+                                            confirmEditingSectionName();
                                         }}
                                     />
-                                ) : (
-                                    <span className={styles.sectionChevron} />
-                                )}
-                                {isEditingThisSection ? (
-                                    <div
-                                        className={styles.sectionNameEditRow}
-                                        onClick={(event) => event.stopPropagation()}
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                    >
-                                        <Input
-                                            autoFocus
-                                            className={styles.sectionNameInlineInput}
-                                            value={sectionNameDraft}
-                                            onChange={(_, data) => setSectionNameDraft(data.value)}
-                                            onKeyDown={(event) => {
-                                                if (event.key === "Enter") confirmEditingSectionName();
-                                                if (event.key === "Escape") setEditingSectionId("");
-                                            }}
-                                            onBlur={confirmEditingSectionName}
-                                        />
-                                        <Button
-                                            aria-label="Confirm section name"
-                                            appearance="primary"
-                                            className={styles.sectionNameConfirmButton}
-                                            icon={<CheckmarkRegular />}
-                                            disabled={!sectionNameDraft.trim()}
-                                            onMouseDown={(event) => event.preventDefault()}
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                confirmEditingSectionName();
-                                            }}
-                                        />
-                                    </div>
-                                ) : (
-                                    <>
-                                        <Text className={styles.sectionRowText} weight={depth === 0 || isSelectedSection ? "semibold" : "regular"}>
-                                            {section.name || "Unnamed section"}
-                                        </Text>
-                                        {section.bulkServiceable && (
-                                            <span className={styles.sectionBulkPill}>Bulk check</span>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                            <div className={styles.rowActions}>
-                                <Button
-                                    aria-label="Edit section name"
-                                    appearance="subtle"
-                                    className={styles.sectionEditButton}
-                                    icon={<EditRegular />}
-                                    style={{ visibility: hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
-                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        startEditSectionName(section);
-                                    }}
-                                />
-                                <Button
-                                    aria-label="Delete section"
-                                    appearance="subtle"
-                                    className={styles.sectionDeleteButton}
-                                    icon={<DeleteRegular />}
-                                    style={{ visibility: hoveredSectionId === section.id ? "visible" : "hidden" }}
-                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        requestDeleteSection(section);
-                                    }}
-                                />
-                                <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
-                                    {getSectionCountText(section)}
-                                </Caption1>
-                            </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <Text className={styles.sectionRowText} weight={depth === 0 || isSelectedSection ? "semibold" : "regular"}>
+                                        {section.name || "Unnamed section"}
+                                    </Text>
+                                    {section.bulkServiceable && (
+                                        <span className={styles.sectionBulkPill}>Bulk check</span>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                        <div className={styles.rowActions}>
+                            <Button
+                                aria-label="Edit section name"
+                                appearance="subtle"
+                                className={styles.sectionEditButton}
+                                icon={<EditRegular />}
+                                style={{ visibility: hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
+                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    startEditSectionName(section);
+                                }}
+                            />
+                            <Button
+                                aria-label="Delete section"
+                                appearance="subtle"
+                                className={styles.sectionDeleteButton}
+                                icon={<DeleteRegular />}
+                                style={{ visibility: hoveredSectionId === section.id ? "visible" : "hidden" }}
+                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    requestDeleteSection(section);
+                                }}
+                            />
+                            <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
+                                {getSectionCountText(section)}
+                            </Caption1>
                         </div>
                     </TreeItemLayout>
                     {hasChildren && !isCollapsed && (
@@ -4884,17 +4905,31 @@ function ChecklistDetails({
                                                         <React.Fragment key={section.id}>
                                                             {index > 0 && <Text className={styles.mutedText}>{">"}</Text>}
                                                             {editingSelectedSectionTitleId === section.id && index === selectedSectionPath.length - 1 ? (
-                                                                <Input
-                                                                    autoFocus
-                                                                    className={styles.sectionNameInlineInput}
-                                                                    value={selectedSectionTitleDraft}
-                                                                    onChange={(_, data) => setSelectedSectionTitleDraft(data.value)}
-                                                                    onKeyDown={(event) => {
-                                                                        if (event.key === "Enter") confirmEditingSelectedSectionTitle();
-                                                                        if (event.key === "Escape") setEditingSelectedSectionTitleId("");
-                                                                    }}
-                                                                    onBlur={confirmEditingSelectedSectionTitle}
-                                                                />
+                                                                <span className={styles.selectedSectionTitleEditRow}>
+                                                                    <Input
+                                                                        autoFocus
+                                                                        className={styles.selectedSectionTitleInput}
+                                                                        value={selectedSectionTitleDraft}
+                                                                        onChange={(_, data) => setSelectedSectionTitleDraft(data.value)}
+                                                                        onKeyDown={(event) => {
+                                                                            if (event.key === "Enter") confirmEditingSelectedSectionTitle();
+                                                                            if (event.key === "Escape") setEditingSelectedSectionTitleId("");
+                                                                        }}
+                                                                        onBlur={confirmEditingSelectedSectionTitle}
+                                                                    />
+                                                                    <Button
+                                                                        aria-label="Confirm selected section name"
+                                                                        appearance="primary"
+                                                                        className={styles.sectionNameConfirmButton}
+                                                                        icon={<CheckmarkRegular />}
+                                                                        disabled={!selectedSectionTitleDraft.trim()}
+                                                                        onMouseDown={(event) => event.preventDefault()}
+                                                                        onClick={(event) => {
+                                                                            event.stopPropagation();
+                                                                            confirmEditingSelectedSectionTitle();
+                                                                        }}
+                                                                    />
+                                                                </span>
                                                             ) : (
                                                                 <Text
                                                                     weight={index === selectedSectionPath.length - 1 ? "semibold" : "regular"}
