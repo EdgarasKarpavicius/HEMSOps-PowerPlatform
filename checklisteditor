@@ -987,24 +987,39 @@ const useStyles = makeStyles({
         pointerEvents: "none",
     },
     dropBeforeRow: {
-        borderTopColor: tokens.colorBrandStroke1,
-        borderTopWidth: "3px",
+        borderTopColor: tokens.colorCompoundBrandStroke,
+        borderTopWidth: "4px",
         borderTopStyle: "solid",
-        boxShadow: `0 -1px 0 ${tokens.colorBrandStroke1}`,
+        boxShadow: `0 -2px 0 ${tokens.colorCompoundBrandStroke}`,
     },
     dropAfterRow: {
-        borderBottomColor: tokens.colorBrandStroke1,
-        borderBottomWidth: "3px",
+        borderBottomColor: tokens.colorCompoundBrandStroke,
+        borderBottomWidth: "4px",
         borderBottomStyle: "solid",
-        boxShadow: `0 1px 0 ${tokens.colorBrandStroke1}`,
+        boxShadow: `0 2px 0 ${tokens.colorCompoundBrandStroke}`,
     },
     dropIntoSectionRow: {
-        backgroundColor: tokens.colorNeutralBackground2,
-        borderTopColor: tokens.colorBrandStroke1,
-        borderRightColor: tokens.colorBrandStroke1,
-        borderBottomColor: tokens.colorBrandStroke1,
-        borderLeftColor: tokens.colorBrandStroke1,
-        boxShadow: `inset 2px 0 0 ${tokens.colorBrandStroke1}`,
+        backgroundColor: tokens.colorBrandBackground2,
+        borderTopColor: tokens.colorCompoundBrandStroke,
+        borderRightColor: tokens.colorCompoundBrandStroke,
+        borderBottomColor: tokens.colorCompoundBrandStroke,
+        borderLeftColor: tokens.colorCompoundBrandStroke,
+        borderTopStyle: "dashed",
+        borderRightStyle: "dashed",
+        borderBottomStyle: "dashed",
+        borderLeftStyle: "dashed",
+        boxShadow: `inset 4px 0 0 ${tokens.colorCompoundBrandStroke}, ${tokens.shadow4}`,
+    },
+    sectionDropHint: {
+        flexShrink: 0,
+        padding: "2px 7px",
+        borderRadius: tokens.borderRadiusSmall,
+        color: tokens.colorBrandForeground1,
+        backgroundColor: tokens.colorBrandBackground,
+        fontSize: "11px",
+        lineHeight: "16px",
+        fontWeight: tokens.fontWeightSemibold,
+        whiteSpace: "nowrap",
     },
     invalidDropSectionRow: {
         backgroundColor: tokens.colorPaletteRedBackground1,
@@ -3712,8 +3727,8 @@ function ChecklistDetails({
         const rowBounds = sectionElement instanceof HTMLElement ? sectionElement.getBoundingClientRect() : null;
         const isMiddleOfRow =
             rowBounds ? clientY > rowBounds.top + rowBounds.height * 0.3 && clientY < rowBounds.bottom - rowBounds.height * 0.3 : false;
-        const isIndentedOverTopLevel = depth === 0 && rowBounds ? clientX > rowBounds.left + 112 && isMiddleOfRow : false;
-        if (isIndentedOverTopLevel) {
+        const isOverTopLevelMiddle = depth === 0 && isMiddleOfRow;
+        if (isOverTopLevelMiddle) {
             if (canMoveSectionToParentEnd(sections, draggedSectionId, sectionId)) {
                 return { type: "section", id: sectionId, placement: "child" } as DragOverTarget;
             }
@@ -4445,6 +4460,9 @@ function ChecklistDetails({
                                     </Text>
                                     {section.bulkServiceable && (
                                         <span className={styles.sectionBulkPill}>Bulk check</span>
+                                    )}
+                                    {isDropChildTarget && (
+                                        <span className={styles.sectionDropHint}>Drop as child</span>
                                     )}
                                 </>
                             )}
