@@ -1086,12 +1086,12 @@ const useStyles = makeStyles({
         display: "inline-flex",
         alignItems: "center",
         gap: "6px",
-        minWidth: "220px",
+        minWidth: "160px",
         maxWidth: "420px",
-        flex: "0 1 420px",
+        flex: "1 1 260px",
     },
     selectedSectionTitleInput: {
-        minWidth: "180px",
+        minWidth: "120px",
         flex: "1 1 auto",
     },
     sectionPathPart: {
