@@ -806,7 +806,7 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground2,
         userSelect: "none",
         boxSizing: "border-box",
-        backgroundColor: tokens.colorNeutralBackground1,
+        backgroundColor: "transparent",
         ...shorthands.border("1px", "solid", "transparent"),
     },
     sectionDraggingCursor: {
@@ -818,24 +818,30 @@ const useStyles = makeStyles({
         },
     },
     parentSectionRow: {
+        backgroundColor: tokens.colorNeutralBackground2,
         minHeight: "40px",
         padding: "7px 10px",
         fontWeight: tokens.fontWeightSemibold,
     },
     childSectionRow: {
-        marginLeft: "32px",
-        width: "calc(100% - 32px)",
+        marginLeft: "0",
+        width: "100%",
         minHeight: "34px",
-        padding: "5px 10px",
-        backgroundColor: tokens.colorNeutralBackground1,
+        padding: "5px 10px 5px 8px",
+        backgroundColor: "transparent",
     },
     sectionChildren: {
         display: "flex",
         flexDirection: "column",
         gap: "4px",
-        width: "100%",
+        width: "calc(100% - 28px)",
+        marginLeft: "28px",
         marginTop: "4px",
         marginBottom: "4px",
+        paddingLeft: "10px",
+        borderLeftColor: tokens.colorNeutralStroke2,
+        borderLeftWidth: "1px",
+        borderLeftStyle: "solid",
     },
     sectionTree: {
         display: "flex",
@@ -856,10 +862,7 @@ const useStyles = makeStyles({
         boxSizing: "border-box",
     },
     childSectionDivider: {
-        height: "1px",
-        marginLeft: "64px",
-        backgroundColor: tokens.colorNeutralStroke2,
-        opacity: 0.45,
+        display: "none",
     },
     sectionAddAnotherRow: {
         display: "flex",
@@ -892,10 +895,9 @@ const useStyles = makeStyles({
         flex: 1,
         minWidth: 0,
     },
-    sectionChevron: {
-        minWidth: "24px",
-        width: "24px",
-        height: "24px",
+    sectionTreeExpandIcon: {
+        width: "16px",
+        height: "16px",
         color: tokens.colorNeutralForeground3,
     },
     sectionNameInlineInput: {
@@ -965,12 +967,8 @@ const useStyles = makeStyles({
         boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
     },
     selectedAncestorSectionRow: {
-        backgroundColor: tokens.colorBrandBackground2,
-        borderTopColor: tokens.colorBrandStroke2,
-        borderRightColor: tokens.colorBrandStroke2,
-        borderBottomColor: tokens.colorBrandStroke2,
-        borderLeftColor: tokens.colorBrandStroke2,
-        boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
+        backgroundColor: tokens.colorNeutralBackground2,
+        color: tokens.colorNeutralForeground1,
     },
     selectedChildSectionRow: {
         fontWeight: tokens.fontWeightSemibold,
@@ -4269,9 +4267,9 @@ function ChecklistDetails({
             dragOverTarget?.type === "invalidSectionChild" &&
             dragOverTarget.id === section.id;
         const isAnyDropTarget = isDropBeforeTarget || isDropAfterTarget || isDropChildTarget || isInvalidDropTarget;
-        const canUseHoverBackground = !isSelectedSection && !isSelectedAncestorSection && !isHighlightedSection && !isAnyDropTarget;
+        const canUseHoverBackground = !isSelectedSection && !isHighlightedSection && !isAnyDropTarget;
         const selectedSectionStyle: React.CSSProperties | undefined =
-            (isSelectedSection || isSelectedAncestorSection) && !isAnyDropTarget
+            isSelectedSection && !isAnyDropTarget
                 ? {
                       backgroundColor: tokens.colorBrandBackground2,
                       color: tokens.colorNeutralForeground1,
@@ -4313,7 +4311,17 @@ function ChecklistDetails({
                             isInvalidDropTarget ? styles.invalidDropSectionRow : "",
                         ].filter(Boolean).join(" ")}
                         style={selectedSectionStyle}
-                        expandIcon={null}
+                        expandIcon={
+                            hasChildren ? (
+                                isCollapsed ? (
+                                    <ChevronRightRegular className={styles.sectionTreeExpandIcon} />
+                                ) : (
+                                    <ChevronDownRegular className={styles.sectionTreeExpandIcon} />
+                                )
+                            ) : (
+                                <span className={styles.sectionTreeExpandIcon} />
+                            )
+                        }
                         onClick={(event) => {
                             event.stopPropagation();
                             if (isEditingThisSection) return;
@@ -4335,24 +4343,39 @@ function ChecklistDetails({
                         onPointerLeave={() => {
                             setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
                         }}
-                    >
-                        <div className={styles.sectionMain}>
-                            {hasChildren ? (
+                        actions={
+                            <div className={styles.rowActions}>
                                 <Button
-                                    aria-label={isCollapsed ? "Expand section" : "Collapse section"}
+                                    aria-label="Edit section name"
                                     appearance="subtle"
-                                    className={styles.sectionChevron}
-                                    icon={isCollapsed ? <ChevronRightRegular /> : <ChevronDownRegular />}
+                                    className={styles.sectionEditButton}
+                                    icon={<EditRegular />}
+                                    style={{ visibility: hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
+                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
                                     onClick={(event) => {
                                         event.stopPropagation();
-                                        selectSectionPane(section.id);
-                                        setDraftItem(null);
-                                        toggleCollapsedSection(section.id, depth);
+                                        startEditSectionName(section);
                                     }}
                                 />
-                            ) : (
-                                <span className={styles.sectionChevron} />
-                            )}
+                                <Button
+                                    aria-label="Delete section"
+                                    appearance="subtle"
+                                    className={styles.sectionDeleteButton}
+                                    icon={<DeleteRegular />}
+                                    style={{ visibility: hoveredSectionId === section.id ? "visible" : "hidden" }}
+                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        requestDeleteSection(section);
+                                    }}
+                                />
+                                <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
+                                    {getSectionCountText(section)}
+                                </Caption1>
+                            </div>
+                        }
+                    >
+                        <div className={styles.sectionMain}>
                             {isEditingThisSection ? (
                                 <div
                                     className={styles.sectionNameEditRow}
@@ -4393,35 +4416,6 @@ function ChecklistDetails({
                                     )}
                                 </>
                             )}
-                        </div>
-                        <div className={styles.rowActions}>
-                            <Button
-                                aria-label="Edit section name"
-                                appearance="subtle"
-                                className={styles.sectionEditButton}
-                                icon={<EditRegular />}
-                                style={{ visibility: hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
-                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    startEditSectionName(section);
-                                }}
-                            />
-                            <Button
-                                aria-label="Delete section"
-                                appearance="subtle"
-                                className={styles.sectionDeleteButton}
-                                icon={<DeleteRegular />}
-                                style={{ visibility: hoveredSectionId === section.id ? "visible" : "hidden" }}
-                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    requestDeleteSection(section);
-                                }}
-                            />
-                            <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
-                                {getSectionCountText(section)}
-                            </Caption1>
                         </div>
                     </TreeItemLayout>
                     {hasChildren && !isCollapsed && (
