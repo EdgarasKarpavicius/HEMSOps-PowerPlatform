@@ -847,7 +847,7 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         gap: "6px",
-        flexGrow: 1,
+        flexGrow: 0,
         minHeight: 0,
         width: "100%",
     },
@@ -873,7 +873,6 @@ const useStyles = makeStyles({
     sectionAddTopLevelRow: {
         display: "flex",
         justifyContent: "flex-start",
-        marginTop: "auto",
         padding: "8px 8px 22px",
     },
     itemAddAnotherRow: {
@@ -894,6 +893,9 @@ const useStyles = makeStyles({
         gap: "8px",
         flex: 1,
         minWidth: 0,
+    },
+    branchSectionMain: {
+        paddingLeft: "24px",
     },
     sectionTreeExpandIcon: {
         width: "16px",
@@ -4375,7 +4377,7 @@ function ChecklistDetails({
                             </div>
                         }
                     >
-                        <div className={styles.sectionMain}>
+                        <div className={[styles.sectionMain, hasChildren ? styles.branchSectionMain : ""].filter(Boolean).join(" ")}>
                             {isEditingThisSection ? (
                                 <div
                                     className={styles.sectionNameEditRow}
