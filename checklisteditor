@@ -990,20 +990,15 @@ const useStyles = makeStyles({
         fontWeight: tokens.fontWeightSemibold,
     },
     keyboardFocusRow: {
-        backgroundColor: tokens.colorPaletteYellowBackground1,
-        borderTopColor: tokens.colorPaletteYellowBorder2,
-        borderRightColor: tokens.colorPaletteYellowBorder2,
-        borderBottomColor: tokens.colorPaletteYellowBorder2,
-        borderLeftColor: tokens.colorPaletteYellowBorder2,
-        boxShadow: `inset 3px 0 0 ${tokens.colorPaletteYellowBorder2}`,
+        borderTopColor: tokens.colorNeutralForeground1,
+        borderRightColor: tokens.colorNeutralForeground1,
+        borderBottomColor: tokens.colorNeutralForeground1,
+        borderLeftColor: tokens.colorNeutralForeground1,
+        boxShadow: `inset 0 0 0 1px ${tokens.colorNeutralForeground1}`,
         outlineWidth: "2px",
         outlineStyle: "solid",
-        outlineColor: tokens.colorStrokeFocus2,
+        outlineColor: tokens.colorNeutralForeground1,
         outlineOffset: "-2px",
-    },
-    sectionKeyboardFocusRow: {
-        backgroundColor: tokens.colorPaletteYellowBackground2,
-        boxShadow: `inset 4px 0 0 ${tokens.colorPaletteYellowBorder2}, ${tokens.shadow4}`,
     },
     draggingRow: {
         opacity: 0.55,
@@ -1135,8 +1130,7 @@ const useStyles = makeStyles({
         boxSizing: "border-box",
     },
     selectedItemRow: {
-        backgroundColor: tokens.colorPaletteYellowBackground1,
-        ...shorthands.border("1px", "solid", tokens.colorPaletteYellowBorder2),
+        ...shorthands.border("1px", "solid", tokens.colorNeutralForeground1),
     },
     itemReadOnlyText: {
         display: "flex",
@@ -4364,7 +4358,6 @@ function ChecklistDetails({
                   }
                 : isHighlightedSection && !isAnyDropTarget
                 ? {
-                      backgroundColor: tokens.colorPaletteYellowBackground2,
                       color: tokens.colorNeutralForeground1,
                   }
                 : undefined;
@@ -4395,7 +4388,6 @@ function ChecklistDetails({
                             isSelectedAncestorSection ? styles.selectedAncestorSectionRow : "",
                             isSelectedSection ? styles.selectedSectionRow : "",
                             isHighlightedSection ? styles.keyboardFocusRow : "",
-                            isHighlightedSection ? styles.sectionKeyboardFocusRow : "",
                             isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
                             draggedItem?.type === "section" ? styles.sectionDraggingCursor : "",
                             draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
