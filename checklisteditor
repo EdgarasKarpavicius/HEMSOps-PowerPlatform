@@ -28,6 +28,7 @@ import {
     makeStyles,
     shorthands,
     tokens,
+    useArrowNavigationGroup,
 } from "@fluentui/react-components";
 import {
     AddRegular,
@@ -74,6 +75,12 @@ type ChecklistVersionOption = {
     key: string;
     value: boolean | number | string;
 };
+
+type LatestChecklistVersionOption = {
+    id: string;
+    label: string;
+    modifiedOn: string;
+} | null;
 
 type AppliesToSelection = {
     entityName: string;
@@ -182,9 +189,36 @@ type DragOverTarget =
     | { type: "section"; id: string; placement?: "before" | "after" | "child" }
     | { type: "invalidSectionChild"; id: string; reason: string }
     | { type: "item"; id: string; placement?: "before" | "after" }
-    | { type: "topLevelEnd" }
     | { type: "sectionChildrenEnd"; parentId: string }
     | null;
+
+type SectionDropIndicator = {
+    kind: "line" | "box";
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+    label: string;
+    tone: "brand" | "danger";
+} | null;
+
+function areDragOverTargetsEqual(left: DragOverTarget, right: DragOverTarget): boolean {
+    if (left === right) return true;
+    if (!left || !right || left.type !== right.type) return false;
+    if (left.type === "sectionChildrenEnd" && right.type === "sectionChildrenEnd") {
+        return left.parentId === right.parentId;
+    }
+    if (left.type === "section" && right.type === "section") {
+        return left.id === right.id && (left.placement || "before") === (right.placement || "before");
+    }
+    if (left.type === "invalidSectionChild" && right.type === "invalidSectionChild") {
+        return left.id === right.id && left.reason === right.reason;
+    }
+    if (left.type === "item" && right.type === "item") {
+        return left.id === right.id && (left.placement || "before") === (right.placement || "before");
+    }
+    return false;
+}
 
 type SectionPointerDrag = {
     id: string;
@@ -249,6 +283,19 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     );
 }
 
+function isInSectionDisclosureZone(
+    event: React.MouseEvent<HTMLElement> | React.PointerEvent<HTMLElement>,
+    hasChildren: boolean
+) {
+    if (!hasChildren) return false;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const isRtl = Boolean(event.currentTarget.closest("[dir='rtl']"));
+    const distanceFromDisclosureEdge = isRtl
+        ? bounds.right - event.clientX
+        : event.clientX - bounds.left;
+    return distanceFromDisclosureEdge >= 0 && distanceFromDisclosureEdge <= 36;
+}
+
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
 const VERSION_STATE_ACTIVE = 0;
@@ -260,6 +307,7 @@ const STATUS_DRAFT = 1;
 const STATUS_PUBLISHED = 2;
 const STATUS_INACTIVE = 3;
 const STATUS_IN_REVIEW = 4;
+const SECTION_NEST_ZONE_RATIO = 0.25;
 
 const langMap: Record<number, { code: string; name: string; isRtl: boolean }> = {
     1033: { code: "en-US", name: "English (United States)", isRtl: false },
@@ -272,9 +320,12 @@ const translations: Record<string, Record<string, string>> = {
         loadFallback: "Dataverse is unavailable. Local checklist data is being used for this session.",
         noChecklistVersionParameter: "No checklist version context was passed to this page.",
         noChecklistVersionHelp: "Paste a checklist version id to load it directly while testing this editor.",
+        noChecklistVersionLatestHelp: "Use the most recently modified checklist version for quick testing.",
         enterVersionId: "Enter version id",
         checklistVersionId: "Checklist version id",
         loadVersion: "Load version",
+        useMostRecentVersion: "Use most recent",
+        noRecentVersionFound: "No checklist versions were found.",
     },
 };
 
@@ -430,6 +481,8 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         gap: "2px",
+        flex: "1 1 auto",
+        minWidth: 0,
     },
     eyebrow: {
         color: tokens.colorNeutralForeground3,
@@ -440,18 +493,16 @@ const useStyles = makeStyles({
     },
     pageTitle: {
         margin: 0,
-        fontSize: "24px",
-        lineHeight: "30px",
+        fontSize: "22px",
+        lineHeight: "28px",
         fontWeight: tokens.fontWeightSemibold,
     },
     editableTitleRow: {
         display: "flex",
         alignItems: "center",
-        gap: "6px",
+        gap: "8px",
         minWidth: 0,
-    },
-    titleInput: {
-        width: "min(520px, 70vw)",
+        flexWrap: "wrap",
     },
     pageSubtitle: {
         color: tokens.colorNeutralForeground3,
@@ -479,10 +530,10 @@ const useStyles = makeStyles({
     },
     editorHeader: {
         display: "flex",
-        alignItems: "flex-start",
+        alignItems: "center",
         justifyContent: "space-between",
-        gap: "10px",
-        padding: "12px 14px",
+        gap: "12px",
+        padding: "8px 12px",
         backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
@@ -490,7 +541,6 @@ const useStyles = makeStyles({
     headerAction: {
         display: "flex",
         alignItems: "center",
-        alignSelf: "stretch",
         gap: "10px",
         flexWrap: "wrap",
         justifyContent: "flex-end",
@@ -502,7 +552,7 @@ const useStyles = makeStyles({
         flexBasis: 0,
         height: "100%",
         minHeight: 0,
-        rowGap: "10px",
+        rowGap: 0,
         overflow: "hidden",
     },
     statusPill: {
@@ -524,7 +574,7 @@ const useStyles = makeStyles({
         color: tokens.colorNeutralForeground2,
     },
     headerStatusPill: {
-        alignSelf: "flex-start",
+        alignSelf: "center",
         padding: "2px 9px",
         fontSize: "12px",
         lineHeight: "18px",
@@ -607,6 +657,9 @@ const useStyles = makeStyles({
         minHeight: 0,
         overflow: "hidden",
         padding: "8px 0 0",
+        "@media (max-width: 900px)": {
+            overflow: "auto",
+        },
     },
     formStack: {
         display: "grid",
@@ -682,7 +735,9 @@ const useStyles = makeStyles({
     },
     manualVersionActions: {
         display: "flex",
+        gap: "8px",
         justifyContent: "center",
+        flexWrap: "wrap",
     },
     shortcutToast: {
         position: "fixed",
@@ -696,6 +751,18 @@ const useStyles = makeStyles({
         ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
         borderRadius: tokens.borderRadiusMedium,
         boxShadow: tokens.shadow16,
+    },
+    validationDialogSurface: {
+        width: "min(100%, 520px)",
+        color: tokens.colorNeutralForeground1,
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusLarge,
+        boxShadow: tokens.shadow64,
+    },
+    validationDialogMessage: {
+        color: tokens.colorNeutralForeground2,
+        lineHeight: "20px",
     },
     contentsPlaceholder: {
         minHeight: "220px",
@@ -726,6 +793,13 @@ const useStyles = makeStyles({
         height: "100%",
         minHeight: 0,
         overflow: "hidden",
+        "@media (max-width: 900px)": {
+            gridTemplateColumns: "minmax(0, 1fr)",
+            gridTemplateRows: "minmax(260px, 42vh) minmax(320px, 1fr)",
+            height: "auto",
+            minHeight: 0,
+            overflow: "visible",
+        },
     },
     contentsColumn: {
         display: "flex",
@@ -735,6 +809,9 @@ const useStyles = makeStyles({
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
         overflow: "hidden",
+        "@media (max-width: 900px)": {
+            minHeight: "260px",
+        },
     },
     activeContentsColumn: {
         ...shorthands.border("1px", "solid", tokens.colorBrandStroke1),
@@ -787,6 +864,10 @@ const useStyles = makeStyles({
         gap: "10px",
         padding: "10px 12px",
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+        "@media (max-width: 600px)": {
+            alignItems: "flex-start",
+            flexDirection: "column",
+        },
     },
     contentsActions: {
         display: "flex",
@@ -797,6 +878,7 @@ const useStyles = makeStyles({
         justifyContent: "flex-end",
     },
     contentsColumnBody: {
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         gap: "8px",
@@ -804,10 +886,11 @@ const useStyles = makeStyles({
         minHeight: 0,
         overflowY: "auto",
         overflowX: "hidden",
-        padding: "10px 10px 52px",
-        scrollPaddingBottom: "52px",
+        padding: "10px",
+        scrollPaddingBottom: "10px",
     },
     sectionRow: {
+        position: "relative",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -851,12 +934,21 @@ const useStyles = makeStyles({
         width: "auto",
         marginLeft: "28px",
         boxSizing: "border-box",
-        marginTop: "4px",
-        marginBottom: "4px",
+        maxHeight: "none",
+        opacity: 1,
+        overflow: "visible",
+        paddingTop: "4px",
+        paddingBottom: "4px",
         paddingLeft: "10px",
         borderLeftColor: tokens.colorNeutralStroke2,
         borderLeftWidth: "1px",
         borderLeftStyle: "solid",
+    },
+    sectionChildrenEndActions: {
+        paddingTop: "2px",
+    },
+    sectionChildrenEndDraft: {
+        marginTop: "4px",
     },
     sectionTree: {
         display: "flex",
@@ -876,6 +968,20 @@ const useStyles = makeStyles({
         width: "100%",
         boxSizing: "border-box",
     },
+    visuallyHidden: {
+        position: "absolute",
+        width: "1px",
+        height: "1px",
+        padding: 0,
+        margin: "-1px",
+        overflow: "hidden",
+        clip: "rect(0 0 0 0)",
+        whiteSpace: "nowrap",
+        borderTopWidth: 0,
+        borderRightWidth: 0,
+        borderBottomWidth: 0,
+        borderLeftWidth: 0,
+    },
     childSectionDivider: {
         display: "none",
     },
@@ -888,12 +994,12 @@ const useStyles = makeStyles({
     sectionAddTopLevelRow: {
         display: "flex",
         justifyContent: "flex-start",
-        padding: "8px 8px 22px",
+        padding: "12px 8px 16px 20px",
     },
     itemAddAnotherRow: {
         display: "flex",
         justifyContent: "flex-start",
-        padding: "8px 8px 22px",
+        padding: "8px 8px 16px",
     },
     sectionAddAnotherButton: {
         color: tokens.colorBrandForeground1,
@@ -908,13 +1014,12 @@ const useStyles = makeStyles({
         flex: 1,
         minWidth: 0,
     },
-    branchSectionMain: {
-        paddingLeft: "24px",
-    },
-    sectionTreeExpandIcon: {
-        width: "16px",
-        height: "16px",
-        color: tokens.colorNeutralForeground3,
+    sectionTitleCluster: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        minWidth: 0,
+        flexWrap: "wrap",
     },
     sectionNameInlineInput: {
         minWidth: "180px",
@@ -941,12 +1046,34 @@ const useStyles = makeStyles({
         display: "flex",
         alignItems: "center",
         gap: "4px",
+        flexWrap: "nowrap",
+        justifyContent: "flex-end",
         flexShrink: 0,
     },
     sectionCountText: {
-        minWidth: "64px",
-        textAlign: "right",
+        flexShrink: 0,
+        padding: "2px 6px",
+        borderRadius: tokens.borderRadiusSmall,
+        backgroundColor: tokens.colorNeutralBackground3,
+        color: tokens.colorNeutralForeground3,
+        fontSize: "11px",
+        lineHeight: "16px",
+        fontWeight: tokens.fontWeightSemibold,
         whiteSpace: "nowrap",
+    },
+    sectionWarningPill: {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        width: "20px",
+        height: "20px",
+        padding: 0,
+        borderRadius: tokens.borderRadiusSmall,
+        backgroundColor: tokens.colorPaletteMarigoldBackground2,
+        color: tokens.colorPaletteMarigoldForeground2,
+        fontSize: "16px",
+        lineHeight: "16px",
     },
     sectionDeleteButton: {
         color: "#b10e1c",
@@ -994,11 +1121,20 @@ const useStyles = makeStyles({
         borderRightColor: tokens.colorNeutralForeground1,
         borderBottomColor: tokens.colorNeutralForeground1,
         borderLeftColor: tokens.colorNeutralForeground1,
-        boxShadow: `inset 0 0 0 1px ${tokens.colorNeutralForeground1}`,
+        boxShadow: `inset 0 0 0 2px ${tokens.colorNeutralForeground1}`,
         outlineWidth: "2px",
         outlineStyle: "solid",
         outlineColor: tokens.colorNeutralForeground1,
         outlineOffset: "-2px",
+    },
+    keyboardFocusOverlay: {
+        position: "absolute",
+        inset: "2px",
+        borderRadius: tokens.borderRadiusMedium,
+        ...shorthands.border("2px", "solid", tokens.colorNeutralForeground1),
+        boxShadow: `0 0 0 1px ${tokens.colorNeutralBackground1}`,
+        pointerEvents: "none",
+        zIndex: 5,
     },
     draggingRow: {
         opacity: 0.55,
@@ -1017,51 +1153,93 @@ const useStyles = makeStyles({
         boxShadow: `0 2px 0 ${tokens.colorCompoundBrandStroke}`,
     },
     dropIntoSectionRow: {
-        backgroundColor: tokens.colorBrandBackground2,
-        borderTopColor: tokens.colorCompoundBrandStroke,
-        borderRightColor: tokens.colorCompoundBrandStroke,
-        borderBottomColor: tokens.colorCompoundBrandStroke,
-        borderLeftColor: tokens.colorCompoundBrandStroke,
-        borderTopStyle: "dashed",
-        borderRightStyle: "dashed",
-        borderBottomStyle: "dashed",
-        borderLeftStyle: "dashed",
-        boxShadow: `inset 4px 0 0 ${tokens.colorCompoundBrandStroke}, ${tokens.shadow4}`,
-    },
-    sectionDropHint: {
-        flexShrink: 0,
-        padding: "2px 7px",
-        borderRadius: tokens.borderRadiusSmall,
         color: tokens.colorBrandForeground1,
-        backgroundColor: tokens.colorBrandBackground,
-        fontSize: "11px",
-        lineHeight: "16px",
-        fontWeight: tokens.fontWeightSemibold,
-        whiteSpace: "nowrap",
     },
     invalidDropSectionRow: {
-        backgroundColor: tokens.colorPaletteRedBackground1,
-        borderTopColor: tokens.colorPaletteRedBorder2,
-        borderRightColor: tokens.colorPaletteRedBorder2,
-        borderBottomColor: tokens.colorPaletteRedBorder2,
-        borderLeftColor: tokens.colorPaletteRedBorder2,
-        boxShadow: `inset 3px 0 0 ${tokens.colorPaletteRedBorder2}`,
+        color: tokens.colorNeutralForegroundDisabled,
     },
     topLevelEndDropTarget: {
-        minHeight: "18px",
-        marginTop: "2px",
-        borderTopWidth: "3px",
-        borderTopStyle: "solid",
-        borderTopColor: "transparent",
+        position: "relative",
+        minHeight: "12px",
+        marginTop: "1px",
+        marginBottom: "1px",
+        borderRadius: tokens.borderRadiusSmall,
+        backgroundColor: "transparent",
+        ...shorthands.border("1px", "dashed", "transparent"),
     },
-    activeTopLevelEndDropTarget: {
-        borderTopColor: tokens.colorBrandStroke1,
-        boxShadow: `0 -1px 0 ${tokens.colorBrandStroke1}`,
+    activeSectionChildrenEndDropTarget: {
+        borderTopColor: "transparent",
+        borderRightColor: "transparent",
+        borderBottomColor: "transparent",
+        borderLeftColor: "transparent",
+        "::before": {
+            content: '""',
+            position: "absolute",
+            left: "8px",
+            right: "8px",
+            top: "50%",
+            transform: "translateY(-50%)",
+            height: "2px",
+            borderRadius: tokens.borderRadiusCircular,
+            backgroundColor: tokens.colorCompoundBrandStroke,
+            pointerEvents: "none",
+        },
+    },
+    sectionDropIndicator: {
+        position: "absolute",
+        pointerEvents: "none",
+        zIndex: 6,
+    },
+    sectionDropIndicatorLine: {
+        height: "2px",
+        borderRadius: tokens.borderRadiusCircular,
+        backgroundColor: tokens.colorCompoundBrandStroke,
+    },
+    sectionDropIndicatorBox: {
+        borderRadius: tokens.borderRadiusMedium,
+        ...shorthands.border("2px", "solid", tokens.colorCompoundBrandStroke),
+        boxSizing: "border-box",
+    },
+    sectionDropIndicatorDanger: {
+        ...shorthands.border("2px", "solid", tokens.colorNeutralStroke1),
+        borderTopColor: tokens.colorNeutralStroke2,
+        borderRightColor: tokens.colorNeutralStroke2,
+        borderBottomColor: tokens.colorNeutralStroke2,
+        borderLeftColor: tokens.colorNeutralStroke2,
+    },
+    sectionDropIndicatorLabel: {
+        position: "absolute",
+        left: "50%",
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        color: tokens.colorBrandForeground1,
+        backgroundColor: tokens.colorNeutralBackground1,
+        fontSize: "10px",
+        lineHeight: "12px",
+        fontWeight: tokens.fontWeightSemibold,
+        paddingLeft: "4px",
+        paddingRight: "4px",
+        whiteSpace: "nowrap",
+        pointerEvents: "none",
+    },
+    sectionDropIndicatorDangerLabel: {
+        color: tokens.colorNeutralForegroundDisabled,
+        backgroundColor: tokens.colorNeutralBackground1,
     },
     sectionRowText: {
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
+    },
+    sectionNestTargetText: {
+        color: tokens.colorBrandForeground1,
+        fontWeight: tokens.fontWeightSemibold,
+    },
+    sectionInvalidNestTargetText: {
+        color: tokens.colorNeutralForegroundDisabled,
+        fontWeight: tokens.fontWeightSemibold,
+        textDecorationLine: "line-through",
+        textDecorationThickness: "1px",
     },
     sectionBulkPill: {
         flexShrink: 0,
@@ -1116,6 +1294,7 @@ const useStyles = makeStyles({
         minHeight: 0,
     },
     itemRow: {
+        position: "relative",
         display: "grid",
         gridTemplateColumns: "minmax(0, 1fr) auto",
         alignItems: "start",
@@ -1646,6 +1825,41 @@ function getSectionIdsWithChildren(sections: ChecklistSection[]): string[] {
     ]);
 }
 
+function getOpenSiblingSectionIds(sections: ChecklistSection[], collapsedSectionIds: Set<string>): string[] {
+    return sections
+        .filter((section) => section.sections.length > 0 && !collapsedSectionIds.has(section.id))
+        .map((section) => section.id);
+}
+
+function normalizeSectionNameForComparison(name: string) {
+    return name.trim().toLocaleLowerCase();
+}
+
+function getSiblingSections(sections: ChecklistSection[], parentId: string | null): ChecklistSection[] {
+    if (!parentId) return sections;
+    return findSectionById(sections, parentId)?.sections || [];
+}
+
+function getSectionParentId(sections: ChecklistSection[], sectionId: string): string | null {
+    const path = findSectionPathById(sections, sectionId);
+    return path.length > 1 ? path[path.length - 2].id : null;
+}
+
+function hasDuplicateSectionNameInLevel(
+    sections: ChecklistSection[],
+    parentId: string | null,
+    name: string,
+    excludedSectionId = ""
+) {
+    const normalizedName = normalizeSectionNameForComparison(name);
+    if (!normalizedName) return false;
+    return getSiblingSections(sections, parentId).some(
+        (section) =>
+            section.id !== excludedSectionId &&
+            normalizeSectionNameForComparison(section.name) === normalizedName
+    );
+}
+
 function findSectionById(sections: ChecklistSection[], sectionId: string | null): ChecklistSection | null {
     if (!sectionId) return null;
     for (const section of sections) {
@@ -1913,10 +2127,37 @@ function canMoveSectionToChildrenEnd(sections: ChecklistSection[], draggedId: st
     return draggedSiblingIndex !== parentSection.sections.length - 1;
 }
 
-function moveSectionToTopLevelEnd(sections: ChecklistSection[], draggedId: string): ChecklistSection[] {
-    const { sections: sectionsWithoutDragged, removed } = removeSectionById(sections, draggedId);
-    if (!removed) return sections;
-    return [...sectionsWithoutDragged, { ...removed, parentId: null }];
+function canDropSectionAtChildrenEnd(sections: ChecklistSection[], draggedId: string, parentId: string): boolean {
+    return (
+        canMoveSectionToChildrenEnd(sections, draggedId, parentId) ||
+        canMoveSectionToParentEnd(sections, draggedId, parentId)
+    );
+}
+
+function getPreviousSiblingSectionId(sections: ChecklistSection[], sectionId: string): string {
+    for (const section of sections) {
+        const childIndex = section.sections.findIndex((childSection) => childSection.id === sectionId);
+        if (childIndex > 0) return section.sections[childIndex - 1].id;
+        const childPreviousSiblingId = getPreviousSiblingSectionId(section.sections, sectionId);
+        if (childPreviousSiblingId) return childPreviousSiblingId;
+    }
+    const topLevelIndex = sections.findIndex((section) => section.id === sectionId);
+    return topLevelIndex > 0 ? sections[topLevelIndex - 1].id : "";
+}
+
+function getSectionInsertionTargetFromMidpoint(
+    sections: ChecklistSection[],
+    sectionId: string,
+    clientY: number,
+    rowBounds: DOMRect
+): DragOverTarget {
+    if (clientY < rowBounds.top + rowBounds.height / 2) {
+        const previousSiblingId = getPreviousSiblingSectionId(sections, sectionId);
+        return previousSiblingId
+            ? ({ type: "section", id: previousSiblingId, placement: "after" } as DragOverTarget)
+            : ({ type: "section", id: sectionId, placement: "before" } as DragOverTarget);
+    }
+    return { type: "section", id: sectionId, placement: "after" } as DragOverTarget;
 }
 
 function canMoveSectionBeforeTarget(sections: ChecklistSection[], draggedId: string, targetId: string): boolean {
@@ -1941,31 +2182,23 @@ function canMoveSectionToParentEnd(sections: ChecklistSection[], draggedId: stri
     if (parentPath.some((section) => section.id === draggedId)) return false;
     const draggedSection = draggedPath[draggedPath.length - 1];
     const parentSection = parentPath[parentPath.length - 1];
-    return draggedPath.length === 1 && draggedSection.sections.length === 0 && parentSection.items.length === 0;
+    return draggedSection.sections.length === 0 && parentSection.items.length === 0;
 }
 
 function getSectionParentDropValidationMessage(sections: ChecklistSection[], draggedId: string, parentId: string): string {
     const draggedPath = findSectionPathById(sections, draggedId);
     const parentPath = findSectionPathById(sections, parentId);
-    if (!draggedPath.length || parentPath.length !== 1) return "This section cannot be nested in the selected location.";
+    if (!draggedPath.length) return "This section cannot be nested in the selected location.";
+    if (parentPath.length !== 1) return "Sections can only be nested beneath top-level sections.";
     const draggedSection = draggedPath[draggedPath.length - 1];
     const parentSection = parentPath[parentPath.length - 1];
     if (parentSection.items.length > 0) {
         return "A section cannot be added beneath a top-level section that already contains checklist items. Remove the items or move them to a child section before nesting another section.";
     }
-    if (draggedPath.length !== 1) {
-        return "Only top-level sections can be moved beneath another top-level section.";
-    }
     if (draggedSection.sections.length > 0) {
         return "A section that already contains child sections cannot be nested beneath another section.";
     }
     return "This section cannot be nested in the selected location.";
-}
-
-function canMoveSectionToTopLevelEnd(sections: ChecklistSection[], draggedId: string): boolean {
-    const draggedPath = findSectionPathById(sections, draggedId);
-    if (!draggedPath.length) return false;
-    return sections[sections.length - 1]?.id !== draggedId || draggedPath.length > 1;
 }
 
 function reorderSectionItems(
@@ -1987,17 +2220,6 @@ function reorderSectionItems(
             sections: reorderSectionItems(candidate.sections, sectionId, draggedId, targetId, placement),
         };
     });
-}
-
-function parseSections(value: unknown): ChecklistSection[] {
-    if (!value || typeof value !== "string") return [];
-    try {
-        const parsed = JSON.parse(value);
-        const source = parsed.checklistVersionContents?.sections;
-        return Array.isArray(source) ? normalizeSections(source) : [];
-    } catch {
-        return [];
-    }
 }
 
 function inferChecklistTypeValue(value: unknown, label: string) {
@@ -2558,6 +2780,29 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
     return mapChecklistVersionRecord(record, checklist);
 }
 
+async function loadLatestChecklistVersionOptionFromDataverse(): Promise<LatestChecklistVersionOption> {
+    if (!hasDataverse()) return null;
+    const result = await Xrm.WebApi.retrieveMultipleRecords(
+        VERSION_TABLE_NAME,
+        "?$select=int_checklistversionid,int_versionnumber,int_proposedchecklistname,modifiedon&$orderby=modifiedon desc&$top=1"
+    );
+    const record = result.entities?.[0];
+    if (!record) return null;
+    const versionNumber = formatVersionNumber(getValue(record, ["int_versionnumber"], ""));
+    const checklistName = String(getValue(record, ["int_proposedchecklistname"], ""));
+    const modifiedOn = String(getValue(record, ["modifiedon"], ""));
+    const labelParts = [
+        checklistName || "Checklist version",
+        versionNumber ? `v${versionNumber}` : "",
+        modifiedOn ? `modified ${formatDisplayDateTime(modifiedOn)}` : "",
+    ].filter(Boolean);
+    return {
+        id: String(getValue(record, ["int_checklistversionid"], "")),
+        label: labelParts.join(" - "),
+        modifiedOn,
+    };
+}
+
 async function saveChecklistVersionDefinition(version: ChecklistVersion, definition: ChecklistVersionDefinition) {
     if (!version.id) return version;
     const serializedDefinition = serializeChecklistVersionDefinition(definition);
@@ -2650,6 +2895,8 @@ const GeneratedComponent = () => {
     const [manualVersionId, setManualVersionId] = useState("");
     const [showManualVersionInput, setShowManualVersionInput] = useState(false);
     const [isManualVersionLoading, setIsManualVersionLoading] = useState(false);
+    const [latestVersionOption, setLatestVersionOption] = useState<LatestChecklistVersionOption>(null);
+    const [isLatestVersionLoading, setIsLatestVersionLoading] = useState(false);
     const pageRef = useRef<HTMLDivElement>(null);
     const [availablePageHeight, setAvailablePageHeight] = useState(0);
     const pageChecklistVersionId = useMemo(
@@ -2701,12 +2948,15 @@ const GeneratedComponent = () => {
             try {
                 if (hasDataverse()) {
                     if (!pageChecklistVersionId) {
+                        const latestOption = await loadLatestChecklistVersionOptionFromDataverse();
                         if (isMounted) {
                             setMessage("");
+                            setLatestVersionOption(latestOption);
                             setSelectedVersion(null);
                         }
                         return;
                     }
+                    if (isMounted) setLatestVersionOption(null);
                     const [version, statusMetadata] = await Promise.all([
                         loadChecklistVersionFromDataverse(pageChecklistVersionId),
                         loadStatusOptions(VERSION_TABLE_NAME),
@@ -2734,11 +2984,9 @@ const GeneratedComponent = () => {
         };
     }, [pageChecklistVersionId, t]);
 
-    const loadManualVersion = async () => {
-        const versionId = normalizeLookupValue(manualVersionId);
-        if (!versionId || isManualVersionLoading) return;
-
-        setIsManualVersionLoading(true);
+    const loadVersionById = async (versionId: string) => {
+        const normalizedVersionId = normalizeLookupValue(versionId);
+        if (!normalizedVersionId) return;
         setMessage("");
         try {
             if (!hasDataverse()) {
@@ -2748,7 +2996,7 @@ const GeneratedComponent = () => {
             }
 
             const [version, statusMetadata] = await Promise.all([
-                loadChecklistVersionFromDataverse(versionId),
+                loadChecklistVersionFromDataverse(normalizedVersionId),
                 loadStatusOptions(VERSION_TABLE_NAME),
             ]);
             setSelectedVersion(version);
@@ -2757,8 +3005,24 @@ const GeneratedComponent = () => {
         } catch (error) {
             setSelectedVersion(null);
             setMessage(error instanceof Error ? error.message : t("loadFallback"));
+        }
+    };
+    const loadManualVersion = async () => {
+        if (!normalizeLookupValue(manualVersionId) || isManualVersionLoading) return;
+        setIsManualVersionLoading(true);
+        try {
+            await loadVersionById(manualVersionId);
         } finally {
             setIsManualVersionLoading(false);
+        }
+    };
+    const loadLatestVersion = async () => {
+        if (!latestVersionOption?.id || isLatestVersionLoading) return;
+        setIsLatestVersionLoading(true);
+        try {
+            await loadVersionById(latestVersionOption.id);
+        } finally {
+            setIsLatestVersionLoading(false);
         }
     };
 
@@ -2794,9 +3058,12 @@ const GeneratedComponent = () => {
                         manualVersionId={manualVersionId}
                         showManualVersionInput={showManualVersionInput}
                         isManualVersionLoading={isManualVersionLoading}
+                        latestVersionOption={latestVersionOption}
+                        isLatestVersionLoading={isLatestVersionLoading}
                         onManualVersionIdChange={setManualVersionId}
                         onShowManualVersionInput={() => setShowManualVersionInput(true)}
                         onLoadManualVersion={loadManualVersion}
+                        onLoadLatestVersion={loadLatestVersion}
                     />
                 )}
             </div>
@@ -2830,17 +3097,23 @@ function FocusedChecklistEmpty({
     manualVersionId,
     showManualVersionInput,
     isManualVersionLoading,
+    latestVersionOption,
+    isLatestVersionLoading,
     onManualVersionIdChange,
     onShowManualVersionInput,
     onLoadManualVersion,
+    onLoadLatestVersion,
 }: {
     t: (key: string) => string;
     manualVersionId: string;
     showManualVersionInput: boolean;
     isManualVersionLoading: boolean;
+    latestVersionOption: LatestChecklistVersionOption;
+    isLatestVersionLoading: boolean;
     onManualVersionIdChange: (value: string) => void;
     onShowManualVersionInput: () => void;
     onLoadManualVersion: () => void;
+    onLoadLatestVersion: () => void;
 }) {
     const styles = useStyles();
     const canLoadManualVersion = Boolean(normalizeLookupValue(manualVersionId));
@@ -2852,6 +3125,10 @@ function FocusedChecklistEmpty({
                     <div className={styles.manualVersionPrompt}>
                         <Text block weight="semibold">{t("noChecklistVersionParameter")}</Text>
                         <Caption1 className={styles.mutedText}>{t("noChecklistVersionHelp")}</Caption1>
+                        <Caption1 className={styles.mutedText}>{t("noChecklistVersionLatestHelp")}</Caption1>
+                        <Caption1 className={styles.mutedText}>
+                            {latestVersionOption ? latestVersionOption.label : t("noRecentVersionFound")}
+                        </Caption1>
                         {showManualVersionInput ? (
                             <div className={styles.manualVersionForm}>
                                 <Field label={t("checklistVersionId")}>
@@ -2875,6 +3152,13 @@ function FocusedChecklistEmpty({
                         ) : (
                             <div className={styles.manualVersionActions}>
                                 <Button
+                                    appearance="primary"
+                                    disabled={!latestVersionOption?.id || isLatestVersionLoading}
+                                    onClick={onLoadLatestVersion}
+                                >
+                                    {isLatestVersionLoading ? t("loadingChecklist") : t("useMostRecentVersion")}
+                                </Button>
+                                <Button
                                     appearance="subtle"
                                     className={styles.sectionAddAnotherButton}
                                     onClick={onShowManualVersionInput}
@@ -2890,6 +3174,173 @@ function FocusedChecklistEmpty({
     );
 }
 
+function useChecklistReferenceData(targetTypeValue: number) {
+    const [appliesToOptions, setAppliesToOptions] = useState<AppliesToOption[]>([]);
+    const [identificationOptions, setIdentificationOptions] = useState<IdentificationOptionsByTarget>(
+        {} as IdentificationOptionsByTarget
+    );
+    const [requiresChecklistVersionReview, setRequiresChecklistVersionReview] = useState(true);
+    const [userCanApproveChecklistVersion, setUserCanApproveChecklistVersion] = useState(false);
+
+    useEffect(() => {
+        let isMounted = true;
+        loadAppliesToOptions(targetTypeValue).then((items) => {
+            if (isMounted) setAppliesToOptions(items);
+        });
+        return () => {
+            isMounted = false;
+        };
+    }, [targetTypeValue]);
+
+    useEffect(() => {
+        let isMounted = true;
+        loadIdentificationOptions().then((items) => {
+            if (isMounted) setIdentificationOptions(items);
+        });
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        let isMounted = true;
+        loadRequireChecklistVersionReviewSetting().then((value) => {
+            if (isMounted) setRequiresChecklistVersionReview(value);
+        });
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        setUserCanApproveChecklistVersion(userHasRole(CHECKLIST_VERSION_APPROVER_ROLE_NAME));
+    }, []);
+
+    return {
+        appliesToOptions,
+        identificationOptions,
+        requiresChecklistVersionReview,
+        userCanApproveChecklistVersion,
+    };
+}
+
+function useShortcutNotice() {
+    const [shortcutNotice, setShortcutNotice] = useState("");
+    const shortcutNoticeTimerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (shortcutNoticeTimerRef.current) window.clearTimeout(shortcutNoticeTimerRef.current);
+        };
+    }, []);
+
+    const showShortcutNotice = (message: string) => {
+        setShortcutNotice(message);
+        if (shortcutNoticeTimerRef.current) window.clearTimeout(shortcutNoticeTimerRef.current);
+        shortcutNoticeTimerRef.current = window.setTimeout(() => {
+            setShortcutNotice("");
+            shortcutNoticeTimerRef.current = null;
+        }, 2200);
+    };
+
+    return { shortcutNotice, showShortcutNotice };
+}
+
+function useUnsavedChangesWarning(hasDefinitionChanges: boolean, isSaving: boolean) {
+    useEffect(() => {
+        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+            if (!hasDefinitionChanges || isSaving) return;
+            event.preventDefault();
+            event.returnValue = "";
+        };
+
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }, [hasDefinitionChanges, isSaving]);
+}
+
+function useSectionDropIndicator(
+    dragOverTarget: DragOverTarget,
+    sectionTreeBodyRef: React.RefObject<HTMLDivElement>
+) {
+    const [sectionDropIndicator, setSectionDropIndicator] = useState<SectionDropIndicator>(null);
+
+    useEffect(() => {
+        const activeDragOverTarget = dragOverTarget;
+        if (
+            activeDragOverTarget?.type !== "section" &&
+            activeDragOverTarget?.type !== "invalidSectionChild"
+        ) {
+            setSectionDropIndicator(null);
+            return;
+        }
+
+        let animationFrameId = 0;
+        const updateSectionDropIndicator = () => {
+            const body = sectionTreeBodyRef.current;
+            if (!body) {
+                setSectionDropIndicator(null);
+                return;
+            }
+            const isSectionTarget = activeDragOverTarget.type === "section";
+            const isInvalidNestTarget = activeDragOverTarget.type === "invalidSectionChild";
+            if (!isSectionTarget && !isInvalidNestTarget) {
+                setSectionDropIndicator(null);
+                return;
+            }
+            const targetSectionId = activeDragOverTarget.id;
+            const row = Array.from(body.querySelectorAll<HTMLElement>("[data-section-id]")).find(
+                (element) => element.dataset.sectionId === targetSectionId
+            );
+            if (!row) {
+                setSectionDropIndicator(null);
+                return;
+            }
+
+            const bodyBounds = body.getBoundingClientRect();
+            const rowBounds = row.getBoundingClientRect();
+            const rowTop = rowBounds.top - bodyBounds.top + body.scrollTop;
+            const rowLeft = rowBounds.left - bodyBounds.left + body.scrollLeft;
+            const placement = isInvalidNestTarget ? "child" : activeDragOverTarget.placement || "before";
+
+            if (placement === "child") {
+                setSectionDropIndicator({
+                    kind: "box",
+                    top: rowTop + 3,
+                    left: rowLeft + 4,
+                    width: Math.max(24, rowBounds.width - 8),
+                    height: Math.max(24, rowBounds.height - 6),
+                    label: isInvalidNestTarget ? "Not permitted here" : "Insert as child",
+                    tone: isInvalidNestTarget ? "danger" : "brand",
+                });
+                return;
+            }
+
+            setSectionDropIndicator({
+                kind: "line",
+                top: rowTop + (placement === "after" ? rowBounds.height - 1 : -1),
+                left: rowLeft + 8,
+                width: Math.max(24, rowBounds.width - 16),
+                height: 2,
+                label: "Insert here",
+                tone: "brand",
+            });
+        };
+
+        animationFrameId = window.requestAnimationFrame(updateSectionDropIndicator);
+        const body = sectionTreeBodyRef.current;
+        body?.addEventListener("scroll", updateSectionDropIndicator);
+        window.addEventListener("resize", updateSectionDropIndicator);
+        return () => {
+            if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
+            body?.removeEventListener("scroll", updateSectionDropIndicator);
+            window.removeEventListener("resize", updateSectionDropIndicator);
+        };
+    }, [dragOverTarget, sectionTreeBodyRef]);
+
+    return sectionDropIndicator;
+}
+
 function ChecklistDetails({
     version,
     statusOptions,
@@ -2902,18 +3353,19 @@ function ChecklistDetails({
     t: (key: string) => string;
 }) {
     const styles = useStyles();
+    const sectionActionNavigation = useArrowNavigationGroup({ axis: "horizontal" });
+    const sectionActionsDescriptionId = "checklist-section-actions-description";
     const checklist = version.checklist;
     const [activeTab, setActiveTab] = useState("general");
-    const [isEditingName, setIsEditingName] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState("");
     const [hasDefinitionChanges, setHasDefinitionChanges] = useState(false);
-    const [requiresChecklistVersionReview, setRequiresChecklistVersionReview] = useState(true);
-    const [userCanApproveChecklistVersion, setUserCanApproveChecklistVersion] = useState(false);
-    const [appliesToOptions, setAppliesToOptions] = useState<AppliesToOption[]>([]);
-    const [identificationOptions, setIdentificationOptions] = useState<IdentificationOptionsByTarget>(
-        {} as IdentificationOptionsByTarget
-    );
+    const {
+        appliesToOptions,
+        identificationOptions,
+        requiresChecklistVersionReview,
+        userCanApproveChecklistVersion,
+    } = useChecklistReferenceData(checklist.targetTypeValue);
     const [checklistName, setChecklistName] = useState(
         version.definition.checklistVersionDetails.checklistName || checklist.name
     );
@@ -2950,15 +3402,22 @@ function ChecklistDetails({
     const sectionPointerDragRef = useRef<SectionPointerDrag>(null);
     const itemPointerDragRef = useRef<ItemPointerDrag>(null);
     const itemNameInputRef = useRef<HTMLInputElement>(null);
+    const sectionTreeBodyRef = useRef<HTMLDivElement>(null);
     const ignoreNextSectionClickRef = useRef(false);
     const ignoreNextItemClickRef = useRef(false);
     const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
+    const dragOverTargetRef = useRef<DragOverTarget>(null);
+    const updateDragOverTarget = (target: DragOverTarget) => {
+        if (areDragOverTargetsEqual(dragOverTargetRef.current, target)) return;
+        dragOverTargetRef.current = target;
+        setDragOverTarget(target);
+    };
+    const sectionDropIndicator = useSectionDropIndicator(dragOverTarget, sectionTreeBodyRef);
     const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
     const [pendingValidationMessage, setPendingValidationMessage] = useState<PendingValidationMessage>(null);
     const [pendingReviewResponse, setPendingReviewResponse] = useState<PendingReviewResponse>(null);
     const [pendingSubmissionResponse, setPendingSubmissionResponse] = useState<PendingSubmissionResponse>(null);
-    const [shortcutNotice, setShortcutNotice] = useState("");
-    const shortcutNoticeTimerRef = useRef<number | null>(null);
+    const { shortcutNotice, showShortcutNotice } = useShortcutNotice();
     const sectionFocusResetTimerRef = useRef<number | null>(null);
     const [hoveredSectionId, setHoveredSectionId] = useState("");
     const [hoveredItemId, setHoveredItemId] = useState("");
@@ -2967,56 +3426,12 @@ function ChecklistDetails({
     );
 
     useEffect(() => {
-        let isMounted = true;
-        loadAppliesToOptions(checklist.targetTypeValue).then((items) => {
-            if (isMounted) setAppliesToOptions(items);
-        });
         return () => {
-            isMounted = false;
-        };
-    }, [checklist.targetTypeValue]);
-
-    useEffect(() => {
-        let isMounted = true;
-        loadIdentificationOptions().then((items) => {
-            if (isMounted) setIdentificationOptions(items);
-        });
-        return () => {
-            isMounted = false;
-        };
-    }, []);
-
-    useEffect(() => {
-        let isMounted = true;
-        loadRequireChecklistVersionReviewSetting().then((value) => {
-            if (isMounted) setRequiresChecklistVersionReview(value);
-        });
-        return () => {
-            isMounted = false;
-        };
-    }, []);
-
-    useEffect(() => {
-        setUserCanApproveChecklistVersion(userHasRole(CHECKLIST_VERSION_APPROVER_ROLE_NAME));
-    }, []);
-
-    useEffect(() => {
-        return () => {
-            if (shortcutNoticeTimerRef.current) window.clearTimeout(shortcutNoticeTimerRef.current);
             if (sectionFocusResetTimerRef.current) window.clearTimeout(sectionFocusResetTimerRef.current);
         };
     }, []);
 
-    useEffect(() => {
-        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-            if (!hasDefinitionChanges || isSaving) return;
-            event.preventDefault();
-            event.returnValue = "";
-        };
-
-        window.addEventListener("beforeunload", handleBeforeUnload);
-        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-    }, [hasDefinitionChanges, isSaving]);
+    useUnsavedChangesWarning(hasDefinitionChanges, isSaving);
 
     const currentDefinition = useMemo(
         () =>
@@ -3053,13 +3468,12 @@ function ChecklistDetails({
     useEffect(() => {
         if (isVersionEditable) return;
         setHasDefinitionChanges(false);
-        setIsEditingName(false);
         setDraftSection(null);
         setDraftItem(null);
         setEditingSectionId("");
         setEditingSelectedSectionTitleId("");
         setPendingDelete(null);
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
         draggedItemRef.current = null;
@@ -3072,6 +3486,10 @@ function ChecklistDetails({
         setEditingSelectedSectionTitleId("");
     }, [editingSelectedSectionTitleId, selectedSectionId]);
     const flattenedSections = useMemo(() => flattenSections(sections), [sections]);
+    const rootOpenSectionIds = useMemo(
+        () => getOpenSiblingSectionIds(sections, collapsedSectionIds),
+        [collapsedSectionIds, sections]
+    );
     const visibleSections = useMemo(() => flattenVisibleSections(sections, collapsedSectionIds), [collapsedSectionIds, sections]);
     const selectedSection = useMemo(
         () => findSectionById(sections, selectedSectionId),
@@ -3081,7 +3499,6 @@ function ChecklistDetails({
         () => findSectionById(sections, highlightedSectionId),
         [highlightedSectionId, sections]
     );
-    const highlightedSectionDepth = flattenedSections.find(({ section }) => section.id === highlightedSectionId)?.depth ?? 0;
     const selectedSectionPath = useMemo(
         () => findSectionPathById(sections, selectedSectionId),
         [sections, selectedSectionId]
@@ -3099,9 +3516,6 @@ function ChecklistDetails({
         [selectedItemId, selectedSection]
     );
     const canStartItemForSelectedSection = Boolean(selectedSection && !selectedSectionHasChildren);
-    const canDropSectionAtTopLevelEnd = Boolean(
-        draggedItem?.type === "section" && canMoveSectionToTopLevelEnd(sections, draggedItem.id)
-    );
     useEffect(() => {
         if (
             draftItem &&
@@ -3172,14 +3586,6 @@ function ChecklistDetails({
             setSelectedItemId(selectedSection.items[0].id);
         }
     };
-    const showShortcutNotice = (message: string) => {
-        setShortcutNotice(message);
-        if (shortcutNoticeTimerRef.current) window.clearTimeout(shortcutNoticeTimerRef.current);
-        shortcutNoticeTimerRef.current = window.setTimeout(() => {
-            setShortcutNotice("");
-            shortcutNoticeTimerRef.current = null;
-        }, 2200);
-    };
     const startSectionAfterFocus = () => {
         const focusedSection = keyboardNavigationActive ? highlightedSection : null;
         if (!focusedSection) {
@@ -3217,16 +3623,9 @@ function ChecklistDetails({
         }
         startNewItem(selectedSection.id, keyboardNavigationActive ? selectedItemId || null : null);
     };
-    const expandTopLevelSectionOnly = (current: Set<string>, sectionId: string) => {
+    const expandSectionInSet = (current: Set<string>, sectionId: string) => {
         const next = new Set(current);
-        sections.forEach((section) => {
-            if (!section.sections.length) return;
-            if (section.id === sectionId) {
-                next.delete(section.id);
-            } else {
-                next.add(section.id);
-            }
-        });
+        next.delete(sectionId);
         return next;
     };
     const startNewSection = (parentId: string | null, afterSectionId: string | null = null) => {
@@ -3236,11 +3635,7 @@ function ChecklistDetails({
         setDraftItem(null);
         if (parentId) {
             setCollapsedSectionIds((current) => {
-                const parentDepth = flattenedSections.find(({ section }) => section.id === parentId)?.depth ?? 0;
-                if (parentDepth === 0) return expandTopLevelSectionOnly(current, parentId);
-                const next = new Set(current);
-                next.delete(parentId);
-                return next;
+                return expandSectionInSet(current, parentId);
             });
         }
     };
@@ -3252,9 +3647,6 @@ function ChecklistDetails({
         }
         if (highlightedSection.sections.length > 0) {
             setCollapsedSectionIds((current) => {
-                if (highlightedSectionDepth === 0 && current.has(highlightedSection.id)) {
-                    return expandTopLevelSectionOnly(current, highlightedSection.id);
-                }
                 const next = new Set(current);
                 if (next.has(highlightedSection.id)) {
                     next.delete(highlightedSection.id);
@@ -3376,7 +3768,6 @@ function ChecklistDetails({
         editingSectionId,
         editingSelectedSectionTitleId,
         highlightedSection,
-        highlightedSectionDepth,
         hasDefinitionChanges,
         isVersionEditable,
         isSaving,
@@ -3389,21 +3780,36 @@ function ChecklistDetails({
         selectedSectionPath,
         visibleSections,
     ]);
+    const showDuplicateSectionNameMessage = (parentId: string | null) => {
+        setPendingValidationMessage({
+            title: "Duplicate section name",
+            message: parentId
+                ? "A child section with this name already exists under the same parent section. Use a unique name for sections under this parent."
+                : "A top-level section with this name already exists. Use a unique top-level section name.",
+        });
+    };
     const confirmDraftSection = () => {
         if (!isVersionEditable) return;
-        if (!draftSection?.name.trim()) return;
-        const newSection = createEmptySection(draftSection.name, draftSection.parentId);
+        const nextName = draftSection?.name.trim() || "";
+        if (!draftSection || !nextName) return;
+        if (hasDuplicateSectionNameInLevel(sections, draftSection.parentId, nextName)) {
+            showDuplicateSectionNameMessage(draftSection.parentId);
+            return;
+        }
+        const newSection = createEmptySection(nextName, draftSection.parentId);
         updateSections((current) => addSection(current, draftSection.parentId, newSection, draftSection.afterSectionId));
         selectSection(newSection.id);
         setDraftSection(null);
     };
-    const toggleCollapsedSection = (sectionId: string, depth = 0) => {
+    const handleSectionTreeOpenChange = (
+        _: unknown,
+        data: { open?: boolean; openItems: Iterable<unknown>; value?: unknown }
+    ) => {
+        if (data.value === undefined) return;
+        const sectionId = String(data.value);
         setCollapsedSectionIds((current) => {
-            if (depth === 0 && current.has(sectionId)) {
-                return expandTopLevelSectionOnly(current, sectionId);
-            }
             const next = new Set(current);
-            if (next.has(sectionId)) {
+            if (data.open) {
                 next.delete(sectionId);
             } else {
                 next.add(sectionId);
@@ -3449,6 +3855,11 @@ function ChecklistDetails({
             setEditingSectionId("");
             return;
         }
+        const parentId = getSectionParentId(sections, editingSectionId);
+        if (hasDuplicateSectionNameInLevel(sections, parentId, nextName, editingSectionId)) {
+            showDuplicateSectionNameMessage(parentId);
+            return;
+        }
         updateSections((current) => updateSectionName(current, editingSectionId, nextName));
         setEditingSectionId("");
     };
@@ -3472,6 +3883,11 @@ function ChecklistDetails({
         if (!nextName) {
             setSelectedSectionTitleDraft(section.name || "");
             setEditingSelectedSectionTitleId("");
+            return;
+        }
+        const parentId = getSectionParentId(sections, editingSelectedSectionTitleId);
+        if (hasDuplicateSectionNameInLevel(sections, parentId, nextName, editingSelectedSectionTitleId)) {
+            showDuplicateSectionNameMessage(parentId);
             return;
         }
         updateSections((current) => updateSectionName(current, editingSelectedSectionTitleId, nextName));
@@ -3617,7 +4033,7 @@ function ChecklistDetails({
                 draggedSectionIdRef.current = "";
                 draggedItemRef.current = null;
                 setDraggedItem(null);
-                setDragOverTarget(null);
+                updateDragOverTarget(null);
                 return;
             }
             if (draftItem) {
@@ -3636,15 +4052,12 @@ function ChecklistDetails({
                 setEditingSelectedSectionTitleId("");
                 return;
             }
-            if (isEditingName) {
-                setIsEditingName(false);
-                return;
-            }
             if (isShortcutHelpOpen) {
                 setIsShortcutHelpOpen(false);
                 return;
             }
             if (keyboardNavigationActive) {
+                setHighlightedSectionId(selectedSectionId);
                 setKeyboardNavigationActive(false);
             }
         };
@@ -3659,13 +4072,13 @@ function ChecklistDetails({
         draftSection,
         editingSectionId,
         editingSelectedSectionTitleId,
-        isEditingName,
         isShortcutHelpOpen,
         keyboardNavigationActive,
         pendingDelete,
         pendingReviewResponse,
         pendingSubmissionResponse,
         pendingValidationMessage,
+        selectedSectionId,
     ]);
     const handleSectionDropById = (draggedSectionId: string, targetSectionId: string) => {
         if (!isVersionEditable) return;
@@ -3676,7 +4089,7 @@ function ChecklistDetails({
         );
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const handleSectionDropAfterById = (draggedSectionId: string, targetSectionId: string) => {
         if (!isVersionEditable) return;
@@ -3687,10 +4100,11 @@ function ChecklistDetails({
         );
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const handleSectionChildDropById = (draggedSectionId: string, parentSectionId: string) => {
         if (!isVersionEditable) return;
+        if (draggedSectionId === parentSectionId) return;
         if (!canMoveSectionToParentEnd(sections, draggedSectionId, parentSectionId)) return;
         updateSections((current) =>
             moveSectionToParentEnd(current, draggedSectionId, parentSectionId)
@@ -3703,25 +4117,16 @@ function ChecklistDetails({
         });
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const handleSectionChildrenEndDropById = (draggedSectionId: string, parentSectionId: string) => {
         if (!isVersionEditable) return;
-        if (!canMoveSectionToChildrenEnd(sections, draggedSectionId, parentSectionId)) return;
+        if (!canDropSectionAtChildrenEnd(sections, draggedSectionId, parentSectionId)) return;
         updateSections((current) => moveSectionToParentEnd(current, draggedSectionId, parentSectionId));
         selectSection(draggedSectionId);
         setDraggedItem(null);
         draggedSectionIdRef.current = "";
-        setDragOverTarget(null);
-    };
-    const handleSectionTopLevelEndDropById = (draggedSectionId: string) => {
-        if (!isVersionEditable) return;
-        if (!canMoveSectionToTopLevelEnd(sections, draggedSectionId)) return;
-        updateSections((current) => moveSectionToTopLevelEnd(current, draggedSectionId));
-        selectSection(draggedSectionId);
-        setDraggedItem(null);
-        draggedSectionIdRef.current = "";
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const handleItemDrop = (targetItemId: string, placement: "before" | "after") => {
         if (!isVersionEditable) return;
@@ -3732,7 +4137,7 @@ function ChecklistDetails({
         );
         draggedItemRef.current = null;
         setDraggedItem(null);
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const getItemDropTargetFromPoint = (clientX: number, clientY: number, draggedItemId: string): DragOverTarget => {
         const element = document.elementFromPoint(clientX, clientY);
@@ -3743,26 +4148,62 @@ function ChecklistDetails({
         const placement = rowBounds && clientY > rowBounds.top + rowBounds.height / 2 ? "after" : "before";
         return { type: "item", id: itemId, placement };
     };
+    const getSectionBoundaryDropTargetFromPoint = (clientX: number, clientY: number, draggedSectionId: string): DragOverTarget => {
+        const sectionRows = Array.from(document.querySelectorAll<HTMLElement>("[data-section-id]"))
+            .map((element) => ({
+                element,
+                id: element.dataset.sectionId || "",
+                bounds: element.getBoundingClientRect(),
+            }))
+            .filter(({ id, bounds }) =>
+                id &&
+                id !== draggedSectionId &&
+                bounds.width > 0 &&
+                bounds.height > 1 &&
+                clientX >= bounds.left - 12 &&
+                clientX <= bounds.right + 12
+            )
+            .sort((left, right) => left.bounds.top - right.bounds.top);
+
+        if (!sectionRows.length) return null;
+
+        let previousRow: (typeof sectionRows)[number] | null = null;
+        for (const row of sectionRows) {
+            if (clientY < row.bounds.top) {
+                if (previousRow && canMoveSectionAfterTarget(sections, draggedSectionId, previousRow.id)) {
+                    return { type: "section", id: previousRow.id, placement: "after" } as DragOverTarget;
+                }
+                if (!previousRow && canMoveSectionBeforeTarget(sections, draggedSectionId, row.id)) {
+                    return { type: "section", id: row.id, placement: "before" } as DragOverTarget;
+                }
+                return null;
+            }
+            if (clientY <= row.bounds.bottom) return null;
+            previousRow = row;
+        }
+
+        return previousRow && canMoveSectionAfterTarget(sections, draggedSectionId, previousRow.id)
+            ? ({ type: "section", id: previousRow.id, placement: "after" } as DragOverTarget)
+            : null;
+    };
     const getSectionDropTargetFromPoint = (clientX: number, clientY: number, draggedSectionId: string) => {
         const element = document.elementFromPoint(clientX, clientY);
-        const topLevelEndElement = element?.closest?.("[data-section-top-level-end='true']");
-        if (topLevelEndElement && canMoveSectionToTopLevelEnd(sections, draggedSectionId)) {
-            return { type: "topLevelEnd" } as DragOverTarget;
-        }
         const sectionChildrenEndElement = element?.closest?.("[data-section-children-end]");
         const childListParentId =
             sectionChildrenEndElement instanceof HTMLElement ? sectionChildrenEndElement.dataset.sectionChildrenEnd || "" : "";
-        if (childListParentId && canMoveSectionToChildrenEnd(sections, draggedSectionId, childListParentId)) {
+        if (childListParentId && canDropSectionAtChildrenEnd(sections, draggedSectionId, childListParentId)) {
             return { type: "sectionChildrenEnd", parentId: childListParentId } as DragOverTarget;
         }
         const sectionElement = element?.closest?.("[data-section-id]");
         const sectionId = sectionElement instanceof HTMLElement ? sectionElement.dataset.sectionId || "" : "";
-        if (!sectionId) return null;
+        if (!sectionId) return getSectionBoundaryDropTargetFromPoint(clientX, clientY, draggedSectionId);
+        if (sectionId === draggedSectionId) return null;
         const depth = sectionElement instanceof HTMLElement ? Number(sectionElement.dataset.sectionDepth || "0") : 0;
         const rowBounds = sectionElement instanceof HTMLElement ? sectionElement.getBoundingClientRect() : null;
-        const isMiddleOfRow =
-            rowBounds ? clientY > rowBounds.top + rowBounds.height * 0.3 && clientY < rowBounds.bottom - rowBounds.height * 0.3 : false;
-        const isOverTopLevelMiddle = depth === 0 && isMiddleOfRow;
+        if (!rowBounds || rowBounds.width <= 0 || rowBounds.height <= 1) return null;
+        const topNestLimit = rowBounds.top + rowBounds.height * SECTION_NEST_ZONE_RATIO;
+        const bottomNestLimit = rowBounds.bottom - rowBounds.height * SECTION_NEST_ZONE_RATIO;
+        const isOverTopLevelMiddle = depth === 0 && clientY > topNestLimit && clientY < bottomNestLimit;
         if (isOverTopLevelMiddle) {
             if (canMoveSectionToParentEnd(sections, draggedSectionId, sectionId)) {
                 return { type: "section", id: sectionId, placement: "child" } as DragOverTarget;
@@ -3773,16 +4214,14 @@ function ChecklistDetails({
                 reason: getSectionParentDropValidationMessage(sections, draggedSectionId, sectionId),
             } as DragOverTarget;
         }
-        const verticalPlacement = rowBounds && clientY > rowBounds.top + rowBounds.height / 2 ? "after" : "before";
-        return { type: "section", id: sectionId, placement: verticalPlacement } as DragOverTarget;
+        return getSectionInsertionTargetFromMidpoint(sections, sectionId, clientY, rowBounds);
     };
     const handleSectionPointerDown = (event: React.PointerEvent<HTMLElement>, section: ChecklistSection) => {
         if (!isVersionEditable) return;
         if (event.button !== 0 || draftSection || draftItem) return;
         const target = event.target as HTMLElement;
         if (target.closest("button,input,textarea,select,[role='button']")) return;
-        event.preventDefault();
-        window.getSelection?.()?.removeAllRanges();
+        if (isInSectionDisclosureZone(event, section.sections.length > 0)) return;
         sectionPointerDragRef.current = {
             id: section.id,
             startX: event.clientX,
@@ -3798,26 +4237,24 @@ function ChecklistDetails({
         const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
         if (!drag.isDragging && distance < 6) return;
         if (!drag.isDragging) {
+            event.preventDefault();
+            window.getSelection?.()?.removeAllRanges();
             drag.isDragging = true;
             ignoreNextSectionClickRef.current = true;
             draggedSectionIdRef.current = drag.id;
             setDraggedItem({ type: "section", id: drag.id });
         }
         const target = getSectionDropTargetFromPoint(event.clientX, event.clientY, drag.id);
-        if (target?.type === "topLevelEnd") {
-            setDragOverTarget(target);
-            return;
-        }
         if (target?.type === "sectionChildrenEnd") {
-            setDragOverTarget(target);
+            updateDragOverTarget(target);
             return;
         }
         if (target?.type === "section" && target.placement === "child" && canMoveSectionToParentEnd(sections, drag.id, target.id)) {
-            setDragOverTarget(target);
+            updateDragOverTarget(target);
             return;
         }
         if (target?.type === "invalidSectionChild") {
-            setDragOverTarget(target);
+            updateDragOverTarget(target);
             return;
         }
         if (
@@ -3825,14 +4262,14 @@ function ChecklistDetails({
             target.placement === "after" &&
             canMoveSectionAfterTarget(sections, drag.id, target.id)
         ) {
-            setDragOverTarget(target);
+            updateDragOverTarget(target);
             return;
         }
         if (target?.type === "section" && canMoveSectionBeforeTarget(sections, drag.id, target.id)) {
-            setDragOverTarget(target);
+            updateDragOverTarget(target);
             return;
         }
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const handleSectionPointerUp = (event: React.PointerEvent<HTMLElement>) => {
         const drag = sectionPointerDragRef.current;
@@ -3846,12 +4283,8 @@ function ChecklistDetails({
         sectionPointerDragRef.current = null;
         draggedSectionIdRef.current = "";
         setDraggedItem(null);
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
         if (!drag.isDragging) return;
-        if (target?.type === "topLevelEnd") {
-            handleSectionTopLevelEndDropById(drag.id);
-            return;
-        }
         if (target?.type === "sectionChildrenEnd") {
             handleSectionChildrenEndDropById(drag.id, target.parentId);
             return;
@@ -3879,7 +4312,7 @@ function ChecklistDetails({
         sectionPointerDragRef.current = null;
         draggedSectionIdRef.current = "";
         setDraggedItem(null);
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const handleItemPointerDown = (event: React.PointerEvent<HTMLDivElement>, item: ChecklistItem) => {
         if (!isVersionEditable) return;
@@ -3912,10 +4345,10 @@ function ChecklistDetails({
         }
         const target = getItemDropTargetFromPoint(event.clientX, event.clientY, drag.id);
         if (target?.type === "item" && canDropItemOnTarget(target.id)) {
-            setDragOverTarget(target);
+            updateDragOverTarget(target);
             return;
         }
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const handleItemPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
         const drag = itemPointerDragRef.current;
@@ -3933,7 +4366,7 @@ function ChecklistDetails({
         }
         draggedItemRef.current = null;
         setDraggedItem(null);
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const handleItemPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
         const drag = itemPointerDragRef.current;
@@ -3941,7 +4374,7 @@ function ChecklistDetails({
         itemPointerDragRef.current = null;
         draggedItemRef.current = null;
         setDraggedItem(null);
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
     };
     const canDropItemOnTarget = (targetItemId: string) => {
         const currentDraggedItem = draggedItem?.type === "item" ? draggedItem : draggedItemRef.current;
@@ -3951,9 +4384,28 @@ function ChecklistDetails({
             currentDraggedItem.id !== targetItemId
         );
     };
+    const deleteSectionById = (sectionId: string) => {
+        const deletedSectionIds = getSectionIds(findSectionById(sections, sectionId));
+        const nextHighlightedSectionId = getAdjacentIdAfterRemovingIds(
+            visibleSections.map(({ section }) => section),
+            sectionId,
+            deletedSectionIds
+        );
+        updateSections((current) => removeSectionById(current, sectionId).sections);
+        if (selectedSectionPath.some((candidate) => candidate.id === sectionId)) {
+            selectSection(nextHighlightedSectionId);
+        } else {
+            setHighlightedSectionId((current) => (current === sectionId ? nextHighlightedSectionId : current));
+        }
+        setKeyboardPane("sections");
+    };
     const requestDeleteSection = (section: ChecklistSection) => {
         if (!isVersionEditable) return;
         const totals = countSectionContents(section);
+        if (totals.sections === 0 && totals.items === 0) {
+            deleteSectionById(section.id);
+            return;
+        }
         setPendingDelete({
             type: "section",
             id: section.id,
@@ -3975,19 +4427,7 @@ function ChecklistDetails({
         if (!isVersionEditable) return;
         if (!pendingDelete) return;
         if (pendingDelete.type === "section") {
-            const deletedSectionIds = getSectionIds(findSectionById(sections, pendingDelete.id));
-            const nextHighlightedSectionId = getAdjacentIdAfterRemovingIds(
-                visibleSections.map(({ section }) => section),
-                pendingDelete.id,
-                deletedSectionIds
-            );
-            updateSections((current) => removeSectionById(current, pendingDelete.id).sections);
-            if (selectedSectionPath.some((candidate) => candidate.id === pendingDelete.id)) {
-                selectSection(nextHighlightedSectionId);
-            } else {
-                setHighlightedSectionId((current) => (current === pendingDelete.id ? nextHighlightedSectionId : current));
-            }
-            setKeyboardPane("sections");
+            deleteSectionById(pendingDelete.id);
         } else {
             const nextSelectedItemId = getAdjacentIdAfterRemoval(selectedSection?.items || [], pendingDelete.id);
             updateSections((current) => removeItemFromSection(current, pendingDelete.sectionId, pendingDelete.id));
@@ -4002,10 +4442,7 @@ function ChecklistDetails({
         if (pendingDelete.type === "item") {
             return `This action will permanently remove "${pendingDelete.name}" from the checklist version.`;
         }
-        if (pendingDelete.sectionCount > 0 || pendingDelete.itemCount > 0) {
-            return `This action will permanently remove "${pendingDelete.name}" and all contained sections and items from the checklist version.`;
-        }
-        return `This action will permanently remove "${pendingDelete.name}" from the checklist version.`;
+        return `This action will permanently remove "${pendingDelete.name}" and all contained sections and items from the checklist version.`;
     };
     const getSectionCountText = (section: ChecklistSection) => {
         if (section.sections.length) {
@@ -4271,24 +4708,13 @@ function ChecklistDetails({
                                             </span>
                                         </Option>
                                     )}
-                                    {selectedTargetTypeValue === CHECKLIST_TARGET_EQUIPMENT
-                                        ? visibleSelectedTargetGroups.flatMap((group) => [
-                                              <Option key={`group:${group.id}`} value={`group:${group.id}`} disabled>
-                                                  <span className={styles.identificationGroupOption}>{group.name}</span>
-                                              </Option>,
-                                              ...group.options.map((option) => (
-                                                  <Option key={option.id} value={option.id}>
-                                                      <span className={styles.identificationTargetOption}>{option.name}</span>
-                                                  </Option>
-                                              )),
-                                          ])
-                                        : selectedTargetGroups.flatMap((group) =>
-                                              group.options.map((option) => (
-                                                  <Option key={option.id} value={option.id}>
-                                                      <span className={styles.identificationTargetOption}>{option.name}</span>
-                                                  </Option>
-                                              ))
-                                          )}
+                                    {selectedTargetGroups.flatMap((group) =>
+                                        group.options.map((option) => (
+                                            <Option key={option.id} value={option.id}>
+                                                <span className={styles.identificationTargetOption}>{option.name}</span>
+                                            </Option>
+                                        ))
+                                    )}
                                 </Dropdown>
                                 )}
                             </Field>
@@ -4348,6 +4774,12 @@ function ChecklistDetails({
         const isInvalidDropTarget =
             dragOverTarget?.type === "invalidSectionChild" &&
             dragOverTarget.id === section.id;
+        const cannotNestWhileDragging = Boolean(
+            draggedItem?.type === "section" &&
+            draggedItem.id !== section.id &&
+            !canMoveSectionToParentEnd(sections, draggedItem.id, section.id)
+        );
+        const shouldMuteSectionAsInvalidNestTarget = cannotNestWhileDragging || isInvalidDropTarget;
         const isAnyDropTarget = isDropBeforeTarget || isDropAfterTarget || isDropChildTarget || isInvalidDropTarget;
         const canUseHoverBackground = !isSelectedSection && !isHighlightedSection && !isAnyDropTarget;
         const selectedSectionStyle: React.CSSProperties | undefined =
@@ -4362,24 +4794,29 @@ function ChecklistDetails({
                   }
                 : undefined;
         const canDropAtChildrenEnd = Boolean(
-            draggedItem?.type === "section" && canMoveSectionToChildrenEnd(sections, draggedItem.id, section.id)
+            draggedItem?.type === "section" && canDropSectionAtChildrenEnd(sections, draggedItem.id, section.id)
         );
         const canAddAnotherChild =
             depth === 0 &&
             section.sections.length > 0 &&
             !isCollapsed;
+        const isEmptySection = section.sections.length === 0 && section.items.length === 0;
+        const openChildSectionIds = !isCollapsed
+            ? getOpenSiblingSectionIds(section.sections, collapsedSectionIds)
+            : [];
 
         return (
             <React.Fragment key={section.id}>
                 <TreeItem
                     itemType={hasChildren ? "branch" : "leaf"}
                     value={section.id}
-                    open={hasChildren ? !isCollapsed : undefined}
                     className={styles.sectionTreeItem}
                 >
                     <TreeItemLayout
                         data-section-id={section.id}
                         data-section-depth={depth}
+                        aria-describedby={sectionActionsDescriptionId}
+                        aria-selected={isSelectedSection}
                         className={[
                             styles.sectionTreeItemLayout,
                             styles.sectionRow,
@@ -4391,35 +4828,19 @@ function ChecklistDetails({
                             isSelectedSection && depth > 0 ? styles.selectedChildSectionRow : "",
                             draggedItem?.type === "section" ? styles.sectionDraggingCursor : "",
                             draggedItem?.type === "section" && draggedItem.id === section.id ? styles.draggingRow : "",
-                            isDropBeforeTarget ? styles.dropBeforeRow : "",
-                            isDropAfterTarget ? styles.dropAfterRow : "",
                             isDropChildTarget ? styles.dropIntoSectionRow : "",
                             isInvalidDropTarget ? styles.invalidDropSectionRow : "",
                         ].filter(Boolean).join(" ")}
                         style={selectedSectionStyle}
-                        expandIcon={
-                            hasChildren ? (
-                                isCollapsed ? (
-                                    <ChevronRightRegular className={styles.sectionTreeExpandIcon} />
-                                ) : (
-                                    <ChevronDownRegular className={styles.sectionTreeExpandIcon} />
-                                )
-                            ) : (
-                                <span className={styles.sectionTreeExpandIcon} />
-                            )
-                        }
                         onClick={(event) => {
-                            event.stopPropagation();
                             if (isEditingThisSection) return;
+                            if (isInSectionDisclosureZone(event, hasChildren)) return;
                             if (ignoreNextSectionClickRef.current) {
                                 ignoreNextSectionClickRef.current = false;
                                 return;
                             }
                             selectSectionPane(section.id);
                             setDraftItem(null);
-                            if (hasChildren) {
-                                toggleCollapsedSection(section.id, depth);
-                            }
                         }}
                         onPointerDown={(event) => handleSectionPointerDown(event, section)}
                         onPointerMove={handleSectionPointerMove}
@@ -4430,7 +4851,10 @@ function ChecklistDetails({
                             setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
                         }}
                         actions={
-                            <div className={styles.rowActions}>
+                            <div className={styles.rowActions} {...sectionActionNavigation}>
+                                <span className={styles.sectionCountText}>
+                                    {getSectionCountText(section)}
+                                </span>
                                 <Button
                                     aria-label="Edit section name"
                                     appearance="subtle"
@@ -4455,13 +4879,10 @@ function ChecklistDetails({
                                         requestDeleteSection(section);
                                     }}
                                 />
-                                <Caption1 className={`${styles.mutedText} ${styles.sectionCountText}`}>
-                                    {getSectionCountText(section)}
-                                </Caption1>
                             </div>
                         }
                     >
-                        <div className={[styles.sectionMain, hasChildren ? styles.branchSectionMain : ""].filter(Boolean).join(" ")}>
+                        <div className={styles.sectionMain}>
                             {isEditingThisSection ? (
                                 <div
                                     className={styles.sectionNameEditRow}
@@ -4494,57 +4915,99 @@ function ChecklistDetails({
                                 </div>
                             ) : (
                                 <>
-                                    <Text className={styles.sectionRowText} weight={depth === 0 || isSelectedSection ? "semibold" : "regular"}>
-                                        {section.name || "Unnamed section"}
-                                    </Text>
-                                    {section.bulkServiceable && (
-                                        <span className={styles.sectionBulkPill}>Bulk check</span>
-                                    )}
-                                    {isDropChildTarget && (
-                                        <span className={styles.sectionDropHint}>Drop as child</span>
-                                    )}
+                                    <span className={styles.sectionTitleCluster}>
+                                        <Text
+                                            className={[
+                                                styles.sectionRowText,
+                                                isDropChildTarget ? styles.sectionNestTargetText : "",
+                                                shouldMuteSectionAsInvalidNestTarget ? styles.sectionInvalidNestTargetText : "",
+                                            ].filter(Boolean).join(" ")}
+                                            style={
+                                                shouldMuteSectionAsInvalidNestTarget
+                                                    ? {
+                                                          color: tokens.colorNeutralForegroundDisabled,
+                                                          textDecorationLine: "line-through",
+                                                          textDecorationThickness: "1px",
+                                                      }
+                                                    : undefined
+                                            }
+                                            weight={depth === 0 || isSelectedSection || isDropChildTarget || shouldMuteSectionAsInvalidNestTarget ? "semibold" : "regular"}
+                                        >
+                                            {section.name || "Unnamed section"}
+                                        </Text>
+                                        {section.bulkServiceable && (
+                                            <span className={styles.sectionBulkPill}>Bulk check</span>
+                                        )}
+                                        {isEmptySection && (
+                                            <span
+                                                aria-label="Empty section"
+                                                className={styles.sectionWarningPill}
+                                                role="img"
+                                                title="Empty section"
+                                            >
+                                                <WarningRegular />
+                                            </span>
+                                        )}
+                                    </span>
                                 </>
                             )}
                         </div>
+                        {isHighlightedSection && <span className={styles.keyboardFocusOverlay} />}
                     </TreeItemLayout>
                     {hasChildren && !isCollapsed && (
-                        <Tree aria-label={`${section.name || "Unnamed section"} child sections`} className={styles.sectionChildren}>
-                            {section.sections.map((childSection, index) => (
-                                <React.Fragment key={childSection.id}>
-                                    {index > 0 && <div className={styles.childSectionDivider} />}
-                                    {renderSectionRow(childSection, depth + 1)}
-                                    {draftSection?.parentId === section.id &&
-                                        draftSection.afterSectionId === childSection.id &&
-                                        renderDraftSectionRow(depth + 1)}
-                                </React.Fragment>
-                            ))}
-                            {canDropAtChildrenEnd && (
-                                <div
-                                    data-section-children-end={section.id}
-                                    className={[
-                                        styles.topLevelEndDropTarget,
-                                        dragOverTarget?.type === "sectionChildrenEnd" && dragOverTarget.parentId === section.id
-                                            ? styles.activeTopLevelEndDropTarget
-                                            : "",
-                                    ].filter(Boolean).join(" ")}
-                                />
+                        <>
+                            <Tree
+                                aria-label={`${section.name || "Unnamed section"} child sections`}
+                                className={styles.sectionChildren}
+                                openItems={openChildSectionIds}
+                                onOpenChange={handleSectionTreeOpenChange}
+                            >
+                                {section.sections.map((childSection, index) => (
+                                    <React.Fragment key={childSection.id}>
+                                        {index > 0 && <div className={styles.childSectionDivider} />}
+                                        {renderSectionRow(childSection, depth + 1)}
+                                        {draftSection?.parentId === section.id &&
+                                            draftSection.afterSectionId === childSection.id &&
+                                            renderDraftSectionRow(depth + 1)}
+                                    </React.Fragment>
+                                ))}
+                                {canDropAtChildrenEnd && (
+                                    <div
+                                        data-section-children-end={section.id}
+                                        className={[
+                                            styles.topLevelEndDropTarget,
+                                            dragOverTarget?.type === "sectionChildrenEnd" && dragOverTarget.parentId === section.id
+                                                ? styles.activeSectionChildrenEndDropTarget
+                                                : "",
+                                        ].filter(Boolean).join(" ")}
+                                    />
+                                )}
+                            </Tree>
+                            {draftSection?.parentId === section.id && !draftSection.afterSectionId && (
+                                <div className={styles.sectionChildrenEndDraft}>
+                                    {renderDraftSectionRow(depth + 1)}
+                                </div>
                             )}
-                        </Tree>
+                            {canAddAnotherChild && (
+                                <div className={[styles.sectionAddAnotherRow, styles.sectionChildrenEndActions].join(" ")}>
+                                    <Button
+                                        appearance="subtle"
+                                        icon={<AddRegular />}
+                                        className={styles.sectionAddAnotherButton}
+                                        disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            startNewSection(section.id);
+                                        }}
+                                    >
+                                        Add a child section
+                                    </Button>
+                                </div>
+                            )}
+                        </>
                     )}
                 </TreeItem>
-                {canAddAnotherChild && (
-                    <div className={styles.sectionAddAnotherRow}>
-                        <Button
-                            appearance="subtle"
-                            className={styles.sectionAddAnotherButton}
-                            disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                            onClick={() => startNewSection(section.id)}
-                        >
-                            + Add a child section
-                        </Button>
-                    </div>
-                )}
-                {draftSection?.parentId === section.id && !draftSection.afterSectionId && renderDraftSectionRow(depth + 1)}
             </React.Fragment>
         );
     };
@@ -4577,7 +5040,7 @@ function ChecklistDetails({
         itemPointerDragRef.current = null;
         ignoreNextSectionClickRef.current = false;
         ignoreNextItemClickRef.current = false;
-        setDragOverTarget(null);
+        updateDragOverTarget(null);
         setPendingDelete(null);
         setPendingValidationMessage(null);
         setPendingReviewResponse(null);
@@ -4585,7 +5048,6 @@ function ChecklistDetails({
         setHoveredSectionId("");
         setHoveredItemId("");
         setCollapsedSectionIds(new Set(getSectionIdsWithChildren(initialSections)));
-        setIsEditingName(false);
         setSaveError("");
         setHasDefinitionChanges(false);
     };
@@ -4656,8 +5118,6 @@ function ChecklistDetails({
         );
     };
     const sectionCount = flattenedSections.length;
-    const checklistTypeLabel = checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist";
-    const checklistTargetLabel = checklist.targetType || "No target";
     const versionLabel = `${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`;
     const isPendingReview =
         version.statecode === VERSION_STATE_ACTIVE &&
@@ -4679,7 +5139,10 @@ function ChecklistDetails({
             )}
             <div className={styles.editorHeader}>
                 <div className={styles.titleStack}>
-                    <div className={styles.titleMetadataRow}>
+                    <div className={styles.editableTitleRow}>
+                        <Text as="h1" className={styles.pageTitle}>
+                            {checklistName || checklist.name}
+                        </Text>
                         <StatusPill
                             statuscode={version.statuscode}
                             fallbackLabel={version.statusLabel}
@@ -4687,39 +5150,7 @@ function ChecklistDetails({
                             className={`${styles.statusPill} ${styles.headerStatusPill}`}
                         />
                     </div>
-                    <div className={styles.editableTitleRow}>
-                        {isEditingName ? (
-                            <Input
-                                className={styles.titleInput}
-                                value={checklistName}
-                                disabled={!isVersionEditable}
-                                onChange={(_, data) => {
-                                    if (!isVersionEditable) return;
-                                    setChecklistName(data.value);
-                                    markDefinitionChanged();
-                                }}
-                                onBlur={() => setIsEditingName(false)}
-                            />
-                        ) : (
-                            <>
-                                <Text as="h1" className={styles.pageTitle}>
-                                    {checklistName || checklist.name}
-                                </Text>
-                                <Button
-                                    aria-label="Edit checklist name"
-                                    appearance="subtle"
-                                    icon={<EditRegular />}
-                                    disabled={!isVersionEditable}
-                                    onClick={() => setIsEditingName(true)}
-                                />
-                            </>
-                        )}
-                    </div>
                     <div className={styles.titleMetadataRow}>
-                        <Caption1 className={styles.pageSubtitle}>{checklistTypeLabel}</Caption1>
-                        <span className={styles.metadataDivider}>/</span>
-                        <Caption1 className={styles.pageSubtitle}>{checklistTargetLabel}</Caption1>
-                        <span className={styles.metadataDivider}>/</span>
                         <Caption1 className={styles.pageSubtitle}>{versionLabel}</Caption1>
                     </div>
                 </div>
@@ -4820,6 +5251,18 @@ function ChecklistDetails({
                         <div className={styles.formStack}>
                             <section className={styles.generalSection}>
                                 <Text className={styles.generalSectionTitle}>Version details</Text>
+                                <Field label="Checklist name">
+                                    <Input
+                                        className={styles.controlFullWidth}
+                                        value={checklistName}
+                                        disabled={!isVersionEditable}
+                                        onChange={(_, data) => {
+                                            if (!isVersionEditable) return;
+                                            setChecklistName(data.value);
+                                            markDefinitionChanged();
+                                        }}
+                                    />
+                                </Field>
                                 <Field label="Version type">
                                     <Dropdown
                                         className={styles.controlFullWidth}
@@ -4940,10 +5383,48 @@ function ChecklistDetails({
                                         </Caption1>
                                     </div>
                                 </div>
-                                <div className={styles.contentsColumnBody}>
+                                <div className={styles.contentsColumnBody} ref={sectionTreeBodyRef}>
+                                    <span id={sectionActionsDescriptionId} className={styles.visuallyHidden}>
+                                        Section actions are available from the row action toolbar. Use horizontal arrow keys to move between action buttons.
+                                    </span>
+                                    {sectionDropIndicator && (
+                                        <div
+                                            className={[
+                                                styles.sectionDropIndicator,
+                                                sectionDropIndicator.kind === "line"
+                                                    ? styles.sectionDropIndicatorLine
+                                                    : styles.sectionDropIndicatorBox,
+                                                sectionDropIndicator.tone === "danger" ? styles.sectionDropIndicatorDanger : "",
+                                            ].filter(Boolean).join(" ")}
+                                            style={{
+                                                borderColor:
+                                                    sectionDropIndicator.kind === "box" && sectionDropIndicator.tone === "danger"
+                                                        ? tokens.colorNeutralStroke1
+                                                        : undefined,
+                                                top: sectionDropIndicator.top,
+                                                left: sectionDropIndicator.left,
+                                                width: sectionDropIndicator.width,
+                                                height: sectionDropIndicator.height,
+                                            }}
+                                        >
+                                            <span
+                                                className={[
+                                                    styles.sectionDropIndicatorLabel,
+                                                    sectionDropIndicator.tone === "danger" ? styles.sectionDropIndicatorDangerLabel : "",
+                                                ].filter(Boolean).join(" ")}
+                                                style={{
+                                                    top: sectionDropIndicator.kind === "line" ? "50%" : "calc(100% - 8px)",
+                                                }}
+                                            >
+                                                {sectionDropIndicator.label}
+                                            </span>
+                                        </div>
+                                    )}
                                     <Tree
                                         aria-label="Checklist sections"
                                         className={styles.sectionTree}
+                                        openItems={rootOpenSectionIds}
+                                        onOpenChange={handleSectionTreeOpenChange}
                                         onKeyDownCapture={handleSectionTreeKeyDown}
                                     >
                                         {sections.map((section) => (
@@ -4954,32 +5435,28 @@ function ChecklistDetails({
                                                     renderDraftSectionRow(0)}
                                             </React.Fragment>
                                         ))}
-                                    </Tree>
-                                    {canDropSectionAtTopLevelEnd && (
-                                        <div
-                                            data-section-top-level-end="true"
-                                            className={[
-                                                styles.topLevelEndDropTarget,
-                                                dragOverTarget?.type === "topLevelEnd" ? styles.activeTopLevelEndDropTarget : "",
-                                            ].filter(Boolean).join(" ")}
-                                        />
-                                    )}
-                                    {draftSection?.parentId === null && !draftSection.afterSectionId && renderDraftSectionRow(0)}
-                                    {!flattenedSections.length && !draftSection && (
-                                        <div className={styles.contentsPlaceholder}>
-                                            <Text weight="semibold">No sections have been defined.</Text>
+                                        {draftSection?.parentId === null && !draftSection.afterSectionId && renderDraftSectionRow(0)}
+                                        {!flattenedSections.length && !draftSection && (
+                                            <div className={styles.contentsPlaceholder}>
+                                                <Text weight="semibold">No sections have been defined.</Text>
+                                            </div>
+                                        )}
+                                        <div className={styles.sectionAddTopLevelRow}>
+                                            <Button
+                                                appearance="subtle"
+                                                icon={<AddRegular />}
+                                                className={styles.sectionAddAnotherButton}
+                                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                onPointerDown={(event) => event.stopPropagation()}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    startNewSection(null);
+                                                }}
+                                            >
+                                                Add a section
+                                            </Button>
                                         </div>
-                                    )}
-                                    <div className={styles.sectionAddTopLevelRow}>
-                                        <Button
-                                            appearance="subtle"
-                                            className={styles.sectionAddAnotherButton}
-                                            disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                            onClick={() => startNewSection(null)}
-                                        >
-                                            + Add a section
-                                        </Button>
-                                    </div>
+                                    </Tree>
                                 </div>
                             </div>
                             <div
@@ -5149,6 +5626,9 @@ function ChecklistDetails({
                                                                     }}
                                                                 />
                                                             </div>
+                                                            {keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id && (
+                                                                <span className={styles.keyboardFocusOverlay} />
+                                                            )}
                                                         </div>
                                                     )}
                                                     {draftItem?.sectionId === selectedSection.id &&
@@ -5353,16 +5833,28 @@ function ChecklistDetails({
                 </DialogSurface>
             </Dialog>
             <Dialog
+                modalType="alert"
                 open={Boolean(pendingValidationMessage)}
                 onOpenChange={(_, data) => {
                     if (!data.open) setPendingValidationMessage(null);
                 }}
             >
-                <DialogSurface>
+                <DialogSurface
+                    className={styles.validationDialogSurface}
+                    style={{
+                        backgroundColor: tokens.colorNeutralBackground1,
+                        border: `1px solid ${tokens.colorNeutralStroke2}`,
+                        borderRadius: tokens.borderRadiusLarge,
+                        boxShadow: tokens.shadow64,
+                        color: tokens.colorNeutralForeground1,
+                    }}
+                >
                     <DialogBody>
                         <DialogTitle>{pendingValidationMessage?.title || "Action not allowed"}</DialogTitle>
                         <DialogContent>
-                            <Text>{pendingValidationMessage?.message || "The requested action is not permitted."}</Text>
+                            <Text block className={styles.validationDialogMessage}>
+                                {pendingValidationMessage?.message || "The requested action is not permitted."}
+                            </Text>
                         </DialogContent>
                         <DialogActions>
                             <Button appearance="primary" onClick={() => setPendingValidationMessage(null)}>
