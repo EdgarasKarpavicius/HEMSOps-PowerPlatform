@@ -465,6 +465,11 @@ const useStyles = makeStyles({
         flexWrap: "wrap",
         marginTop: "2px",
     },
+    metadataDivider: {
+        color: tokens.colorNeutralForeground4,
+        fontSize: "12px",
+        lineHeight: "18px",
+    },
     empty: {
         display: "flex",
         alignItems: "center",
@@ -4626,7 +4631,9 @@ function ChecklistDetails({
         );
     };
     const sectionCount = flattenedSections.length;
-    const checklistHeaderLabel = `${checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist"}${checklist.targetType ? ` - ${checklist.targetType}` : ""}`;
+    const checklistTypeLabel = checklist.checklistType ? `${checklist.checklistType} Checklist` : "Checklist";
+    const checklistTargetLabel = checklist.targetType || "No target";
+    const versionLabel = `${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`;
     const isPendingReview =
         version.statecode === VERSION_STATE_ACTIVE &&
         version.statuscode === VERSION_STATUS_PENDING_REVIEW;
@@ -4647,7 +4654,14 @@ function ChecklistDetails({
             )}
             <div className={styles.editorHeader}>
                 <div className={styles.titleStack}>
-                    <Text className={styles.eyebrow}>{checklistHeaderLabel}</Text>
+                    <div className={styles.titleMetadataRow}>
+                        <StatusPill
+                            statuscode={version.statuscode}
+                            fallbackLabel={version.statusLabel}
+                            statusOptions={statusOptions}
+                            className={`${styles.statusPill} ${styles.headerStatusPill}`}
+                        />
+                    </div>
                     <div className={styles.editableTitleRow}>
                         {isEditingName ? (
                             <Input
@@ -4676,20 +4690,12 @@ function ChecklistDetails({
                             </>
                         )}
                     </div>
-                    {version.statecode === 1 && (
-                        <div className={styles.titleMetadataRow}>
-                            <Caption1 className={styles.pageSubtitle}>
-                                {`${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`}
-                            </Caption1>
-                        </div>
-                    )}
                     <div className={styles.titleMetadataRow}>
-                        <StatusPill
-                            statuscode={version.statuscode}
-                            fallbackLabel={version.statusLabel}
-                            statusOptions={statusOptions}
-                            className={`${styles.statusPill} ${styles.headerStatusPill}`}
-                        />
+                        <Caption1 className={styles.pageSubtitle}>{checklistTypeLabel}</Caption1>
+                        <span className={styles.metadataDivider}>/</span>
+                        <Caption1 className={styles.pageSubtitle}>{checklistTargetLabel}</Caption1>
+                        <span className={styles.metadataDivider}>/</span>
+                        <Caption1 className={styles.pageSubtitle}>{versionLabel}</Caption1>
                     </div>
                 </div>
                 <div className={styles.headerAction}>
