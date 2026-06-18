@@ -990,6 +990,12 @@ const useStyles = makeStyles({
         fontWeight: tokens.fontWeightSemibold,
     },
     keyboardFocusRow: {
+        backgroundColor: tokens.colorBrandBackground2,
+        borderTopColor: tokens.colorBrandStroke2,
+        borderRightColor: tokens.colorBrandStroke2,
+        borderBottomColor: tokens.colorBrandStroke2,
+        borderLeftColor: tokens.colorBrandStroke2,
+        boxShadow: `inset 3px 0 0 ${tokens.colorBrandStroke1}`,
         outlineWidth: "2px",
         outlineStyle: "solid",
         outlineColor: tokens.colorStrokeFocus2,
@@ -4331,6 +4337,11 @@ function ChecklistDetails({
         const canUseHoverBackground = !isSelectedSection && !isHighlightedSection && !isAnyDropTarget;
         const selectedSectionStyle: React.CSSProperties | undefined =
             isSelectedSection && !isAnyDropTarget
+                ? {
+                      backgroundColor: tokens.colorBrandBackground2,
+                      color: tokens.colorNeutralForeground1,
+                  }
+                : isHighlightedSection && !isAnyDropTarget
                 ? {
                       backgroundColor: tokens.colorBrandBackground2,
                       color: tokens.colorNeutralForeground1,
