@@ -4270,8 +4270,8 @@ function ChecklistDetails({
             dragOverTarget.id === section.id;
         const isAnyDropTarget = isDropBeforeTarget || isDropAfterTarget || isDropChildTarget || isInvalidDropTarget;
         const canUseHoverBackground = !isSelectedSection && !isSelectedAncestorSection && !isHighlightedSection && !isAnyDropTarget;
-        const selectedChildSectionStyle: React.CSSProperties | undefined =
-            isSelectedSection && depth > 0 && !isAnyDropTarget
+        const selectedSectionStyle: React.CSSProperties | undefined =
+            (isSelectedSection || isSelectedAncestorSection) && !isAnyDropTarget
                 ? {
                       backgroundColor: tokens.colorBrandBackground2,
                       color: tokens.colorNeutralForeground1,
@@ -4312,7 +4312,7 @@ function ChecklistDetails({
                             isDropChildTarget ? styles.dropIntoSectionRow : "",
                             isInvalidDropTarget ? styles.invalidDropSectionRow : "",
                         ].filter(Boolean).join(" ")}
-                        style={selectedChildSectionStyle}
+                        style={selectedSectionStyle}
                         expandIcon={null}
                         onClick={(event) => {
                             event.stopPropagation();
