@@ -789,7 +789,8 @@ const useStyles = makeStyles({
         gap: "8px",
         flexGrow: 1,
         minHeight: 0,
-        overflow: "auto",
+        overflowY: "auto",
+        overflowX: "hidden",
         padding: "10px 10px 52px",
         scrollPaddingBottom: "52px",
     },
@@ -834,8 +835,9 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         gap: "4px",
-        width: "calc(100% - 28px)",
+        width: "auto",
         marginLeft: "28px",
+        boxSizing: "border-box",
         marginTop: "4px",
         marginBottom: "4px",
         paddingLeft: "10px",
@@ -878,7 +880,6 @@ const useStyles = makeStyles({
     itemAddAnotherRow: {
         display: "flex",
         justifyContent: "flex-start",
-        marginTop: "auto",
         padding: "8px 8px 22px",
     },
     sectionAddAnotherButton: {
