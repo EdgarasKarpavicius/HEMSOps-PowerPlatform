@@ -21,7 +21,8 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             EntityReference checklistVersionReference,
             bool approvalPathValidated,
             Guid publishingUserId,
-            DateTime operationTime)
+            DateTime operationTime,
+            string comments = null)
         {
             if (checklistVersionReference == null)
             {
@@ -89,7 +90,30 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 [ChecklistVersionConstants.SystemAttribute.StateCode] = new OptionSetValue(ChecklistVersionConstants.State.Inactive),
                 [ChecklistVersionConstants.SystemAttribute.StatusCode] = new OptionSetValue(ChecklistVersionConstants.ChecklistVersionStatus.Published)
             };
+
+            if (!approvalPathValidated)
+            {
+                publishVersion[ChecklistVersionConstants.ChecklistVersion.SubmittedBy] = new EntityReference("systemuser", publishingUserId);
+                publishVersion[ChecklistVersionConstants.ChecklistVersion.SubmittedOn] = operationTime;
+                if (comments != null)
+                {
+                    publishVersion[ChecklistVersionConstants.ChecklistVersion.SubmissionComments] = comments;
+                }
+            }
+
             _service.Update(publishVersion);
+
+            var historyWriter = new ChecklistVersionHistoryWriter(_service);
+            historyWriter.Create(
+                checklistVersionReference.Id,
+                ChecklistVersionConstants.HistoryEventType.Published,
+                publishingUserId,
+                operationTime,
+                "Published",
+                description: "Checklist version published.",
+                comments: comments,
+                fromStatus: statusCode,
+                toStatus: ChecklistVersionConstants.ChecklistVersionStatus.Published);
 
             foreach (var publishedVersion in RetrieveOtherPublishedVersions(checklistVersionReference.Id, checklistReference.Id).Entities)
             {
@@ -99,6 +123,17 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                     [ChecklistVersionConstants.SystemAttribute.StatusCode] = new OptionSetValue(ChecklistVersionConstants.ChecklistVersionStatus.Superseded)
                 };
                 _service.Update(supersedeVersion);
+
+                historyWriter.Create(
+                    publishedVersion.Id,
+                    ChecklistVersionConstants.HistoryEventType.Superseded,
+                    publishingUserId,
+                    operationTime,
+                    "Superseded",
+                    description: "Checklist version superseded by a newer published version.",
+                    fromStatus: ChecklistVersionConstants.ChecklistVersionStatus.Published,
+                    toStatus: ChecklistVersionConstants.ChecklistVersionStatus.Superseded,
+                    detailsJson: BuildSupersededDetailsJson(checklistVersionReference.Id));
             }
 
             var publishChecklist = new Entity(ChecklistVersionConstants.Table.Checklist, checklistReference.Id)
@@ -158,6 +193,11 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             query.Criteria.AddCondition(ChecklistVersionConstants.ChecklistVersion.Id, ConditionOperator.NotEqual, currentVersionId);
 
             return _service.RetrieveMultiple(query);
+        }
+
+        private static string BuildSupersededDetailsJson(Guid supersededByChecklistVersionId)
+        {
+            return "{\"supersededByChecklistVersionId\":\"" + supersededByChecklistVersionId.ToString("D") + "\"}";
         }
     }
 }

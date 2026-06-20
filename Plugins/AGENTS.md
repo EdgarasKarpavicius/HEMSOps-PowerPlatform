@@ -74,6 +74,14 @@ Do not register this internal service type:
   - `Outcome` string
   - `Message` string
 
+## Checklist Version History
+
+For the planned workflow timeline / audit log, follow:
+
+`checklist-version-history-plugin-instructions.md`
+
+The intended table is `int_checklistversionhistory`. Workflow Custom API plugins should append history rows for submit, review, publish, reject, requires-amendments, supersede, and future archive events. Current fields on `int_checklistversion` should remain as latest-state metadata, not the authoritative history.
+
 ## Protection Step
 
 `ProtectPublishedChecklistVersionFieldsPlugin`

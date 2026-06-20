@@ -28,6 +28,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
 
             var target = CustomApiRequest.GetChecklistVersionTarget(context.InputParameters);
             var service = localPluginContext.SystemUserService;
+            var submissionComments = CustomApiRequest.GetOptionalString(context.InputParameters, ChecklistVersionConstants.Request.SubmissionComments);
             var version = RetrieveChecklistVersion(service, target.Id);
             ValidateDraftChecklistVersion(version);
 
@@ -41,13 +42,18 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             if (requireReview)
             {
                 localPluginContext.Trace($"Submitting checklist version {target.Id} for review.");
-                response = SubmitForReview(service, context, version);
+                response = SubmitForReview(service, context, version, submissionComments);
             }
             else
             {
                 localPluginContext.Trace($"Publishing checklist version {target.Id} directly.");
                 response = new PublishChecklistVersion(service, localPluginContext.TracingService)
-                    .Execute(target, approvalPathValidated: false, publishingUserId: context.InitiatingUserId, operationTime: context.OperationCreatedOn);
+                    .Execute(
+                        target,
+                        approvalPathValidated: false,
+                        publishingUserId: context.InitiatingUserId,
+                        operationTime: context.OperationCreatedOn,
+                        comments: submissionComments);
             }
 
             response.WriteTo(context.OutputParameters);
@@ -62,6 +68,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                     ChecklistVersionConstants.SystemAttribute.StateCode,
                     ChecklistVersionConstants.SystemAttribute.StatusCode,
                     ChecklistVersionConstants.ChecklistVersion.Checklist,
+                    ChecklistVersionConstants.ChecklistVersion.ReviewDecision,
                     ChecklistVersionConstants.ChecklistVersion.DefinitionJson));
         }
 
@@ -90,10 +97,11 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
         private static ChecklistVersionApiResponse SubmitForReview(
             IOrganizationService service,
             IPluginExecutionContext context,
-            Entity version)
+            Entity version,
+            string submissionComments)
         {
             var checklistReference = version.GetAttributeValue<EntityReference>(ChecklistVersionConstants.ChecklistVersion.Checklist);
-            var submissionComments = CustomApiRequest.GetOptionalString(context.InputParameters, ChecklistVersionConstants.Request.SubmissionComments);
+            var reviewDecision = version.GetOptionValue(ChecklistVersionConstants.ChecklistVersion.ReviewDecision);
 
             var updateVersion = new Entity(ChecklistVersionConstants.Table.ChecklistVersion, version.Id)
             {
@@ -103,6 +111,15 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 [ChecklistVersionConstants.SystemAttribute.StateCode] = new OptionSetValue(ChecklistVersionConstants.State.Active),
                 [ChecklistVersionConstants.SystemAttribute.StatusCode] = new OptionSetValue(ChecklistVersionConstants.ChecklistVersionStatus.PendingReview)
             };
+
+            if (reviewDecision == ChecklistVersionConstants.ReviewDecision.RequiresAmendments)
+            {
+                updateVersion[ChecklistVersionConstants.ChecklistVersion.ReviewDecision] = null;
+                updateVersion[ChecklistVersionConstants.ChecklistVersion.ReviewReason] = null;
+                updateVersion[ChecklistVersionConstants.ChecklistVersion.ReviewedBy] = null;
+                updateVersion[ChecklistVersionConstants.ChecklistVersion.ReviewedOn] = null;
+            }
+
             service.Update(updateVersion);
 
             var updateChecklist = new Entity(ChecklistVersionConstants.Table.Checklist, checklistReference.Id)
@@ -111,6 +128,17 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 [ChecklistVersionConstants.SystemAttribute.StatusCode] = new OptionSetValue(ChecklistVersionConstants.ChecklistStatus.PendingReview)
             };
             service.Update(updateChecklist);
+
+            new ChecklistVersionHistoryWriter(service).Create(
+                version.Id,
+                ChecklistVersionConstants.HistoryEventType.Submitted,
+                context.InitiatingUserId,
+                context.OperationCreatedOn,
+                "Submitted for review",
+                description: "Checklist version submitted for review.",
+                comments: submissionComments,
+                fromStatus: ChecklistVersionConstants.ChecklistVersionStatus.Draft,
+                toStatus: ChecklistVersionConstants.ChecklistVersionStatus.PendingReview);
 
             return new ChecklistVersionApiResponse
             {

@@ -62,6 +62,19 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                     version.Id,
                     reason,
                     reviewDecision);
+
+                new ChecklistVersionHistoryWriter(service).Create(
+                    version.Id,
+                    ChecklistVersionConstants.HistoryEventType.Approved,
+                    context.InitiatingUserId,
+                    context.OperationCreatedOn,
+                    "Approved",
+                    description: "Checklist version approved for publishing.",
+                    comments: reason,
+                    reviewDecision: ChecklistVersionConstants.ReviewDecision.Approved,
+                    fromStatus: ChecklistVersionConstants.ChecklistVersionStatus.PendingReview,
+                    toStatus: ChecklistVersionConstants.ChecklistVersionStatus.PendingReview);
+
                 response = new PublishChecklistVersion(service, localPluginContext.TracingService)
                     .Execute(target, approvalPathValidated: true, publishingUserId: context.InitiatingUserId, operationTime: context.OperationCreatedOn);
             }
@@ -219,6 +232,39 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 [ChecklistVersionConstants.SystemAttribute.StatusCode] = new OptionSetValue(ChecklistVersionConstants.ChecklistStatus.RequiresAttention)
             };
             service.Update(updateChecklist);
+
+            new ChecklistVersionHistoryWriter(service).Create(
+                checklistVersionId,
+                GetReviewHistoryEventType(reviewDecision),
+                context.InitiatingUserId,
+                context.OperationCreatedOn,
+                GetReviewHistoryTitle(reviewDecision),
+                description: GetReviewHistoryDescription(reviewDecision),
+                comments: reason,
+                reviewDecision: reviewDecision,
+                fromStatus: ChecklistVersionConstants.ChecklistVersionStatus.PendingReview,
+                toStatus: checklistVersionStatus);
+        }
+
+        private static int GetReviewHistoryEventType(int reviewDecision)
+        {
+            return reviewDecision == ChecklistVersionConstants.ReviewDecision.RequiresAmendments
+                ? ChecklistVersionConstants.HistoryEventType.RequiresAmendments
+                : ChecklistVersionConstants.HistoryEventType.Rejected;
+        }
+
+        private static string GetReviewHistoryTitle(int reviewDecision)
+        {
+            return reviewDecision == ChecklistVersionConstants.ReviewDecision.RequiresAmendments
+                ? "Requires amendments"
+                : "Rejected";
+        }
+
+        private static string GetReviewHistoryDescription(int reviewDecision)
+        {
+            return reviewDecision == ChecklistVersionConstants.ReviewDecision.RequiresAmendments
+                ? "Checklist version returned to draft for amendments."
+                : "Checklist version rejected.";
         }
     }
 }

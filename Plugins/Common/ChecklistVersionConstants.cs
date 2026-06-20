@@ -9,6 +9,7 @@ namespace Intelogy.HEMSOps.Plugins.Common
         {
             public const string Checklist = "int_checklist";
             public const string ChecklistVersion = "int_checklistversion";
+            public const string ChecklistVersionHistory = "int_checklistversionhistory";
             public const string EnvironmentVariableDefinition = "environmentvariabledefinition";
             public const string EnvironmentVariableValue = "environmentvariablevalue";
         }
@@ -30,6 +31,22 @@ namespace Intelogy.HEMSOps.Plugins.Common
             public const string ReviewDecision = "int_reviewdecision";
             public const string PublishedBy = "int_publishedby";
             public const string PublishedOn = "int_publishedon";
+        }
+
+        public static class ChecklistVersionHistory
+        {
+            public const string Name = "int_name";
+            public const string ChecklistVersion = "int_checklistversion";
+            public const string EventType = "int_eventtype";
+            public const string EventOn = "int_eventon";
+            public const string EventBy = "int_eventby";
+            public const string Title = "int_title";
+            public const string Description = "int_description";
+            public const string Comments = "int_comments";
+            public const string ReviewDecision = "int_reviewdecision";
+            public const string FromStatus = "int_fromstatus";
+            public const string ToStatus = "int_tostatus";
+            public const string DetailsJson = "int_detailsjson";
         }
 
         public static class SystemAttribute
@@ -75,6 +92,18 @@ namespace Intelogy.HEMSOps.Plugins.Common
             public const int Approved = 100000000;
             public const int Rejected = 200000000;
             public const int RequiresAmendments = 300000000;
+        }
+
+        public static class HistoryEventType
+        {
+            public const int DraftCreated = 100000000;
+            public const int Submitted = 100000010;
+            public const int Published = 100000020;
+            public const int Approved = 100000030;
+            public const int Rejected = 100000040;
+            public const int RequiresAmendments = 100000050;
+            public const int Superseded = 100000060;
+            public const int Archived = 100000070;
         }
 
         public static class Request

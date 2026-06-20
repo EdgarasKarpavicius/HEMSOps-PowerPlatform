@@ -38,6 +38,7 @@ import {
     DeleteRegular,
     DismissRegular,
     EditRegular,
+    PrintRegular,
     SaveRegular,
     SendRegular,
     TagRegular,
@@ -67,8 +68,33 @@ type ChecklistVersion = {
     submittedBy?: string;
     submittedOn?: string;
     submissionComments?: string;
+    reviewedBy?: string;
+    reviewedOn?: string;
+    reviewDecision?: number | null;
+    reviewDecisionLabel?: string;
+    reviewReason?: string;
+    history: ChecklistVersionHistoryEntry[];
     definition: ChecklistVersionDefinition;
     checklist: Checklist;
+};
+
+type ChecklistVersionHistoryEntry = {
+    id: string;
+    eventType: number | null;
+    eventTypeLabel: string;
+    eventOn: string;
+    eventBy: string;
+    title: string;
+    description: string;
+    comments: string;
+    reviewDecision: number | null;
+    reviewDecisionLabel: string;
+    fromStatus: number | null;
+    fromStatusLabel: string;
+    toStatus: number | null;
+    toStatusLabel: string;
+    detailsJson: string;
+    createdOn: string;
 };
 
 type ChecklistVersionOption = {
@@ -249,6 +275,11 @@ type PendingValidationMessage = {
 
 type ChecklistVersionReviewOutcome = "reject" | "requiresAmendments" | "approve";
 
+type ChecklistVersionCustomApiResponse = {
+    Outcome?: string;
+    Message?: string;
+};
+
 type PendingReviewResponse = {
     outcome: ChecklistVersionReviewOutcome;
     reason: string;
@@ -260,15 +291,11 @@ type PendingSubmissionResponse = {
 
 type ChecklistVersionSubmissionPayload = {
     submissionComments: string;
-    submittedByUserId: string;
-    submittedOn: string;
 };
 
 type ChecklistVersionReviewPayload = {
     outcome: ChecklistVersionReviewOutcome;
     reason: string;
-    respondedByUserId: string;
-    respondedOn: string;
 };
 
 type KeyboardPane = "sections" | "items";
@@ -298,9 +325,29 @@ function isInSectionDisclosureZone(
 
 const TABLE_NAME = "int_checklist";
 const VERSION_TABLE_NAME = "int_checklistversion";
+const VERSION_HISTORY_TABLE_NAME = "int_checklistversionhistory";
 const VERSION_STATE_ACTIVE = 0;
+const VERSION_STATE_INACTIVE = 1;
 const VERSION_STATUS_DRAFT = 100000000;
 const VERSION_STATUS_PENDING_REVIEW = 100000010;
+const VERSION_STATUS_PUBLISHED = 100000020;
+const VERSION_STATUS_REJECTED = 100000030;
+const VERSION_STATUS_CANCELLED = 100000040;
+const VERSION_STATUS_SUPERSEDED = 100000050;
+const VERSION_STATUS_ARCHIVED = 100000060;
+const REVIEW_DECISION_APPROVED = 100000000;
+const REVIEW_DECISION_REJECTED = 200000000;
+const REVIEW_DECISION_REQUIRES_AMENDMENTS = 300000000;
+const HISTORY_EVENT_DRAFT_CREATED = 100000000;
+const HISTORY_EVENT_SUBMITTED = 100000010;
+const HISTORY_EVENT_PUBLISHED = 100000020;
+const HISTORY_EVENT_APPROVED = 100000030;
+const HISTORY_EVENT_REJECTED = 100000040;
+const HISTORY_EVENT_REQUIRES_AMENDMENTS = 100000050;
+const HISTORY_EVENT_SUPERSEDED = 100000060;
+const HISTORY_EVENT_ARCHIVED = 100000070;
+const SUBMIT_OR_PUBLISH_DRAFT_API_NAME = "int_SubmitOrPublishDraftChecklistVersion";
+const APPROVE_CHECKLIST_VERSION_API_NAME = "int_ApproveChecklistVersionForPublishing";
 const REQUIRE_CHECKLIST_VERSION_REVIEW_SETTING = "int_RequireChecklistVersionReview";
 const CHECKLIST_VERSION_APPROVER_ROLE_NAME = "int_ops_checklistversionapprover";
 const STATUS_DRAFT = 1;
@@ -455,6 +502,14 @@ const useStyles = makeStyles({
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
+        "@media print": {
+            display: "block",
+            height: "auto",
+            minHeight: "auto",
+            maxHeight: "none",
+            overflow: "visible",
+            backgroundColor: "#fff",
+        },
     },
     shell: {
         display: "flex",
@@ -468,6 +523,14 @@ const useStyles = makeStyles({
         padding: "14px 18px 16px",
         rowGap: "10px",
         overflow: "hidden",
+        "@media print": {
+            display: "block",
+            height: "auto",
+            minHeight: "auto",
+            maxHeight: "none",
+            padding: 0,
+            overflow: "visible",
+        },
     },
     compactShell: {
         paddingTop: "4px",
@@ -558,6 +621,13 @@ const useStyles = makeStyles({
         minHeight: 0,
         rowGap: 0,
         overflow: "hidden",
+        "@media print": {
+            display: "block",
+            height: "auto",
+            minHeight: "auto",
+            maxHeight: "none",
+            overflow: "visible",
+        },
     },
     statusPill: {
         display: "inline-flex",
@@ -595,23 +665,126 @@ const useStyles = makeStyles({
             color: "#ffffff",
         },
     },
-    reviewSummary: {
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
-        gap: "10px 18px",
-        padding: "10px 14px",
-        backgroundColor: tokens.colorNeutralBackground1,
-        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-        borderRadius: tokens.borderRadiusMedium,
+    approvalHistoryEmpty: {
+        color: tokens.colorNeutralForeground3,
     },
-    reviewSummaryItem: {
+    timelineList: {
         display: "flex",
         flexDirection: "column",
-        gap: "2px",
-        minWidth: 0,
+        gap: "0",
     },
-    reviewSummaryComments: {
-        gridColumn: "1 / -1",
+    timelineItem: {
+        position: "relative",
+        display: "grid",
+        gridTemplateColumns: "24px minmax(0, 1fr)",
+        gap: "12px",
+        padding: "0 0 18px",
+        minWidth: 0,
+        ":last-child": {
+            paddingBottom: 0,
+        },
+    },
+    timelineRail: {
+        position: "relative",
+        display: "flex",
+        justifyContent: "center",
+        minHeight: "100%",
+        "::after": {
+            content: '""',
+            position: "absolute",
+            top: "-18px",
+            bottom: "20px",
+            width: "2px",
+            backgroundColor: tokens.colorNeutralStroke2,
+        },
+        "::before": {
+            content: '""',
+            position: "absolute",
+            top: "20px",
+            bottom: "-2px",
+            width: "2px",
+            backgroundColor: tokens.colorNeutralStroke2,
+        },
+    },
+    timelineRailFirst: {
+        "::after": {
+            display: "none",
+        },
+    },
+    timelineRailLast: {
+        "::before": {
+            display: "none",
+        },
+    },
+    timelineDot: {
+        position: "relative",
+        zIndex: 1,
+        width: "10px",
+        height: "10px",
+        marginTop: "5px",
+        borderRadius: tokens.borderRadiusCircular,
+        backgroundColor: tokens.colorBrandBackground,
+        ...shorthands.border("2px", "solid", tokens.colorNeutralBackground1),
+        boxShadow: `0 0 0 1px ${tokens.colorBrandStroke1}`,
+    },
+    timelineBody: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+        minWidth: 0,
+        paddingBottom: "14px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+    },
+    timelineBodyLast: {
+        borderBottomColor: "transparent",
+        paddingBottom: 0,
+    },
+    timelineTitleRow: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+        flexWrap: "wrap",
+    },
+    timelineTitle: {
+        fontWeight: tokens.fontWeightSemibold,
+        overflowWrap: "anywhere",
+    },
+    timelineEventType: {
+        color: tokens.colorNeutralForeground3,
+        fontSize: "12px",
+        lineHeight: "16px",
+        whiteSpace: "nowrap",
+    },
+    timelineMeta: {
+        color: tokens.colorNeutralForeground3,
+        fontSize: "12px",
+        lineHeight: "16px",
+        overflowWrap: "anywhere",
+    },
+    timelineText: {
+        color: tokens.colorNeutralForeground2,
+        lineHeight: "20px",
+        whiteSpace: "pre-wrap",
+        overflowWrap: "anywhere",
+    },
+    timelineDetails: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: "6px",
+        marginTop: "2px",
+    },
+    timelineChip: {
+        display: "inline-flex",
+        alignItems: "center",
+        maxWidth: "100%",
+        padding: "2px 8px",
+        borderRadius: tokens.borderRadiusCircular,
+        color: tokens.colorNeutralForeground2,
+        backgroundColor: tokens.colorNeutralBackground2,
+        fontSize: "12px",
+        lineHeight: "18px",
+        overflowWrap: "anywhere",
     },
     versionsSurface: {
         backgroundColor: tokens.colorNeutralBackground1,
@@ -673,6 +846,152 @@ const useStyles = makeStyles({
         padding: "6px 0 0",
         "@media (max-width: 900px)": {
             overflow: "auto",
+        },
+    },
+    noPrint: {
+        "@media print": {
+            display: "none !important",
+        },
+    },
+    printContentsDocument: {
+        display: "none",
+        "@media print": {
+            display: "block",
+            width: "100%",
+            height: "auto",
+            minHeight: "auto",
+            maxHeight: "none",
+            overflow: "visible",
+            color: "#111",
+            backgroundColor: "#fff",
+            fontFamily: "Arial, sans-serif",
+            fontSize: "10pt",
+            lineHeight: 1.35,
+        },
+    },
+    printHeader: {
+        "@media print": {
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "16px",
+            alignItems: "flex-start",
+            paddingBottom: "12px",
+            marginBottom: "14px",
+            borderBottom: "1px solid #bbb",
+        },
+    },
+    printTitle: {
+        "@media print": {
+            margin: "0 0 5px",
+            fontSize: "18pt",
+            lineHeight: 1.2,
+            fontWeight: 700,
+        },
+    },
+    printSubtitle: {
+        "@media print": {
+            margin: 0,
+            color: "#444",
+            fontSize: "9pt",
+        },
+    },
+    printMeta: {
+        "@media print": {
+            textAlign: "right",
+            color: "#444",
+            fontSize: "9pt",
+            whiteSpace: "nowrap",
+        },
+    },
+    printSection: {
+        "@media print": {
+            margin: "0 0 10px",
+            printColorAdjust: "exact",
+            WebkitPrintColorAdjust: "exact",
+        },
+    },
+    printSectionHeader: {
+        "@media print": {
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "10px",
+            padding: "7px 9px",
+            border: "1px solid #c8c8c8",
+            borderLeft: "5px solid #6b7280",
+            backgroundColor: "#eef2f7",
+            printColorAdjust: "exact",
+            WebkitPrintColorAdjust: "exact",
+        },
+    },
+    printSectionTitle: {
+        "@media print": {
+            margin: 0,
+            fontSize: "11pt",
+            lineHeight: 1.25,
+            fontWeight: 700,
+        },
+    },
+    printSectionMeta: {
+        "@media print": {
+            color: "#555",
+            fontSize: "8.5pt",
+            whiteSpace: "nowrap",
+        },
+    },
+    printSectionChildren: {
+        "@media print": {
+            marginTop: "6px",
+            paddingLeft: "14px",
+            borderLeft: "1px solid #d6d6d6",
+        },
+    },
+    printItems: {
+        "@media print": {
+            display: "flex",
+            flexDirection: "column",
+            gap: "5px",
+            marginTop: "6px",
+        },
+    },
+    printItem: {
+        "@media print": {
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gap: "10px",
+            padding: "6px 8px",
+            border: "1px solid #d6d6d6",
+            backgroundColor: "#fff",
+            breakInside: "avoid",
+            pageBreakInside: "avoid",
+            printColorAdjust: "exact",
+            WebkitPrintColorAdjust: "exact",
+        },
+    },
+    printItemTitle: {
+        "@media print": {
+            fontWeight: 700,
+        },
+    },
+    printItemDescription: {
+        "@media print": {
+            marginTop: "2px",
+            color: "#444",
+            whiteSpace: "pre-wrap",
+        },
+    },
+    printItemMeta: {
+        "@media print": {
+            color: "#444",
+            fontSize: "8.5pt",
+            textAlign: "right",
+            whiteSpace: "nowrap",
+        },
+    },
+    printEmptyState: {
+        "@media print": {
+            marginTop: "6px",
+            color: "#555",
+            fontStyle: "italic",
         },
     },
     formStack: {
@@ -1119,15 +1438,21 @@ const useStyles = makeStyles({
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
+        gap: "4px",
         flexShrink: 0,
-        width: "20px",
+        minWidth: "20px",
         height: "20px",
-        padding: 0,
+        padding: "0 6px",
         borderRadius: tokens.borderRadiusSmall,
         backgroundColor: tokens.colorPaletteMarigoldBackground2,
         color: tokens.colorPaletteMarigoldForeground2,
-        fontSize: "16px",
+        fontSize: "11px",
         lineHeight: "16px",
+        fontWeight: tokens.fontWeightSemibold,
+        whiteSpace: "nowrap",
+        "& svg": {
+            fontSize: "16px",
+        },
     },
     sectionDeleteButton: {
         color: "#b10e1c",
@@ -1362,6 +1687,9 @@ const useStyles = makeStyles({
         borderRadius: tokens.borderRadiusMedium,
         boxSizing: "border-box",
     },
+    itemRowReadOnly: {
+        cursor: "default",
+    },
     selectedItemRow: {
         ...shorthands.border("1px", "solid", tokens.colorNeutralForeground1),
     },
@@ -1591,12 +1919,6 @@ function userHasRole(roleName: string) {
     }
 }
 
-function getCurrentUserId() {
-    if (typeof Xrm === "undefined") return "";
-    const rawUserId = Xrm.Utility?.getGlobalContext?.()?.userSettings?.userId;
-    return String(rawUserId || "").replace(/[{}]/g, "");
-}
-
 function formatDisplayDateTime(value?: string) {
     if (!value) return "";
     const date = new Date(value);
@@ -1608,6 +1930,47 @@ function getReviewOutcomeLabel(outcome: ChecklistVersionReviewOutcome) {
     if (outcome === "reject") return "Reject";
     if (outcome === "requiresAmendments") return "Requires Amendments";
     return "Approve";
+}
+
+function getReviewDecisionDisplayLabel(version: ChecklistVersion) {
+    if (version.reviewDecisionLabel) return version.reviewDecisionLabel;
+    if (version.reviewDecision === REVIEW_DECISION_APPROVED) return "Approved";
+    if (version.reviewDecision === REVIEW_DECISION_REJECTED) return "Rejected";
+    if (version.reviewDecision === REVIEW_DECISION_REQUIRES_AMENDMENTS) return "Requires Amendments";
+    return "";
+}
+
+function getReviewDecisionLabelFromValue(value: number | null, formattedLabel = "") {
+    if (formattedLabel) return formattedLabel;
+    if (value === REVIEW_DECISION_APPROVED) return "Approved";
+    if (value === REVIEW_DECISION_REJECTED) return "Rejected";
+    if (value === REVIEW_DECISION_REQUIRES_AMENDMENTS) return "Requires Amendments";
+    return value === null ? "" : String(value);
+}
+
+function getHistoryEventTypeLabel(value: number | null, formattedLabel = "") {
+    if (formattedLabel) return formattedLabel;
+    if (value === HISTORY_EVENT_DRAFT_CREATED) return "Draft Created";
+    if (value === HISTORY_EVENT_SUBMITTED) return "Submitted";
+    if (value === HISTORY_EVENT_PUBLISHED) return "Published";
+    if (value === HISTORY_EVENT_APPROVED) return "Approved";
+    if (value === HISTORY_EVENT_REJECTED) return "Rejected";
+    if (value === HISTORY_EVENT_REQUIRES_AMENDMENTS) return "Requires Amendments";
+    if (value === HISTORY_EVENT_SUPERSEDED) return "Superseded";
+    if (value === HISTORY_EVENT_ARCHIVED) return "Archived";
+    return value === null ? "" : String(value);
+}
+
+function getChecklistVersionStatusLabel(value: number | null, formattedLabel = "") {
+    if (formattedLabel) return formattedLabel;
+    if (value === VERSION_STATUS_DRAFT) return "Draft";
+    if (value === VERSION_STATUS_PENDING_REVIEW) return "Pending Review";
+    if (value === VERSION_STATUS_PUBLISHED) return "Published";
+    if (value === VERSION_STATUS_REJECTED) return "Rejected";
+    if (value === VERSION_STATUS_CANCELLED) return "Cancelled";
+    if (value === VERSION_STATUS_SUPERSEDED) return "Superseded";
+    if (value === VERSION_STATUS_ARCHIVED) return "Archived";
+    return value === null ? "" : String(value);
 }
 
 async function loadRequireChecklistVersionReviewSetting(): Promise<boolean> {
@@ -1727,6 +2090,96 @@ function getErrorMessage(error: any) {
     return String(error?.message || error?.error?.message || error?.details || error || "Unknown error");
 }
 
+function getReviewDecisionValue(outcome: ChecklistVersionReviewOutcome) {
+    if (outcome === "approve") return REVIEW_DECISION_APPROVED;
+    if (outcome === "requiresAmendments") return REVIEW_DECISION_REQUIRES_AMENDMENTS;
+    return REVIEW_DECISION_REJECTED;
+}
+
+async function readDataverseResponseMessage(response: any) {
+    try {
+        const body = typeof response?.json === "function" ? await response.json() : null;
+        return String(body?.error?.message || body?.Message || body?.message || "");
+    } catch {
+        return "";
+    }
+}
+
+async function executeChecklistVersionCustomApi(
+    checklistVersionId: string,
+    apiName: string,
+    parameters: Record<string, string | number>
+): Promise<ChecklistVersionCustomApiResponse> {
+    if (typeof Xrm === "undefined") throw new Error("Dataverse is unavailable.");
+    const execute = Xrm.WebApi?.online?.execute || Xrm.WebApi?.execute;
+    if (typeof execute !== "function") throw new Error("Dataverse Custom API execution is unavailable.");
+
+    const cleanVersionId = normalizeLookupValue(checklistVersionId);
+    if (!cleanVersionId) throw new Error("Checklist version id is missing.");
+
+    const parameterTypes: Record<string, { typeName: string; structuralProperty: number }> = {
+        entity: {
+            typeName: `mscrm.${VERSION_TABLE_NAME}`,
+            structuralProperty: 5,
+        },
+    };
+    Object.keys(parameters).forEach((name) => {
+        parameterTypes[name] = {
+            typeName: typeof parameters[name] === "number" ? "Edm.Int32" : "Edm.String",
+            structuralProperty: 1,
+        };
+    });
+
+    const request = {
+        entity: {
+            entityType: VERSION_TABLE_NAME,
+            id: cleanVersionId,
+        },
+        ...parameters,
+        getMetadata: () => ({
+            boundParameter: "entity",
+            parameterTypes,
+            operationName: apiName,
+            operationType: 0,
+        }),
+    };
+
+    const response = await execute.call(Xrm.WebApi?.online || Xrm.WebApi, request);
+    if (response?.ok === false) {
+        throw new Error((await readDataverseResponseMessage(response)) || "The Dataverse Custom API call failed.");
+    }
+    if (!response || response.status === 204 || typeof response.json !== "function") return {};
+    return (await response.json().catch(() => ({}))) || {};
+}
+
+async function submitOrPublishDraftChecklistVersion(
+    checklistVersionId: string,
+    payload: ChecklistVersionSubmissionPayload
+) {
+    const parameters: Record<string, string> = {};
+    if (payload.submissionComments) parameters.SubmissionComments = payload.submissionComments;
+    return executeChecklistVersionCustomApi(
+        checklistVersionId,
+        SUBMIT_OR_PUBLISH_DRAFT_API_NAME,
+        parameters
+    );
+}
+
+async function approveChecklistVersionForPublishing(
+    checklistVersionId: string,
+    payload: ChecklistVersionReviewPayload
+) {
+    const parameters: Record<string, string | number> = {
+        ReviewDecision: getReviewDecisionValue(payload.outcome),
+    };
+    if (payload.reason) parameters.Reason = payload.reason;
+    return executeChecklistVersionCustomApi(
+        checklistVersionId,
+        APPROVE_CHECKLIST_VERSION_API_NAME,
+        parameters
+    );
+}
+
 function getValue(record: Record<string, any>, names: string[], fallback = "") {
     for (const name of names) {
         if (record[name] !== undefined && record[name] !== null) return record[name];
@@ -1743,6 +2196,11 @@ function getDisplayValue(record: Record<string, any>, names: string[], fallback 
         if (record[name] !== undefined && record[name] !== null) return record[name];
     }
     return fallback;
+}
+
+function getFormattedValue(record: Record<string, any>, name: string, fallback = "") {
+    const formatted = `${name}@OData.Community.Display.V1.FormattedValue`;
+    return String(record[formatted] || fallback);
 }
 
 function getLookupId(record: Record<string, any>, names: string[]) {
@@ -2745,6 +3203,56 @@ function getExpandedChecklist(record: Record<string, any>, relationshipName: str
     return expanded ? mapChecklistRecord(expanded) : null;
 }
 
+function getOptionalNumber(value: unknown): number | null {
+    if (value === undefined || value === null || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mapChecklistVersionHistoryRecord(record: Record<string, any>): ChecklistVersionHistoryEntry {
+    const eventType = getOptionalNumber(record.int_eventtype);
+    const reviewDecision = getOptionalNumber(record.int_reviewdecision);
+    const fromStatus = getOptionalNumber(record.int_fromstatus);
+    const toStatus = getOptionalNumber(record.int_tostatus);
+    const title = String(getValue(record, ["int_title", "int_name"], ""));
+
+    return {
+        id: String(getValue(record, ["int_checklistversionhistoryid"], "")),
+        eventType,
+        eventTypeLabel: getHistoryEventTypeLabel(eventType, getFormattedValue(record, "int_eventtype")),
+        eventOn: String(getValue(record, ["int_eventon"], "")),
+        eventBy: String(getDisplayValue(record, ["_int_eventby_value"], "")),
+        title: title || getHistoryEventTypeLabel(eventType, getFormattedValue(record, "int_eventtype")) || "Checklist version event",
+        description: String(getValue(record, ["int_description"], "")),
+        comments: String(getValue(record, ["int_comments"], "")),
+        reviewDecision,
+        reviewDecisionLabel: getReviewDecisionLabelFromValue(reviewDecision, getFormattedValue(record, "int_reviewdecision")),
+        fromStatus,
+        fromStatusLabel: getChecklistVersionStatusLabel(fromStatus, getFormattedValue(record, "int_fromstatus")),
+        toStatus,
+        toStatusLabel: getChecklistVersionStatusLabel(toStatus, getFormattedValue(record, "int_tostatus")),
+        detailsJson: String(getValue(record, ["int_detailsjson"], "")),
+        createdOn: String(getValue(record, ["createdon"], "")),
+    };
+}
+
+async function loadChecklistVersionHistoryFromDataverse(versionId: string): Promise<ChecklistVersionHistoryEntry[]> {
+    if (!versionId || !hasDataverse()) return [];
+
+    try {
+        const query = [
+            "?$select=int_checklistversionhistoryid,int_name,int_eventtype,int_eventon,_int_eventby_value,int_title,int_description,int_comments,int_reviewdecision,int_fromstatus,int_tostatus,int_detailsjson,createdon",
+            `&$filter=_int_checklistversion_value eq ${normalizeLookupValue(versionId)}`,
+            "&$orderby=int_eventon desc,createdon desc",
+        ].join("");
+        const result = await Xrm.WebApi.retrieveMultipleRecords(VERSION_HISTORY_TABLE_NAME, query);
+        return (result.entities || []).map(mapChecklistVersionHistoryRecord);
+    } catch (error) {
+        console.warn("Checklist version history could not be loaded.", error);
+        return [];
+    }
+}
+
 function getRelationshipNavigationName(relationship: any) {
     return (
         relationship?.ReferencingEntityNavigationPropertyName ||
@@ -2786,8 +3294,24 @@ function mapChecklistVersionRecord(record: Record<string, any>, checklist: Check
         submittedBy: String(getDisplayValue(record, ["_int_submittedby_value"], "")),
         submittedOn: String(getValue(record, ["int_submittedon"], "")),
         submissionComments: String(getValue(record, ["int_submissioncomments"], "")),
+        reviewedBy: String(getDisplayValue(record, ["_int_reviewedby_value"], "")),
+        reviewedOn: String(getValue(record, ["int_reviewedon"], "")),
+        reviewDecision: record.int_reviewdecision === undefined || record.int_reviewdecision === null
+            ? null
+            : Number(record.int_reviewdecision),
+        reviewDecisionLabel: String(record["int_reviewdecision@OData.Community.Display.V1.FormattedValue"] || ""),
+        reviewReason: String(getValue(record, ["int_reviewreason"], "")),
+        history: [],
         definition: parseChecklistVersionDefinition(record, checklist),
         checklist,
+    };
+}
+
+async function withChecklistVersionHistory(version: ChecklistVersion): Promise<ChecklistVersion> {
+    if (!version.id) return version;
+    return {
+        ...version,
+        history: await loadChecklistVersionHistoryFromDataverse(version.id),
     };
 }
 
@@ -2797,6 +3321,7 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
     const versionBaseSelect =
         "int_checklistversionid,int_proposedchecklistname,int_versiontype,int_versionnumber,int_description,statecode,statuscode,int_definitionjson";
     const submissionSelect = "_int_submittedby_value,int_submittedon,int_submissioncomments";
+    const reviewSelect = "_int_reviewedby_value,int_reviewedon,int_reviewdecision,int_reviewreason";
     const retrieveVersionRecord = async (query: string, fallbackQuery: string) => {
         try {
             return await Xrm.WebApi.retrieveRecord(VERSION_TABLE_NAME, versionId, query);
@@ -2809,11 +3334,11 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
     if (relationshipName) {
         try {
             const record = await retrieveVersionRecord(
-                `?$select=${versionBaseSelect},${submissionSelect}&$expand=${relationshipName}($select=${checklistSelect})`,
+                `?$select=${versionBaseSelect},${submissionSelect},${reviewSelect}&$expand=${relationshipName}($select=${checklistSelect})`,
                 `?$select=${versionBaseSelect}&$expand=${relationshipName}($select=${checklistSelect})`
             );
             const checklist = getExpandedChecklist(record, relationshipName);
-            if (checklist) return mapChecklistVersionRecord(record, checklist);
+            if (checklist) return withChecklistVersionHistory(mapChecklistVersionRecord(record, checklist));
         } catch (error) {
             expandError = getErrorMessage(error);
             // Fall back to retrieving the parent checklist through the exact lookup value.
@@ -2821,7 +3346,7 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
     }
 
     const record = await retrieveVersionRecord(
-        `?$select=${versionBaseSelect},_int_checklist_value,${submissionSelect}`,
+        `?$select=${versionBaseSelect},_int_checklist_value,${submissionSelect},${reviewSelect}`,
         `?$select=${versionBaseSelect},_int_checklist_value`
     );
     const checklistId = getLookupId(record, [
@@ -2831,7 +3356,7 @@ async function loadChecklistVersionFromDataverse(versionId: string): Promise<Che
     const checklist = await loadChecklistFromDataverse(checklistId).catch((error) => {
         throw new Error(`${getErrorMessage(error)}${expandError ? ` Expand attempt failed first: ${expandError}` : ""}`);
     });
-    return mapChecklistVersionRecord(record, checklist);
+    return withChecklistVersionHistory(mapChecklistVersionRecord(record, checklist));
 }
 
 async function loadLatestChecklistVersionOptionFromDataverse(): Promise<LatestChecklistVersionOption> {
@@ -3474,6 +3999,7 @@ function ChecklistDetails({
     const [pendingValidationMessage, setPendingValidationMessage] = useState<PendingValidationMessage>(null);
     const [pendingReviewResponse, setPendingReviewResponse] = useState<PendingReviewResponse>(null);
     const [pendingSubmissionResponse, setPendingSubmissionResponse] = useState<PendingSubmissionResponse>(null);
+    const [isWorkflowActionRunning, setIsWorkflowActionRunning] = useState(false);
     const { shortcutNotice, showShortcutNotice } = useShortcutNotice();
     const sectionFocusResetTimerRef = useRef<number | null>(null);
     const [hoveredSectionId, setHoveredSectionId] = useState("");
@@ -3506,6 +4032,16 @@ function ChecklistDetails({
     );
     const appliesToTarget = APPLIES_TO_TARGETS[checklist.targetTypeValue];
     const isVersionEditable = version.statecode === VERSION_STATE_ACTIVE;
+    const showAddContentActions = version.statecode !== VERSION_STATE_INACTIVE;
+    const showEditHoverActions = version.statecode !== VERSION_STATE_INACTIVE;
+
+    useEffect(() => {
+        if (showEditHoverActions) return;
+        setHoveredSectionId("");
+        setHoveredItemId("");
+        setKeyboardNavigationActive(false);
+        setIsShortcutHelpOpen(false);
+    }, [showEditHoverActions]);
 
     const markDefinitionChanged = () => {
         if (isVersionEditable) setHasDefinitionChanges(true);
@@ -3729,6 +4265,7 @@ function ChecklistDetails({
                 return;
             }
             if (activeTab !== "contents") return;
+            if (!isVersionEditable) return;
             if (event.ctrlKey || event.metaKey) return;
             if (isEditableKeyboardTarget(event.target)) return;
             if (draftSection || draftItem || editingSectionId || editingSelectedSectionTitleId) return;
@@ -4031,6 +4568,7 @@ function ChecklistDetails({
         }
     };
     const handleSectionTreeKeyDown = (event: React.KeyboardEvent) => {
+        if (!isVersionEditable) return;
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         if (event.defaultPrevented && event.key !== "ArrowUp" && event.key !== "ArrowDown" && event.key !== " ") return;
         if (isEditableKeyboardTarget(event.target)) return;
@@ -4807,6 +5345,7 @@ function ChecklistDetails({
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isSelectedSection = selectedSectionId === section.id;
         const isHighlightedSection =
+            showEditHoverActions &&
             keyboardNavigationActive &&
             keyboardPane === "sections" &&
             highlightedSectionId === section.id &&
@@ -4838,7 +5377,7 @@ function ChecklistDetails({
         );
         const shouldMuteSectionAsInvalidNestTarget = cannotNestWhileDragging || isInvalidDropTarget;
         const isAnyDropTarget = isDropBeforeTarget || isDropAfterTarget || isDropChildTarget || isInvalidDropTarget;
-        const canUseHoverBackground = !isSelectedSection && !isHighlightedSection && !isAnyDropTarget;
+        const canUseHoverBackground = showEditHoverActions && !isSelectedSection && !isHighlightedSection && !isAnyDropTarget;
         const selectedSectionStyle: React.CSSProperties | undefined =
             isSelectedSection && !isAnyDropTarget
                 ? {
@@ -4854,6 +5393,7 @@ function ChecklistDetails({
             draggedItem?.type === "section" && canDropSectionAtChildrenEnd(sections, draggedItem.id, section.id)
         );
         const canAddAnotherChild =
+            showAddContentActions &&
             depth === 0 &&
             section.sections.length > 0 &&
             !isCollapsed;
@@ -4903,7 +5443,9 @@ function ChecklistDetails({
                         onPointerMove={handleSectionPointerMove}
                         onPointerUp={handleSectionPointerUp}
                         onPointerCancel={handleSectionPointerCancel}
-                        onPointerEnter={() => setHoveredSectionId(section.id)}
+                        onPointerEnter={() => {
+                            if (showEditHoverActions) setHoveredSectionId(section.id);
+                        }}
                         onPointerLeave={() => {
                             setHoveredSectionId((currentId) => (currentId === section.id ? "" : currentId));
                         }}
@@ -4917,7 +5459,7 @@ function ChecklistDetails({
                                     appearance="subtle"
                                     className={styles.sectionEditButton}
                                     icon={<EditRegular />}
-                                    style={{ visibility: hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
+                                    style={{ visibility: showEditHoverActions && hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
                                     disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
                                     onClick={(event) => {
                                         event.stopPropagation();
@@ -4929,7 +5471,7 @@ function ChecklistDetails({
                                     appearance="subtle"
                                     className={styles.sectionDeleteButton}
                                     icon={<DeleteRegular />}
-                                    style={{ visibility: hoveredSectionId === section.id ? "visible" : "hidden" }}
+                                    style={{ visibility: showEditHoverActions && hoveredSectionId === section.id ? "visible" : "hidden" }}
                                     disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
                                     onClick={(event) => {
                                         event.stopPropagation();
@@ -4999,10 +5541,10 @@ function ChecklistDetails({
                                             <span
                                                 aria-label="Empty section"
                                                 className={styles.sectionWarningPill}
-                                                role="img"
                                                 title="Empty section"
                                             >
                                                 <WarningRegular />
+                                                Empty
                                             </span>
                                         )}
                                     </span>
@@ -5138,14 +5680,43 @@ function ChecklistDetails({
         : "This will publish the checklist version and make it the active version.";
     const buildSubmissionPayload = (comments = ""): ChecklistVersionSubmissionPayload => ({
         submissionComments: comments.trim(),
-        submittedByUserId: getCurrentUserId(),
-        submittedOn: new Date().toISOString(),
     });
-    const submitChecklistVersionForReview = (payload: ChecklistVersionSubmissionPayload) => {
-        setPendingSubmissionResponse(null);
-        showShortcutNotice(`${versionActionLabel} action is ready to wire to the Dataverse custom API.`);
+    const reloadChecklistVersion = async () => {
+        if (!version.id) return;
+        const refreshedVersion = await loadChecklistVersionFromDataverse(version.id);
+        if (refreshedVersion) {
+            onVersionSaved(refreshedVersion);
+            setHasDefinitionChanges(false);
+        }
     };
+    const runWorkflowAction = async (
+        action: () => Promise<ChecklistVersionCustomApiResponse>,
+        fallbackMessage: string
+    ) => {
+        if (isWorkflowActionRunning) return;
+        setSaveError("");
+        setIsWorkflowActionRunning(true);
+        try {
+            const response = await action();
+            setPendingSubmissionResponse(null);
+            setPendingReviewResponse(null);
+            showShortcutNotice(response.Message || fallbackMessage);
+            await reloadChecklistVersion();
+        } catch (error) {
+            setSaveError(getErrorMessage(error) || "The Dataverse action could not be completed.");
+        } finally {
+            setIsWorkflowActionRunning(false);
+        }
+    };
+    const submitChecklistVersionForReview = (payload: ChecklistVersionSubmissionPayload) =>
+        runWorkflowAction(
+            () => submitOrPublishDraftChecklistVersion(version.id || "", payload),
+            requiresChecklistVersionReview
+                ? "Checklist version submitted for approval."
+                : "Checklist version published."
+        );
     const handleSubmitForApproval = () => {
+        if (!canSubmitForApproval || isWorkflowActionRunning) return;
         setPendingSubmissionResponse({ comments: "" });
     };
     const confirmSubmissionResponse = () => {
@@ -5154,14 +5725,14 @@ function ChecklistDetails({
     const buildReviewPayload = (outcome: ChecklistVersionReviewOutcome, reason = ""): ChecklistVersionReviewPayload => ({
         outcome,
         reason: reason.trim(),
-        respondedByUserId: getCurrentUserId(),
-        respondedOn: new Date().toISOString(),
     });
-    const submitChecklistVersionReviewResponse = (payload: ChecklistVersionReviewPayload) => {
-        setPendingReviewResponse(null);
-        showShortcutNotice(`${getReviewOutcomeLabel(payload.outcome)} action is ready to wire to the Dataverse custom API.`);
-    };
+    const submitChecklistVersionReviewResponse = (payload: ChecklistVersionReviewPayload) =>
+        runWorkflowAction(
+            () => approveChecklistVersionForPublishing(version.id || "", payload),
+            `${getReviewOutcomeLabel(payload.outcome)} action completed.`
+        );
     const requestReviewResponse = (outcome: ChecklistVersionReviewOutcome) => {
+        if (!canRespondToReview || isWorkflowActionRunning) return;
         if (outcome === "approve") {
             submitChecklistVersionReviewResponse(buildReviewPayload(outcome));
             return;
@@ -5175,9 +5746,334 @@ function ChecklistDetails({
         );
     };
     const sectionCount = flattenedSections.length;
-    const isPendingReview =
-        version.statecode === VERSION_STATE_ACTIVE &&
-        version.statuscode === VERSION_STATUS_PENDING_REVIEW;
+    const timelineEntries = version.history;
+    const escapePrintHtml = (value: unknown) =>
+        String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    const renderPrintableSectionHtml = (section: ChecklistSection, depth = 0): string => {
+        const hasChildren = section.sections.length > 0;
+        const itemCount = section.items.length;
+        const sectionShade = depth === 0 ? "#e8edf5" : depth === 1 ? "#f1f4f8" : "#f7f8fa";
+        const sectionAccent = depth === 0 ? "#4b5563" : depth === 1 ? "#6b7280" : "#9ca3af";
+        const sectionMeta = [
+            section.bulkServiceable ? "Bulk check" : "",
+            hasChildren ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}` : "",
+            `${itemCount} item${itemCount === 1 ? "" : "s"}`,
+        ].filter(Boolean).join(" | ");
+        const itemHtml = section.items.map((item) => {
+            const identifyText = item.requestItemIdentification
+                ? `Identify ${getIdentificationTargetTypeLabel(item.identificationTargetTypeValue).toLowerCase() || "item"}${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`
+                : "";
+            const itemMeta = [
+                item.quantity !== null && item.quantity !== undefined ? `Quantity ${item.quantity}` : "",
+                identifyText,
+            ].filter(Boolean).join(" | ");
+
+            return `
+                <div class="item">
+                    <div>
+                        <div class="item-title">${escapePrintHtml(item.name || "Unnamed item")}</div>
+                        ${item.description ? `<div class="item-description">${escapePrintHtml(item.description)}</div>` : ""}
+                    </div>
+                    ${itemMeta ? `<div class="item-meta">${escapePrintHtml(itemMeta)}</div>` : ""}
+                </div>
+            `;
+        }).join("");
+        const childHtml = section.sections.map((childSection) => renderPrintableSectionHtml(childSection, depth + 1)).join("");
+        const emptyHtml = !hasChildren && itemCount === 0
+            ? `<div class="empty-state">No items have been defined for this section.</div>`
+            : "";
+
+        return `
+            <section class="section" style="margin-left: ${depth === 0 ? 0 : 10}px;">
+                <div class="section-header" style="background-color: ${sectionShade}; border-left-color: ${sectionAccent};">
+                    <h2>${escapePrintHtml(section.name || "Unnamed section")}</h2>
+                    <span>${escapePrintHtml(sectionMeta)}</span>
+                </div>
+                ${itemHtml ? `<div class="items">${itemHtml}</div>` : ""}
+                ${childHtml ? `<div class="section-children">${childHtml}</div>` : ""}
+                ${emptyHtml}
+            </section>
+        `;
+    };
+    const buildPrintableContentsHtml = () => {
+        const title = checklistName || checklist.name;
+        const statusLabel = version.statusLabel || statusOptions[version.statuscode]?.text || "";
+        const printedOn = new Date().toLocaleDateString();
+        const sectionsHtml = sections.length
+            ? sections.map((section) => renderPrintableSectionHtml(section)).join("")
+            : `<div class="empty-state">No sections have been defined.</div>`;
+
+        return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${escapePrintHtml(title)} contents</title>
+<style>
+    @page { margin: 14mm; }
+    * { box-sizing: border-box; }
+    html, body {
+        width: auto;
+        height: auto;
+        min-height: auto;
+        max-height: none;
+        margin: 0;
+        overflow: visible;
+        color: #111;
+        background: #fff;
+        font-family: Arial, sans-serif;
+        font-size: 10pt;
+        line-height: 1.35;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .print-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+        padding-bottom: 12px;
+        margin-bottom: 14px;
+        border-bottom: 1px solid #bbb;
+        break-after: avoid;
+    }
+    h1 {
+        margin: 0 0 5px;
+        font-size: 18pt;
+        line-height: 1.2;
+    }
+    .subtitle {
+        margin: 0;
+        color: #444;
+        font-size: 9pt;
+    }
+    .meta {
+        color: #444;
+        font-size: 9pt;
+        text-align: right;
+        white-space: nowrap;
+    }
+    .section {
+        margin-bottom: 10px;
+        break-inside: auto;
+        page-break-inside: auto;
+    }
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 7px 9px;
+        border: 1px solid #c8c8c8;
+        border-left: 5px solid #6b7280;
+        break-after: avoid;
+    }
+    .section-header h2 {
+        margin: 0;
+        font-size: 11pt;
+        line-height: 1.25;
+    }
+    .section-header span {
+        color: #555;
+        font-size: 8.5pt;
+        white-space: nowrap;
+    }
+    .section-children {
+        margin-top: 6px;
+        padding-left: 14px;
+        border-left: 1px solid #d6d6d6;
+    }
+    .items {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        margin-top: 6px;
+    }
+    .item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        padding: 6px 8px;
+        border: 1px solid #d6d6d6;
+        background: #fff;
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+    .item-title { font-weight: 700; }
+    .item-description {
+        margin-top: 2px;
+        color: #444;
+        white-space: pre-wrap;
+    }
+    .item-meta {
+        color: #444;
+        font-size: 8.5pt;
+        text-align: right;
+        white-space: nowrap;
+    }
+    .empty-state {
+        margin-top: 6px;
+        color: #555;
+        font-style: italic;
+    }
+</style>
+</head>
+<body>
+    <div class="print-header">
+        <div>
+            <h1>${escapePrintHtml(title)}</h1>
+            <p class="subtitle">Contents | ${escapePrintHtml(t("version"))}: ${escapePrintHtml(formatVersionNumber(versionNumber) || "-")}</p>
+            ${description ? `<p class="subtitle">${escapePrintHtml(description)}</p>` : ""}
+        </div>
+        <div class="meta">
+            <div>${escapePrintHtml(statusLabel)}</div>
+            <div>${escapePrintHtml(printedOn)}</div>
+        </div>
+    </div>
+    ${sectionsHtml}
+</body>
+</html>`;
+    };
+    const printContentsDocument = () => {
+        const printFrame = document.createElement("iframe");
+        printFrame.setAttribute("title", "Checklist contents print preview");
+        printFrame.style.position = "fixed";
+        printFrame.style.right = "0";
+        printFrame.style.bottom = "0";
+        printFrame.style.width = "0";
+        printFrame.style.height = "0";
+        printFrame.style.border = "0";
+        printFrame.style.visibility = "hidden";
+        document.body.appendChild(printFrame);
+        printFrame.contentDocument?.open();
+        printFrame.contentDocument?.write(buildPrintableContentsHtml());
+        printFrame.contentDocument?.close();
+        window.setTimeout(() => {
+            const frameWindow = printFrame.contentWindow;
+            if (!frameWindow) return;
+            const cleanup = () => {
+                window.setTimeout(() => printFrame.remove(), 0);
+            };
+            frameWindow.onafterprint = cleanup;
+            frameWindow.focus();
+            frameWindow.print();
+            window.setTimeout(cleanup, 60_000);
+        }, 0);
+    };
+    const handlePrintContents = () => {
+        setActiveTab("contents");
+        window.setTimeout(printContentsDocument, 0);
+    };
+    const renderPrintableSection = (section: ChecklistSection, depth = 0): React.ReactNode => {
+        const hasChildren = section.sections.length > 0;
+        const itemCount = section.items.length;
+        const sectionShade = depth === 0 ? "#e8edf5" : depth === 1 ? "#f1f4f8" : "#f7f8fa";
+        const sectionAccent = depth === 0 ? "#4b5563" : depth === 1 ? "#6b7280" : "#9ca3af";
+        const sectionMeta = [
+            section.bulkServiceable ? "Bulk check" : "",
+            hasChildren ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}` : "",
+            `${itemCount} item${itemCount === 1 ? "" : "s"}`,
+        ].filter(Boolean).join(" | ");
+
+        return (
+            <section
+                key={section.id}
+                className={styles.printSection}
+                style={{ marginLeft: depth === 0 ? 0 : 10 }}
+            >
+                <div
+                    className={styles.printSectionHeader}
+                    style={{
+                        backgroundColor: sectionShade,
+                        borderLeftColor: sectionAccent,
+                    }}
+                >
+                    <h2 className={styles.printSectionTitle}>{section.name || "Unnamed section"}</h2>
+                    {sectionMeta && <span className={styles.printSectionMeta}>{sectionMeta}</span>}
+                </div>
+                {itemCount > 0 && (
+                    <div className={styles.printItems}>
+                        {section.items.map((item) => {
+                            const identifyText = item.requestItemIdentification
+                                ? `Identify ${getIdentificationTargetTypeLabel(item.identificationTargetTypeValue).toLowerCase() || "item"}${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`
+                                : "";
+                            const itemMeta = [
+                                item.quantity !== null && item.quantity !== undefined ? `Quantity ${item.quantity}` : "",
+                                identifyText,
+                            ].filter(Boolean).join(" | ");
+
+                            return (
+                                <div key={item.id} className={styles.printItem}>
+                                    <div>
+                                        <div className={styles.printItemTitle}>{item.name || "Unnamed item"}</div>
+                                        {item.description && (
+                                            <div className={styles.printItemDescription}>{item.description}</div>
+                                        )}
+                                    </div>
+                                    {itemMeta && <div className={styles.printItemMeta}>{itemMeta}</div>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {hasChildren ? (
+                    <div className={styles.printSectionChildren}>
+                        {section.sections.map((childSection) => renderPrintableSection(childSection, depth + 1))}
+                    </div>
+                ) : itemCount === 0 && (
+                    <div className={styles.printEmptyState}>No items have been defined for this section.</div>
+                )}
+            </section>
+        );
+    };
+    const renderTimelineEntry = (entry: ChecklistVersionHistoryEntry, index: number) => {
+        const isFirst = index === 0;
+        const isLast = index === timelineEntries.length - 1;
+        const eventDate = formatDisplayDateTime(entry.eventOn || entry.createdOn);
+        const metaParts = [
+            eventDate,
+            entry.eventBy ? `by ${entry.eventBy}` : "",
+        ].filter(Boolean);
+        const statusTransition = entry.fromStatusLabel || entry.toStatusLabel
+            ? `${entry.fromStatusLabel || "-"} -> ${entry.toStatusLabel || "-"}`
+            : "";
+
+        return (
+            <div className={styles.timelineItem} key={entry.id || `${entry.title}-${index}`}>
+                <div className={[
+                    styles.timelineRail,
+                    isFirst ? styles.timelineRailFirst : "",
+                    isLast ? styles.timelineRailLast : "",
+                ].filter(Boolean).join(" ")}>
+                    <span className={styles.timelineDot} />
+                </div>
+                <div className={`${styles.timelineBody} ${isLast ? styles.timelineBodyLast : ""}`}>
+                    <div className={styles.timelineTitleRow}>
+                        <Text className={styles.timelineTitle}>{entry.title || entry.eventTypeLabel || "Checklist version event"}</Text>
+                        {entry.eventTypeLabel && <span className={styles.timelineEventType}>{entry.eventTypeLabel}</span>}
+                    </div>
+                    {metaParts.length > 0 && (
+                        <Caption1 className={styles.timelineMeta}>{metaParts.join(" | ")}</Caption1>
+                    )}
+                    {entry.description && <Text className={styles.timelineText}>{entry.description}</Text>}
+                    {entry.comments && <Text className={styles.timelineText}>{entry.comments}</Text>}
+                    {(entry.reviewDecisionLabel || statusTransition) && (
+                        <div className={styles.timelineDetails}>
+                            {entry.reviewDecisionLabel && (
+                                <span className={styles.timelineChip}>{`Decision: ${entry.reviewDecisionLabel}`}</span>
+                            )}
+                            {statusTransition && (
+                                <span className={styles.timelineChip}>{`Status: ${statusTransition}`}</span>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
     const handleTabSelect = (_: any, data: any) => {
         setActiveTab(String(data.value));
         setKeyboardNavigationActive(false);
@@ -5189,12 +6085,12 @@ function ChecklistDetails({
     return (
         <div className={styles.detailsPage}>
             {shortcutNotice && (
-                <div className={styles.shortcutToast}>
+                <div className={`${styles.shortcutToast} ${styles.noPrint}`}>
                     <Text>{shortcutNotice}</Text>
                 </div>
             )}
             {!useCompactVersionHeader && (
-                <div className={styles.editorHeader}>
+                <div className={`${styles.editorHeader} ${styles.noPrint}`}>
                     <div className={styles.titleStack}>
                         <div className={styles.editableTitleRow}>
                             <Text as="h1" className={styles.pageTitle}>
@@ -5219,6 +6115,7 @@ function ChecklistDetails({
                                 <Button
                                     appearance="secondary"
                                     icon={<DismissRegular />}
+                                    disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("reject")}
                                 >
                                     Reject
@@ -5226,6 +6123,7 @@ function ChecklistDetails({
                                 <Button
                                     appearance="secondary"
                                     icon={<WarningRegular />}
+                                    disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("requiresAmendments")}
                                 >
                                     Requires Amendments
@@ -5233,6 +6131,7 @@ function ChecklistDetails({
                                 <Button
                                     appearance="primary"
                                     icon={<CheckmarkRegular />}
+                                    disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("approve")}
                                 >
                                     Approve
@@ -5244,6 +6143,7 @@ function ChecklistDetails({
                                 appearance="primary"
                                 className={requiresChecklistVersionReview ? undefined : styles.publishButton}
                                 icon={versionActionIcon}
+                                disabled={isWorkflowActionRunning}
                                 onClick={handleSubmitForApproval}
                             >
                                 {versionActionLabel}
@@ -5252,30 +6152,32 @@ function ChecklistDetails({
                     </div>
                 </div>
             )}
-            {isPendingReview && (
-                <div className={styles.reviewSummary}>
-                    <div className={styles.reviewSummaryItem}>
-                        <Caption1 className={styles.mutedText}>Submitted by</Caption1>
-                        <Text weight="semibold">{version.submittedBy || "-"}</Text>
-                    </div>
-                    <div className={styles.reviewSummaryItem}>
-                        <Caption1 className={styles.mutedText}>Submitted on</Caption1>
-                        <Text weight="semibold">{formatDisplayDateTime(version.submittedOn) || "-"}</Text>
-                    </div>
-                    {version.submissionComments && (
-                        <div className={`${styles.reviewSummaryItem} ${styles.reviewSummaryComments}`}>
-                            <Caption1 className={styles.mutedText}>Submission comments</Caption1>
-                            <Text>{version.submissionComments}</Text>
-                        </div>
-                    )}
-                </div>
-            )}
             {saveError && (
-                <MessageBar intent="error">
+                <MessageBar intent="error" className={styles.noPrint}>
                     <MessageBarBody>{saveError}</MessageBarBody>
                 </MessageBar>
             )}
-            <div className={styles.tabSurface}>
+            <div className={styles.printContentsDocument} aria-hidden={activeTab !== "contents"}>
+                <div className={styles.printHeader}>
+                    <div>
+                        <h1 className={styles.printTitle}>{checklistName || checklist.name}</h1>
+                        <p className={styles.printSubtitle}>
+                            {`Contents | ${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`}
+                        </p>
+                        {description && <p className={styles.printSubtitle}>{description}</p>}
+                    </div>
+                    <div className={styles.printMeta}>
+                        <div>{version.statusLabel || statusOptions[version.statuscode]?.text || ""}</div>
+                        <div>{new Date().toLocaleDateString()}</div>
+                    </div>
+                </div>
+                {sections.length ? (
+                    sections.map((section) => renderPrintableSection(section))
+                ) : (
+                    <div className={styles.printEmptyState}>No sections have been defined.</div>
+                )}
+            </div>
+            <div className={`${styles.tabSurface} ${styles.noPrint}`}>
                 <div className={styles.tabHeader}>
                     <TabList
                         selectedValue={activeTab}
@@ -5284,13 +6186,24 @@ function ChecklistDetails({
                         <Tab className={styles.tabLabel} value="general" onFocus={clearTabFocus} onClick={clearTabFocus}>General</Tab>
                         <Tab className={styles.tabLabel} value="contents" onFocus={clearTabFocus} onClick={clearTabFocus}>Contents</Tab>
                         <Tab className={styles.tabLabel} value="options" onFocus={clearTabFocus} onClick={clearTabFocus}>Options</Tab>
+                        <Tab className={styles.tabLabel} value="approvalHistory" onFocus={clearTabFocus} onClick={clearTabFocus}>Approval History</Tab>
                     </TabList>
                     <div className={styles.tabActions}>
+                        {activeTab === "contents" && (
+                            <Button
+                                appearance="secondary"
+                                icon={<PrintRegular />}
+                                onClick={handlePrintContents}
+                            >
+                                Print
+                            </Button>
+                        )}
                         {useCompactVersionHeader && canRespondToReview && (
                             <>
                                 <Button
                                     appearance="secondary"
                                     icon={<DismissRegular />}
+                                    disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("reject")}
                                 >
                                     Reject
@@ -5298,6 +6211,7 @@ function ChecklistDetails({
                                 <Button
                                     appearance="secondary"
                                     icon={<WarningRegular />}
+                                    disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("requiresAmendments")}
                                 >
                                     Requires Amendments
@@ -5305,6 +6219,7 @@ function ChecklistDetails({
                                 <Button
                                     appearance="primary"
                                     icon={<CheckmarkRegular />}
+                                    disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("approve")}
                                 >
                                     Approve
@@ -5316,6 +6231,7 @@ function ChecklistDetails({
                                 appearance="primary"
                                 className={requiresChecklistVersionReview ? undefined : styles.publishButton}
                                 icon={versionActionIcon}
+                                disabled={isWorkflowActionRunning}
                                 onClick={handleSubmitForApproval}
                             >
                                 {versionActionLabel}
@@ -5466,32 +6382,34 @@ function ChecklistDetails({
                     </div>
                 ) : activeTab === "contents" ? (
                     <div className={styles.tabPanel}>
-                        <div className={styles.shortcutHelpPanel}>
-                            <Button
-                                appearance="subtle"
-                                className={styles.shortcutHelpToggle}
-                                icon={isShortcutHelpOpen ? <ChevronDownRegular /> : <ChevronRightRegular />}
-                                onClick={() => setIsShortcutHelpOpen((current) => !current)}
-                            >
-                                Keyboard shortcuts
-                            </Button>
-                            {isShortcutHelpOpen && (
-                                <div className={styles.shortcutHelpContent}>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Up/Down</span><Text>Move highlight</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Tab</span><Text>Switch pane</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Enter</span><Text>Add after focus</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Shift+Enter</span><Text>Add child section</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Space</span><Text>Select or edit</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Ctrl/Cmd+S</span><Text>Save</Text></span>
-                                    <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Delete</span><Text>Remove</Text></span>
-                                </div>
-                            )}
-                        </div>
+                        {isVersionEditable && (
+                            <div className={styles.shortcutHelpPanel}>
+                                <Button
+                                    appearance="subtle"
+                                    className={styles.shortcutHelpToggle}
+                                    icon={isShortcutHelpOpen ? <ChevronDownRegular /> : <ChevronRightRegular />}
+                                    onClick={() => setIsShortcutHelpOpen((current) => !current)}
+                                >
+                                    Keyboard shortcuts
+                                </Button>
+                                {isShortcutHelpOpen && (
+                                    <div className={styles.shortcutHelpContent}>
+                                        <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Up/Down</span><Text>Move highlight</Text></span>
+                                        <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Tab</span><Text>Switch pane</Text></span>
+                                        <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Enter</span><Text>Add after focus</Text></span>
+                                        <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Shift+Enter</span><Text>Add child section</Text></span>
+                                        <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Space</span><Text>Select or edit</Text></span>
+                                        <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Ctrl/Cmd+S</span><Text>Save</Text></span>
+                                        <span className={styles.shortcutHelpItem}><span className={styles.shortcutKey}>Delete</span><Text>Remove</Text></span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div className={styles.contentsLayout}>
                             <div
                                 className={[
                                     styles.contentsColumn,
-                                    keyboardNavigationActive && keyboardPane === "sections" ? styles.activeContentsColumn : "",
+                                    showEditHoverActions && keyboardNavigationActive && keyboardPane === "sections" ? styles.activeContentsColumn : "",
                                 ].filter(Boolean).join(" ")}
                             >
                                 <div className={styles.contentsColumnHeader}>
@@ -5560,28 +6478,30 @@ function ChecklistDetails({
                                                 <Text weight="semibold">No sections have been defined.</Text>
                                             </div>
                                         )}
-                                        <div className={styles.sectionAddTopLevelRow}>
-                                            <Button
-                                                appearance="subtle"
-                                                icon={<AddRegular />}
-                                                className={styles.sectionAddAnotherButton}
-                                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                                onPointerDown={(event) => event.stopPropagation()}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    startNewSection(null);
-                                                }}
-                                            >
-                                                Add a section
-                                            </Button>
-                                        </div>
+                                        {showAddContentActions && (
+                                            <div className={styles.sectionAddTopLevelRow}>
+                                                <Button
+                                                    appearance="subtle"
+                                                    icon={<AddRegular />}
+                                                    className={styles.sectionAddAnotherButton}
+                                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                    onPointerDown={(event) => event.stopPropagation()}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        startNewSection(null);
+                                                    }}
+                                                >
+                                                    Add a section
+                                                </Button>
+                                            </div>
+                                        )}
                                     </Tree>
                                 </div>
                             </div>
                             <div
                                 className={[
                                     styles.contentsColumn,
-                                    keyboardNavigationActive && keyboardPane === "items" ? styles.activeContentsColumn : "",
+                                    showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" ? styles.activeContentsColumn : "",
                                 ].filter(Boolean).join(" ")}
                             >
                                 <div className={styles.contentsColumnHeader}>
@@ -5628,7 +6548,7 @@ function ChecklistDetails({
                                                             )}
                                                         </React.Fragment>
                                                     ))}
-                                                    {selectedSection && (
+                                                    {showEditHoverActions && selectedSection && (
                                                         <Button
                                                             aria-label="Edit selected section name"
                                                             appearance="subtle"
@@ -5675,13 +6595,15 @@ function ChecklistDetails({
                                     ) : selectedSectionHasChildren ? (
                                         <div className={styles.contentsPlaceholder}>
                                             <Text weight="semibold">Items can only be added to sections without child sections.</Text>
-                                            <Button
-                                                icon={<AddRegular />}
-                                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                                onClick={() => startNewSection(selectedSection.id)}
-                                            >
-                                                Add child section
-                                            </Button>
+                                            {showAddContentActions && (
+                                                <Button
+                                                    icon={<AddRegular />}
+                                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                    onClick={() => startNewSection(selectedSection.id)}
+                                                >
+                                                    Add child section
+                                                </Button>
+                                            )}
                                         </div>
                                     ) : (
                                         <div className={styles.itemList}>
@@ -5693,8 +6615,9 @@ function ChecklistDetails({
                                                         <div
                                                             className={[
                                                                 styles.itemRow,
-                                                                keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
-                                                                keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
+                                                                showEditHoverActions ? "" : styles.itemRowReadOnly,
+                                                                showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
+                                                                showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
                                                                 draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
                                                                 dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement !== "after" ? styles.dropBeforeRow : "",
                                                                 dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement === "after" ? styles.dropAfterRow : "",
@@ -5711,7 +6634,9 @@ function ChecklistDetails({
                                                             onPointerMove={handleItemPointerMove}
                                                             onPointerUp={handleItemPointerUp}
                                                             onPointerCancel={handleItemPointerCancel}
-                                                            onMouseEnter={() => setHoveredItemId(item.id)}
+                                                            onMouseEnter={() => {
+                                                                if (showEditHoverActions) setHoveredItemId(item.id);
+                                                            }}
                                                             onMouseLeave={() => setHoveredItemId((current) => (current === item.id ? "" : current))}
                                                         >
                                                             <div className={styles.itemReadOnlyText}>
@@ -5737,7 +6662,7 @@ function ChecklistDetails({
                                                                     appearance="subtle"
                                                                     className={styles.itemDeleteButton}
                                                                     icon={<DeleteRegular />}
-                                                                    style={{ visibility: hoveredItemId === item.id ? "visible" : "hidden" }}
+                                                                    style={{ visibility: showEditHoverActions && hoveredItemId === item.id ? "visible" : "hidden" }}
                                                                     disabled={!isVersionEditable}
                                                                     onClick={(event) => {
                                                                         event.stopPropagation();
@@ -5745,7 +6670,7 @@ function ChecklistDetails({
                                                                     }}
                                                                 />
                                                             </div>
-                                                            {keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id && (
+                                                            {showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id && (
                                                                 <span className={styles.keyboardFocusOverlay} />
                                                             )}
                                                         </div>
@@ -5760,7 +6685,7 @@ function ChecklistDetails({
                                                 !draftItem.itemId &&
                                                 !draftItem.afterItemId &&
                                                 renderDraftItemRow()}
-                                            {selectedSection.items.length > 0 && draftItem?.sectionId !== selectedSection.id && (
+                                            {showAddContentActions && selectedSection.items.length > 0 && draftItem?.sectionId !== selectedSection.id && (
                                                 <div className={styles.itemAddAnotherRow}>
                                                     <Button
                                                         appearance="subtle"
@@ -5778,14 +6703,31 @@ function ChecklistDetails({
                                                     <Caption1 className={styles.mutedText}>
                                                         Add items to this section, or define child sections to structure the checklist.
                                                     </Caption1>
-                                                    <div className={styles.placeholderActions}>
-                                                        <Button
-                                                            icon={<AddRegular />}
-                                                            disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                                            onClick={() => startNewSection(selectedSection.id)}
-                                                        >
-                                                            Add child section
-                                                        </Button>
+                                                    {showAddContentActions && (
+                                                        <div className={styles.placeholderActions}>
+                                                            <Button
+                                                                icon={<AddRegular />}
+                                                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                                onClick={() => startNewSection(selectedSection.id)}
+                                                            >
+                                                                Add child section
+                                                            </Button>
+                                                            <Button
+                                                                appearance="subtle"
+                                                                className={styles.sectionAddAnotherButton}
+                                                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                                onClick={() => startNewItem(selectedSection.id)}
+                                                            >
+                                                                + Add an item
+                                                            </Button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {!selectedSection.items.length && !selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && (
+                                                <div className={styles.contentsPlaceholder}>
+                                                    <Text weight="semibold">No items have been defined for this section.</Text>
+                                                    {showAddContentActions && (
                                                         <Button
                                                             appearance="subtle"
                                                             className={styles.sectionAddAnotherButton}
@@ -5794,20 +6736,7 @@ function ChecklistDetails({
                                                         >
                                                             + Add an item
                                                         </Button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {!selectedSection.items.length && !selectedSectionIsEmptyTopLevel && draftItem?.sectionId !== selectedSection.id && (
-                                                <div className={styles.contentsPlaceholder}>
-                                                    <Text weight="semibold">No items have been defined for this section.</Text>
-                                                    <Button
-                                                        appearance="subtle"
-                                                        className={styles.sectionAddAnotherButton}
-                                                        disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
-                                                        onClick={() => startNewItem(selectedSection.id)}
-                                                    >
-                                                        + Add an item
-                                                    </Button>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -5816,7 +6745,7 @@ function ChecklistDetails({
                             </div>
                         </div>
                     </div>
-                ) : (
+                ) : activeTab === "options" ? (
                     <div className={styles.tabPanel}>
                         <div className={styles.optionsList}>
                             {options.map((option) => {
@@ -5854,12 +6783,31 @@ function ChecklistDetails({
                             })}
                         </div>
                     </div>
+                ) : (
+                    <div className={styles.tabPanel}>
+                        <div className={styles.formStack}>
+                            <section className={styles.generalSection}>
+                                <div className={styles.generalSectionHeader}>
+                                    <div className={styles.generalSectionHeading}>
+                                        <Text className={styles.generalSectionTitle}>Timeline</Text>
+                                    </div>
+                                </div>
+                                {timelineEntries.length ? (
+                                    <div className={styles.timelineList}>
+                                        {timelineEntries.map(renderTimelineEntry)}
+                                    </div>
+                                ) : (
+                                    <Text className={styles.approvalHistoryEmpty}>No records were found in checklist version history.</Text>
+                                )}
+                            </section>
+                        </div>
+                    </div>
                 )}
             </div>
             <Dialog
                 open={Boolean(pendingSubmissionResponse)}
                 onOpenChange={(_, data) => {
-                    if (!data.open) setPendingSubmissionResponse(null);
+                    if (!data.open && !isWorkflowActionRunning) setPendingSubmissionResponse(null);
                 }}
             >
                 <DialogSurface
@@ -5870,7 +6818,7 @@ function ChecklistDetails({
                         }
                         if (event.key === "Escape") {
                             event.preventDefault();
-                            setPendingSubmissionResponse(null);
+                            if (!isWorkflowActionRunning) setPendingSubmissionResponse(null);
                         }
                     }}
                 >
@@ -5882,6 +6830,7 @@ function ChecklistDetails({
                                 <Textarea
                                     resize="vertical"
                                     rows={5}
+                                    disabled={isWorkflowActionRunning}
                                     value={pendingSubmissionResponse?.comments || ""}
                                     onChange={(_, data) =>
                                         setPendingSubmissionResponse((current) =>
@@ -5892,11 +6841,15 @@ function ChecklistDetails({
                             </Field>
                         </DialogContent>
                         <DialogActions>
-                            <Button appearance="secondary" onClick={() => setPendingSubmissionResponse(null)}>
+                            <Button
+                                appearance="secondary"
+                                disabled={isWorkflowActionRunning}
+                                onClick={() => setPendingSubmissionResponse(null)}
+                            >
                                 Cancel
                             </Button>
-                            <Button appearance="primary" onClick={confirmSubmissionResponse}>
-                                Confirm
+                            <Button appearance="primary" disabled={isWorkflowActionRunning} onClick={confirmSubmissionResponse}>
+                                {isWorkflowActionRunning ? "Working..." : "Confirm"}
                             </Button>
                         </DialogActions>
                     </DialogBody>
@@ -5905,7 +6858,7 @@ function ChecklistDetails({
             <Dialog
                 open={Boolean(pendingReviewResponse)}
                 onOpenChange={(_, data) => {
-                    if (!data.open) setPendingReviewResponse(null);
+                    if (!data.open && !isWorkflowActionRunning) setPendingReviewResponse(null);
                 }}
             >
                 <DialogSurface
@@ -5916,7 +6869,7 @@ function ChecklistDetails({
                         }
                         if (event.key === "Escape") {
                             event.preventDefault();
-                            setPendingReviewResponse(null);
+                            if (!isWorkflowActionRunning) setPendingReviewResponse(null);
                         }
                     }}
                 >
@@ -5927,6 +6880,7 @@ function ChecklistDetails({
                                 <Textarea
                                     resize="vertical"
                                     rows={5}
+                                    disabled={isWorkflowActionRunning}
                                     value={pendingReviewResponse?.reason || ""}
                                     onChange={(_, data) =>
                                         setPendingReviewResponse((current) =>
@@ -5937,15 +6891,19 @@ function ChecklistDetails({
                             </Field>
                         </DialogContent>
                         <DialogActions>
-                            <Button appearance="secondary" onClick={() => setPendingReviewResponse(null)}>
+                            <Button
+                                appearance="secondary"
+                                disabled={isWorkflowActionRunning}
+                                onClick={() => setPendingReviewResponse(null)}
+                            >
                                 Cancel
                             </Button>
                             <Button
                                 appearance="primary"
-                                disabled={!pendingReviewResponse?.reason.trim()}
+                                disabled={isWorkflowActionRunning || !pendingReviewResponse?.reason.trim()}
                                 onClick={confirmReviewResponse}
                             >
-                                Confirm
+                                {isWorkflowActionRunning ? "Working..." : "Confirm"}
                             </Button>
                         </DialogActions>
                     </DialogBody>
