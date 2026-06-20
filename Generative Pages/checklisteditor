@@ -39,6 +39,7 @@ import {
     DismissRegular,
     EditRegular,
     PrintRegular,
+    RibbonRegular,
     SaveRegular,
     SendRegular,
     TagRegular,
@@ -729,13 +730,53 @@ const useStyles = makeStyles({
     timelineDot: {
         position: "relative",
         zIndex: 1,
-        width: "10px",
-        height: "10px",
-        marginTop: "5px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "18px",
+        height: "18px",
+        marginTop: "1px",
         borderRadius: tokens.borderRadiusCircular,
-        backgroundColor: tokens.colorBrandBackground,
+        color: "#ffffff",
+        backgroundColor: tokens.colorNeutralForeground3,
         ...shorthands.border("2px", "solid", tokens.colorNeutralBackground1),
-        boxShadow: `0 0 0 1px ${tokens.colorBrandStroke1}`,
+        boxShadow: `0 0 0 1px ${tokens.colorNeutralStroke1}`,
+        "& svg": {
+            width: "12px",
+            height: "12px",
+        },
+    },
+    timelineDotDraft: {
+        backgroundColor: "#605E5C",
+        boxShadow: "0 0 0 1px #8A8886",
+    },
+    timelineDotSubmitted: {
+        backgroundColor: "#0078D4",
+        boxShadow: "0 0 0 1px #106EBE",
+    },
+    timelineDotPublished: {
+        backgroundColor: "#107C10",
+        boxShadow: "0 0 0 1px #0E700E",
+    },
+    timelineDotApproved: {
+        backgroundColor: "#498205",
+        boxShadow: "0 0 0 1px #3B6A04",
+    },
+    timelineDotRejected: {
+        backgroundColor: "#C50F1F",
+        boxShadow: "0 0 0 1px #A80000",
+    },
+    timelineDotRequiresAmendments: {
+        backgroundColor: "#F7630C",
+        boxShadow: "0 0 0 1px #CA5010",
+    },
+    timelineDotSuperseded: {
+        backgroundColor: "#5C2E91",
+        boxShadow: "0 0 0 1px #4B2576",
+    },
+    timelineDotArchived: {
+        backgroundColor: "#4A5568",
+        boxShadow: "0 0 0 1px #3B4556",
     },
     timelineBody: {
         display: "flex",
@@ -774,6 +815,29 @@ const useStyles = makeStyles({
     },
     timelineText: {
         color: tokens.colorNeutralForeground2,
+        lineHeight: "20px",
+        whiteSpace: "pre-wrap",
+        overflowWrap: "anywhere",
+    },
+    timelineComment: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "2px",
+        marginTop: "4px",
+        padding: "8px 10px",
+        backgroundColor: tokens.colorNeutralBackground2,
+        borderRadius: tokens.borderRadiusMedium,
+        ...shorthands.borderLeft("3px", "solid", tokens.colorBrandBackground),
+    },
+    timelineCommentLabel: {
+        color: tokens.colorNeutralForeground3,
+        fontSize: "11px",
+        lineHeight: "14px",
+        fontWeight: tokens.fontWeightSemibold,
+        textTransform: "uppercase",
+    },
+    timelineCommentText: {
+        color: tokens.colorNeutralForeground1,
         lineHeight: "20px",
         whiteSpace: "pre-wrap",
         overflowWrap: "anywhere",
@@ -1993,6 +2057,35 @@ function getChecklistVersionStatusLabel(value: number | null, formattedLabel = "
     if (value === VERSION_STATUS_SUPERSEDED) return "Superseded";
     if (value === VERSION_STATUS_ARCHIVED) return "Archived";
     return value === null ? "" : String(value);
+}
+
+function getTimelineEventMarker(entry: ChecklistVersionHistoryEntry, styles: ReturnType<typeof useStyles>) {
+    if (entry.eventType === HISTORY_EVENT_DRAFT_CREATED) {
+        return { className: styles.timelineDotDraft, Icon: EditRegular };
+    }
+    if (entry.eventType === HISTORY_EVENT_SUBMITTED) {
+        return { className: styles.timelineDotSubmitted, Icon: SendRegular };
+    }
+    if (entry.eventType === HISTORY_EVENT_PUBLISHED) {
+        return { className: styles.timelineDotPublished, Icon: RibbonRegular };
+    }
+    if (entry.eventType === HISTORY_EVENT_APPROVED) {
+        return { className: styles.timelineDotApproved, Icon: CheckmarkRegular };
+    }
+    if (entry.eventType === HISTORY_EVENT_REJECTED) {
+        return { className: styles.timelineDotRejected, Icon: DismissRegular };
+    }
+    if (entry.eventType === HISTORY_EVENT_REQUIRES_AMENDMENTS) {
+        return { className: styles.timelineDotRequiresAmendments, Icon: WarningRegular };
+    }
+    if (entry.eventType === HISTORY_EVENT_SUPERSEDED) {
+        return { className: styles.timelineDotSuperseded, Icon: ChevronRightRegular };
+    }
+    if (entry.eventType === HISTORY_EVENT_ARCHIVED) {
+        return { className: styles.timelineDotArchived, Icon: DeleteRegular };
+    }
+
+    return { className: "", Icon: TagRegular };
 }
 
 async function loadRequireChecklistVersionReviewSetting(): Promise<boolean> {
@@ -4054,6 +4147,7 @@ function ChecklistDetails({
     );
     const appliesToTarget = APPLIES_TO_TARGETS[checklist.targetTypeValue];
     const isVersionEditable = version.statecode === VERSION_STATE_ACTIVE;
+    const canShowApprovalHistory = version.statuscode !== VERSION_STATUS_DRAFT;
     const showAddContentActions = version.statecode !== VERSION_STATE_INACTIVE;
     const showEditHoverActions = version.statecode !== VERSION_STATE_INACTIVE;
 
@@ -4100,6 +4194,13 @@ function ChecklistDetails({
         if (!editingSelectedSectionTitleId || editingSelectedSectionTitleId === selectedSectionId) return;
         setEditingSelectedSectionTitleId("");
     }, [editingSelectedSectionTitleId, selectedSectionId]);
+
+    useEffect(() => {
+        if (activeTab === "approvalHistory" && !canShowApprovalHistory) {
+            setActiveTab("general");
+        }
+    }, [activeTab, canShowApprovalHistory]);
+
     const flattenedSections = useMemo(() => flattenSections(sections), [sections]);
     const rootOpenSectionIds = useMemo(
         () => getOpenSiblingSectionIds(sections, collapsedSectionIds),
@@ -6062,6 +6163,8 @@ function ChecklistDetails({
         const statusTransition = entry.fromStatusLabel || entry.toStatusLabel
             ? `${entry.fromStatusLabel || "-"} -> ${entry.toStatusLabel || "-"}`
             : "";
+        const marker = getTimelineEventMarker(entry, styles);
+        const TimelineMarkerIcon = marker.Icon;
 
         return (
             <div className={styles.timelineItem} key={entry.id || `${entry.title}-${index}`}>
@@ -6070,7 +6173,9 @@ function ChecklistDetails({
                     isFirst ? styles.timelineRailFirst : "",
                     isLast ? styles.timelineRailLast : "",
                 ].filter(Boolean).join(" ")}>
-                    <span className={styles.timelineDot} />
+                    <span className={[styles.timelineDot, marker.className].filter(Boolean).join(" ")}>
+                        <TimelineMarkerIcon />
+                    </span>
                 </div>
                 <div className={`${styles.timelineBody} ${isLast ? styles.timelineBodyLast : ""}`}>
                     <div className={styles.timelineTitleRow}>
@@ -6081,7 +6186,12 @@ function ChecklistDetails({
                         <Caption1 className={styles.timelineMeta}>{metaParts.join(" | ")}</Caption1>
                     )}
                     {entry.description && <Text className={styles.timelineText}>{entry.description}</Text>}
-                    {entry.comments && <Text className={styles.timelineText}>{entry.comments}</Text>}
+                    {entry.comments && (
+                        <div className={styles.timelineComment}>
+                            <span className={styles.timelineCommentLabel}>Comment</span>
+                            <Text className={styles.timelineCommentText}>{entry.comments}</Text>
+                        </div>
+                    )}
                     {(entry.reviewDecisionLabel || statusTransition) && (
                         <div className={styles.timelineDetails}>
                             {entry.reviewDecisionLabel && (
@@ -6097,7 +6207,9 @@ function ChecklistDetails({
         );
     };
     const handleTabSelect = (_: any, data: any) => {
-        setActiveTab(String(data.value));
+        const nextTab = String(data.value);
+        if (nextTab === "approvalHistory" && !canShowApprovalHistory) return;
+        setActiveTab(nextTab);
         setKeyboardNavigationActive(false);
     };
     const clearTabFocus = (event: React.FocusEvent<HTMLElement> | React.MouseEvent<HTMLElement>) => {
@@ -6210,7 +6322,9 @@ function ChecklistDetails({
                         <Tab className={styles.tabLabel} value="general" onFocus={clearTabFocus} onClick={clearTabFocus}>General</Tab>
                         <Tab className={styles.tabLabel} value="contents" onFocus={clearTabFocus} onClick={clearTabFocus}>Contents</Tab>
                         <Tab className={styles.tabLabel} value="options" onFocus={clearTabFocus} onClick={clearTabFocus}>Options</Tab>
-                        <Tab className={styles.tabLabel} value="approvalHistory" onFocus={clearTabFocus} onClick={clearTabFocus}>Approval History</Tab>
+                        {canShowApprovalHistory && (
+                            <Tab className={styles.tabLabel} value="approvalHistory" onFocus={clearTabFocus} onClick={clearTabFocus}>Approval History</Tab>
+                        )}
                     </TabList>
                     <div className={styles.tabActions}>
                         {activeTab === "contents" && (
@@ -6809,7 +6923,7 @@ function ChecklistDetails({
                             })}
                         </div>
                     </div>
-                ) : (
+                ) : canShowApprovalHistory && activeTab === "approvalHistory" ? (
                     <div className={styles.tabPanel}>
                         <div className={styles.formStack}>
                             <section className={styles.generalSection}>
@@ -6828,7 +6942,7 @@ function ChecklistDetails({
                             </section>
                         </div>
                     </div>
-                )}
+                ) : null}
             </div>
             <Dialog
                 open={Boolean(pendingSubmissionResponse)}
