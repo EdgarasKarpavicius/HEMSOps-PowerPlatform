@@ -469,6 +469,10 @@ const useStyles = makeStyles({
         rowGap: "10px",
         overflow: "hidden",
     },
+    compactShell: {
+        paddingTop: "4px",
+        rowGap: "4px",
+    },
     header: {
         display: "flex",
         alignItems: "flex-start",
@@ -631,8 +635,9 @@ const useStyles = makeStyles({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
+        flexWrap: "wrap",
         gap: "10px",
-        padding: "0 0 4px",
+        padding: "0 0 2px",
         ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
     },
     tabLabel: {
@@ -649,6 +654,15 @@ const useStyles = makeStyles({
         gap: "8px",
         flexShrink: 0,
     },
+    tabActions: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        gap: "8px",
+        flexWrap: "wrap",
+        marginLeft: "auto",
+        flexShrink: 0,
+    },
     tabPanel: {
         display: "flex",
         flexDirection: "column",
@@ -656,18 +670,19 @@ const useStyles = makeStyles({
         flexBasis: 0,
         minHeight: 0,
         overflow: "hidden",
-        padding: "8px 0 0",
+        padding: "6px 0 0",
         "@media (max-width: 900px)": {
             overflow: "auto",
         },
     },
     formStack: {
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
+        gridTemplateColumns: "minmax(0, 1fr)",
         gap: "12px",
         alignItems: "start",
         minHeight: 0,
         overflow: "auto",
+        paddingRight: "2px",
     },
     optionsList: {
         display: "flex",
@@ -702,19 +717,58 @@ const useStyles = makeStyles({
     generalSection: {
         display: "flex",
         flexDirection: "column",
-        gap: "10px",
+        gap: "14px",
         width: "100%",
         boxSizing: "border-box",
-        minHeight: "100%",
-        padding: "12px",
+        padding: "16px",
         backgroundColor: tokens.colorNeutralBackground1,
         ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
         borderRadius: tokens.borderRadiusMedium,
+        boxShadow: tokens.shadow2,
+    },
+    generalSectionHeader: {
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: "12px",
+        paddingBottom: "10px",
+        ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+        "@media (max-width: 600px)": {
+            flexDirection: "column",
+        },
+    },
+    generalSectionHeading: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "2px",
+        minWidth: 0,
     },
     generalSectionTitle: {
-        fontSize: "14px",
-        lineHeight: "20px",
+        fontSize: "16px",
+        lineHeight: "22px",
         fontWeight: tokens.fontWeightSemibold,
+    },
+    generalFormGrid: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gap: "14px 16px",
+        alignItems: "start",
+        "@media (max-width: 760px)": {
+            gridTemplateColumns: "minmax(0, 1fr)",
+        },
+    },
+    generalFieldWide: {
+        gridColumn: "1 / -1",
+    },
+    readOnlyInput: {
+        width: "100%",
+        color: tokens.colorNeutralForeground1,
+        backgroundColor: tokens.colorNeutralBackground2,
+    },
+    sectionStatusRow: {
+        display: "flex",
+        alignItems: "center",
+        minHeight: "22px",
     },
     controlFullWidth: {
         width: "100%",
@@ -3037,7 +3091,7 @@ const GeneratedComponent = () => {
                     : undefined
             }
         >
-            <div className={styles.shell}>
+            <div className={[styles.shell, pageChecklistVersionId ? styles.compactShell : ""].filter(Boolean).join(" ")}>
                 {message && (
                     <MessageBar intent="warning">
                         <MessageBarBody>{message}</MessageBarBody>
@@ -3050,6 +3104,7 @@ const GeneratedComponent = () => {
                         version={selectedVersion}
                         statusOptions={statusOptions}
                         onVersionSaved={setSelectedVersion}
+                        useCompactVersionHeader={Boolean(pageChecklistVersionId)}
                         t={t}
                     />
                 ) : (
@@ -3345,11 +3400,13 @@ function ChecklistDetails({
     version,
     statusOptions,
     onVersionSaved,
+    useCompactVersionHeader,
     t,
 }: {
     version: ChecklistVersion;
     statusOptions: Record<number, StatusOption>;
     onVersionSaved: (version: ChecklistVersion) => void;
+    useCompactVersionHeader?: boolean;
     t: (key: string) => string;
 }) {
     const styles = useStyles();
@@ -5118,7 +5175,6 @@ function ChecklistDetails({
         );
     };
     const sectionCount = flattenedSections.length;
-    const versionLabel = `${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`;
     const isPendingReview =
         version.statecode === VERSION_STATE_ACTIVE &&
         version.statuscode === VERSION_STATUS_PENDING_REVIEW;
@@ -5137,61 +5193,65 @@ function ChecklistDetails({
                     <Text>{shortcutNotice}</Text>
                 </div>
             )}
-            <div className={styles.editorHeader}>
-                <div className={styles.titleStack}>
-                    <div className={styles.editableTitleRow}>
-                        <Text as="h1" className={styles.pageTitle}>
-                            {checklistName || checklist.name}
-                        </Text>
-                        <StatusPill
-                            statuscode={version.statuscode}
-                            fallbackLabel={version.statusLabel}
-                            statusOptions={statusOptions}
-                            className={`${styles.statusPill} ${styles.headerStatusPill}`}
-                        />
+            {!useCompactVersionHeader && (
+                <div className={styles.editorHeader}>
+                    <div className={styles.titleStack}>
+                        <div className={styles.editableTitleRow}>
+                            <Text as="h1" className={styles.pageTitle}>
+                                {checklistName || checklist.name}
+                            </Text>
+                            <StatusPill
+                                statuscode={version.statuscode}
+                                fallbackLabel={version.statusLabel}
+                                statusOptions={statusOptions}
+                                className={`${styles.statusPill} ${styles.headerStatusPill}`}
+                            />
+                        </div>
+                        <div className={styles.titleMetadataRow}>
+                            <Caption1 className={styles.pageSubtitle}>
+                                {`${t("version")}: ${formatVersionNumber(versionNumber) || "-"}`}
+                            </Caption1>
+                        </div>
                     </div>
-                    <div className={styles.titleMetadataRow}>
-                        <Caption1 className={styles.pageSubtitle}>{versionLabel}</Caption1>
-                    </div>
-                </div>
-                <div className={styles.headerAction}>
-                    {canRespondToReview && (
-                        <>
-                            <Button
-                                appearance="secondary"
-                                icon={<DismissRegular />}
-                                onClick={() => requestReviewResponse("reject")}
-                            >
-                                Reject
-                            </Button>
-                            <Button
-                                appearance="secondary"
-                                icon={<WarningRegular />}
-                                onClick={() => requestReviewResponse("requiresAmendments")}
-                            >
-                                Requires Amendments
-                            </Button>
+                    <div className={styles.headerAction}>
+                        {canRespondToReview && (
+                            <>
+                                <Button
+                                    appearance="secondary"
+                                    icon={<DismissRegular />}
+                                    onClick={() => requestReviewResponse("reject")}
+                                >
+                                    Reject
+                                </Button>
+                                <Button
+                                    appearance="secondary"
+                                    icon={<WarningRegular />}
+                                    onClick={() => requestReviewResponse("requiresAmendments")}
+                                >
+                                    Requires Amendments
+                                </Button>
+                                <Button
+                                    appearance="primary"
+                                    icon={<CheckmarkRegular />}
+                                    onClick={() => requestReviewResponse("approve")}
+                                >
+                                    Approve
+                                </Button>
+                            </>
+                        )}
+                        {canSubmitForApproval && (
                             <Button
                                 appearance="primary"
-                                icon={<CheckmarkRegular />}
-                                onClick={() => requestReviewResponse("approve")}
+                                className={requiresChecklistVersionReview ? undefined : styles.publishButton}
+                                icon={versionActionIcon}
+                                onClick={handleSubmitForApproval}
                             >
-                                Approve
+                                {versionActionLabel}
                             </Button>
-                        </>
-                    )}
-                    {canSubmitForApproval && (
-                        <Button
-                            appearance="primary"
-                            className={requiresChecklistVersionReview ? undefined : styles.publishButton}
-                            icon={versionActionIcon}
-                            onClick={handleSubmitForApproval}
-                        >
-                            {versionActionLabel}
-                        </Button>
-                    )}
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
             {isPendingReview && (
                 <div className={styles.reviewSummary}>
                     <div className={styles.reviewSummaryItem}>
@@ -5225,123 +5285,182 @@ function ChecklistDetails({
                         <Tab className={styles.tabLabel} value="contents" onFocus={clearTabFocus} onClick={clearTabFocus}>Contents</Tab>
                         <Tab className={styles.tabLabel} value="options" onFocus={clearTabFocus} onClick={clearTabFocus}>Options</Tab>
                     </TabList>
-                    {isVersionEditable && hasDefinitionChanges && (
-                        <div className={styles.saveActions}>
-                            <Button
-                                appearance="secondary"
-                                icon={<DismissRegular />}
-                                disabled={isSaving}
-                                onClick={resetEditorChanges}
-                            >
-                                Cancel changes
-                            </Button>
+                    <div className={styles.tabActions}>
+                        {useCompactVersionHeader && canRespondToReview && (
+                            <>
+                                <Button
+                                    appearance="secondary"
+                                    icon={<DismissRegular />}
+                                    onClick={() => requestReviewResponse("reject")}
+                                >
+                                    Reject
+                                </Button>
+                                <Button
+                                    appearance="secondary"
+                                    icon={<WarningRegular />}
+                                    onClick={() => requestReviewResponse("requiresAmendments")}
+                                >
+                                    Requires Amendments
+                                </Button>
+                                <Button
+                                    appearance="primary"
+                                    icon={<CheckmarkRegular />}
+                                    onClick={() => requestReviewResponse("approve")}
+                                >
+                                    Approve
+                                </Button>
+                            </>
+                        )}
+                        {useCompactVersionHeader && canSubmitForApproval && (
                             <Button
                                 appearance="primary"
-                                icon={<SaveRegular />}
-                                disabled={isSaving}
-                                onClick={handleSave}
+                                className={requiresChecklistVersionReview ? undefined : styles.publishButton}
+                                icon={versionActionIcon}
+                                onClick={handleSubmitForApproval}
                             >
-                                {isSaving ? "Saving..." : "Save changes"}
+                                {versionActionLabel}
                             </Button>
-                        </div>
-                    )}
+                        )}
+                        {isVersionEditable && hasDefinitionChanges && (
+                            <div className={styles.saveActions}>
+                                <Button
+                                    appearance="secondary"
+                                    icon={<DismissRegular />}
+                                    disabled={isSaving}
+                                    onClick={resetEditorChanges}
+                                >
+                                    Cancel changes
+                                </Button>
+                                <Button
+                                    appearance="primary"
+                                    icon={<SaveRegular />}
+                                    disabled={isSaving}
+                                    onClick={handleSave}
+                                >
+                                    {isSaving ? "Saving..." : "Save changes"}
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                 </div>
                 {activeTab === "general" ? (
                     <div className={styles.tabPanel}>
                         <div className={styles.formStack}>
                             <section className={styles.generalSection}>
-                                <Text className={styles.generalSectionTitle}>Version details</Text>
-                                <Field label="Checklist name">
-                                    <Input
-                                        className={styles.controlFullWidth}
-                                        value={checklistName}
-                                        disabled={!isVersionEditable}
-                                        onChange={(_, data) => {
-                                            if (!isVersionEditable) return;
-                                            setChecklistName(data.value);
-                                            markDefinitionChanged();
-                                        }}
-                                    />
-                                </Field>
-                                <Field label="Version type">
-                                    <Dropdown
-                                        className={styles.controlFullWidth}
-                                        selectedOptions={[String(versionType)]}
-                                        value={VERSION_TYPES.find((item) => item.key === versionType)?.text || ""}
-                                        disabled={!isVersionEditable}
-                                        onOptionSelect={(_, data) => {
-                                            if (!isVersionEditable) return;
-                                            setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR);
-                                            markDefinitionChanged();
-                                        }}
-                                    >
-                                        {VERSION_TYPES.map((item) => (
-                                            <Option key={item.key} value={String(item.key)}>
-                                                {item.text}
-                                            </Option>
-                                        ))}
-                                    </Dropdown>
-                                </Field>
-                                <Field label="Version number">
-                                    <Input
-                                        className={styles.controlFullWidth}
-                                        type="number"
-                                        step="0.01"
-                                        value={versionNumber}
-                                        disabled={!isVersionEditable}
-                                        onChange={(_, data) => {
-                                            if (!isVersionEditable) return;
-                                            setVersionNumber(data.value);
-                                            markDefinitionChanged();
-                                        }}
-                                        onBlur={() => {
-                                            if (isVersionEditable) setVersionNumber((current) => formatVersionNumber(current));
-                                        }}
-                                    />
-                                </Field>
-                                <Field label="Description">
-                                    <Textarea
-                                        className={styles.controlFullWidth}
-                                        resize="vertical"
-                                        rows={5}
-                                        value={description}
-                                        disabled={!isVersionEditable}
-                                        onChange={(_, data) => {
-                                            if (!isVersionEditable) return;
-                                            setDescription(data.value);
-                                            markDefinitionChanged();
-                                        }}
-                                    />
-                                </Field>
+                                <div className={styles.generalSectionHeader}>
+                                    <div className={styles.generalSectionHeading}>
+                                        <Text className={styles.generalSectionTitle}>Version</Text>
+                                    </div>
+                                    {useCompactVersionHeader && (
+                                        <div className={styles.sectionStatusRow}>
+                                            <StatusPill
+                                                statuscode={version.statuscode}
+                                                fallbackLabel={version.statusLabel}
+                                                statusOptions={statusOptions}
+                                                className={`${styles.statusPill} ${styles.headerStatusPill}`}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className={styles.generalFormGrid}>
+                                    <Field label="Checklist name" className={styles.generalFieldWide}>
+                                        <Input
+                                            className={styles.controlFullWidth}
+                                            value={checklistName}
+                                            disabled={!isVersionEditable}
+                                            onChange={(_, data) => {
+                                                if (!isVersionEditable) return;
+                                                setChecklistName(data.value);
+                                                markDefinitionChanged();
+                                            }}
+                                        />
+                                    </Field>
+                                    <Field label="Version type">
+                                        <Dropdown
+                                            className={styles.controlFullWidth}
+                                            selectedOptions={[String(versionType)]}
+                                            value={VERSION_TYPES.find((item) => item.key === versionType)?.text || ""}
+                                            disabled={!isVersionEditable}
+                                            onOptionSelect={(_, data) => {
+                                                if (!isVersionEditable) return;
+                                                setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR);
+                                                markDefinitionChanged();
+                                            }}
+                                        >
+                                            {VERSION_TYPES.map((item) => (
+                                                <Option key={item.key} value={String(item.key)}>
+                                                    {item.text}
+                                                </Option>
+                                            ))}
+                                        </Dropdown>
+                                    </Field>
+                                    <Field label="Version number">
+                                        <Input
+                                            className={styles.controlFullWidth}
+                                            type="number"
+                                            step="0.01"
+                                            value={versionNumber}
+                                            disabled={!isVersionEditable}
+                                            onChange={(_, data) => {
+                                                if (!isVersionEditable) return;
+                                                setVersionNumber(data.value);
+                                                markDefinitionChanged();
+                                            }}
+                                            onBlur={() => {
+                                                if (isVersionEditable) setVersionNumber((current) => formatVersionNumber(current));
+                                            }}
+                                        />
+                                    </Field>
+                                    <Field label="Description" className={styles.generalFieldWide}>
+                                        <Textarea
+                                            className={styles.controlFullWidth}
+                                            resize="vertical"
+                                            rows={5}
+                                            value={description}
+                                            disabled={!isVersionEditable}
+                                            onChange={(_, data) => {
+                                                if (!isVersionEditable) return;
+                                                setDescription(data.value);
+                                                markDefinitionChanged();
+                                            }}
+                                        />
+                                    </Field>
+                                </div>
                             </section>
                             <section className={styles.generalSection}>
-                                <Text className={styles.generalSectionTitle}>Applied to</Text>
-                                <Field label={appliesToTarget?.label || "Applied to"}>
-                                    <Dropdown
-                                        className={styles.controlFullWidth}
-                                        placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type is configured"}
-                                        selectedOptions={appliesTo?.id ? [appliesTo.id] : []}
-                                        value={appliesTo ? getAppliesToOptionText(appliesTo) : ""}
-                                        disabled={!isVersionEditable || !appliesToTarget}
-                                        onOptionSelect={(_, data) => {
-                                            if (!isVersionEditable) return;
-                                            const selected = appliesToOptions.find((item) => item.id === data.optionValue) || null;
-                                            setAppliesTo(selected);
-                                            markDefinitionChanged();
-                                        }}
-                                    >
-                                        {appliesToOptions.map((item) => (
-                                            <Option key={item.id} value={item.id}>
-                                                <span>
-                                                    {item.category && (
-                                                        <span className={styles.optionGroupText}>{`${item.category} / `}</span>
-                                                    )}
-                                                    {item.name}
-                                                </span>
-                                            </Option>
-                                        ))}
-                                    </Dropdown>
-                                </Field>
+                                <div className={styles.generalSectionHeader}>
+                                    <div className={styles.generalSectionHeading}>
+                                        <Text className={styles.generalSectionTitle}>Application</Text>
+                                    </div>
+                                </div>
+                                <div className={styles.generalFormGrid}>
+                                    <Field label={appliesToTarget?.label || "Applied to"} className={styles.generalFieldWide}>
+                                        <Dropdown
+                                            className={styles.controlFullWidth}
+                                            placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type is configured"}
+                                            selectedOptions={appliesTo?.id ? [appliesTo.id] : []}
+                                            value={appliesTo ? getAppliesToOptionText(appliesTo) : ""}
+                                            disabled={!isVersionEditable || !appliesToTarget}
+                                            onOptionSelect={(_, data) => {
+                                                if (!isVersionEditable) return;
+                                                const selected = appliesToOptions.find((item) => item.id === data.optionValue) || null;
+                                                setAppliesTo(selected);
+                                                markDefinitionChanged();
+                                            }}
+                                        >
+                                            {appliesToOptions.map((item) => (
+                                                <Option key={item.id} value={item.id}>
+                                                    <span>
+                                                        {item.category && (
+                                                            <span className={styles.optionGroupText}>{`${item.category} / `}</span>
+                                                        )}
+                                                        {item.name}
+                                                    </span>
+                                                </Option>
+                                            ))}
+                                        </Dropdown>
+                                    </Field>
+                                </div>
                             </section>
                         </div>
                     </div>
