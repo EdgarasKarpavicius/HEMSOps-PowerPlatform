@@ -80,8 +80,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                         target,
                         approvalPathValidated: true,
                         publishingUserId: context.InitiatingUserId,
-                        operationTime: context.OperationCreatedOn,
-                        publishedHistoryEventOn: context.OperationCreatedOn.AddTicks(-1));
+                        operationTime: context.OperationCreatedOn);
             }
             else if (reviewDecision == ChecklistVersionConstants.ReviewDecision.RequiresAmendments)
             {
