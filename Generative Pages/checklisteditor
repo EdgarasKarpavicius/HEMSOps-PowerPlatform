@@ -330,6 +330,7 @@ const VERSION_HISTORY_TABLE_NAME = "int_checklistversionhistory";
 const VERSION_STATE_ACTIVE = 0;
 const VERSION_STATE_INACTIVE = 1;
 const VERSION_STATUS_DRAFT = 100000000;
+const VERSION_STATUS_REQUIRES_AMENDMENTS = 100000005;
 const VERSION_STATUS_PENDING_REVIEW = 100000010;
 const VERSION_STATUS_PUBLISHED = 100000020;
 const VERSION_STATUS_REJECTED = 100000030;
@@ -382,6 +383,14 @@ const STATUS_LABELS: Record<number, string> = {
     [STATUS_PUBLISHED]: "Published",
     [STATUS_INACTIVE]: "Inactive",
     [STATUS_IN_REVIEW]: "In review",
+    [VERSION_STATUS_DRAFT]: "Draft",
+    [VERSION_STATUS_REQUIRES_AMENDMENTS]: "Requires Amendments",
+    [VERSION_STATUS_PENDING_REVIEW]: "Pending Review",
+    [VERSION_STATUS_PUBLISHED]: "Published",
+    [VERSION_STATUS_REJECTED]: "Rejected",
+    [VERSION_STATUS_CANCELLED]: "Cancelled",
+    [VERSION_STATUS_SUPERSEDED]: "Superseded",
+    [VERSION_STATUS_ARCHIVED]: "Archived",
 };
 
 const CHECKLIST_TYPE_STANDARD = 1;
@@ -613,6 +622,21 @@ const useStyles = makeStyles({
         flexWrap: "wrap",
         justifyContent: "flex-end",
     },
+    amendmentMessageBody: {
+        display: "flex",
+        alignItems: "baseline",
+        columnGap: "8px",
+        flexWrap: "wrap",
+        minWidth: 0,
+    },
+    amendmentMessageTitle: {
+        fontWeight: tokens.fontWeightSemibold,
+        whiteSpace: "nowrap",
+    },
+    amendmentMessageComments: {
+        whiteSpace: "pre-wrap",
+        overflowWrap: "anywhere",
+    },
     detailsPage: {
         display: "flex",
         flexDirection: "column",
@@ -801,11 +825,15 @@ const useStyles = makeStyles({
         fontWeight: tokens.fontWeightSemibold,
         overflowWrap: "anywhere",
     },
-    timelineEventType: {
+    timelineRelativeTime: {
         color: tokens.colorNeutralForeground3,
+        backgroundColor: tokens.colorNeutralBackground3,
         fontSize: "12px",
         lineHeight: "16px",
+        padding: "2px 7px",
+        borderRadius: tokens.borderRadiusMedium,
         whiteSpace: "nowrap",
+        cursor: "default",
     },
     timelineMeta: {
         color: tokens.colorNeutralForeground3,
@@ -2000,6 +2028,65 @@ function formatDisplayDateTime(value?: string) {
     return date.toLocaleString();
 }
 
+function parseDateTime(value?: string) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameCalendarDate(first: Date, second: Date) {
+    return (
+        first.getFullYear() === second.getFullYear() &&
+        first.getMonth() === second.getMonth() &&
+        first.getDate() === second.getDate()
+    );
+}
+
+function formatFriendlyDateTime(value?: string, now = new Date()) {
+    const date = parseDateTime(value);
+    if (!date) return value || "";
+
+    const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000));
+    if (elapsedSeconds < 60) return "just now";
+
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+    if (elapsedMinutes < 60) return elapsedMinutes === 1 ? "1 min ago" : `${elapsedMinutes} mins ago`;
+
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) return elapsedHours === 1 ? "1 hour ago" : `${elapsedHours} hours ago`;
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (isSameCalendarDate(date, yesterday)) return "Yesterday";
+
+    const elapsedDays = Math.floor(elapsedHours / 24);
+    if (elapsedDays < 7) return `${elapsedDays} days ago`;
+
+    return new Intl.DateTimeFormat("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+    }).format(date);
+}
+
+function formatFullTimelineDateTime(value?: string) {
+    const date = parseDateTime(value);
+    if (!date) return value || "";
+
+    const weekday = new Intl.DateTimeFormat("en-GB", { weekday: "short" }).format(date);
+    const day = new Intl.DateTimeFormat("en-GB", { day: "2-digit" }).format(date);
+    const month = new Intl.DateTimeFormat("en-GB", { month: "short" }).format(date);
+    const year = new Intl.DateTimeFormat("en-GB", { year: "numeric" }).format(date);
+    const time = new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    }).format(date);
+
+    return `${weekday}, ${day} ${month} ${year}  ${time}`;
+}
+
 function getReviewOutcomeLabel(outcome: ChecklistVersionReviewOutcome) {
     if (outcome === "reject") return "Reject";
     if (outcome === "requiresAmendments") return "Requires Amendments";
@@ -2050,6 +2137,7 @@ function getChecklistVersionStatusLabel(value: number | null, formattedLabel = "
     const usableFormattedLabel = getUsableFormattedLabel(value, formattedLabel);
     if (usableFormattedLabel) return usableFormattedLabel;
     if (value === VERSION_STATUS_DRAFT) return "Draft";
+    if (value === VERSION_STATUS_REQUIRES_AMENDMENTS) return "Requires Amendments";
     if (value === VERSION_STATUS_PENDING_REVIEW) return "Pending Review";
     if (value === VERSION_STATUS_PUBLISHED) return "Published";
     if (value === VERSION_STATUS_REJECTED) return "Rejected";
@@ -4115,6 +4203,7 @@ function ChecklistDetails({
     const [pendingReviewResponse, setPendingReviewResponse] = useState<PendingReviewResponse>(null);
     const [pendingSubmissionResponse, setPendingSubmissionResponse] = useState<PendingSubmissionResponse>(null);
     const [isWorkflowActionRunning, setIsWorkflowActionRunning] = useState(false);
+    const [relativeTimeNow, setRelativeTimeNow] = useState(() => new Date());
     const { shortcutNotice, showShortcutNotice } = useShortcutNotice();
     const sectionFocusResetTimerRef = useRef<number | null>(null);
     const [hoveredSectionId, setHoveredSectionId] = useState("");
@@ -4127,6 +4216,11 @@ function ChecklistDetails({
         return () => {
             if (sectionFocusResetTimerRef.current) window.clearTimeout(sectionFocusResetTimerRef.current);
         };
+    }, []);
+
+    useEffect(() => {
+        const timerId = window.setInterval(() => setRelativeTimeNow(new Date()), 60000);
+        return () => window.clearInterval(timerId);
     }, []);
 
     useUnsavedChangesWarning(hasDefinitionChanges, isSaving);
@@ -4150,6 +4244,8 @@ function ChecklistDetails({
     const canShowApprovalHistory = version.statuscode !== VERSION_STATUS_DRAFT;
     const showAddContentActions = version.statecode !== VERSION_STATE_INACTIVE;
     const showEditHoverActions = version.statecode !== VERSION_STATE_INACTIVE;
+    const requiresAmendments = version.statuscode === VERSION_STATUS_REQUIRES_AMENDMENTS;
+    const reviewerComments = version.reviewReason.trim();
 
     useEffect(() => {
         if (showEditHoverActions) return;
@@ -5789,18 +5885,28 @@ function ChecklistDetails({
     };
     const canSubmitForApproval =
         isVersionEditable &&
-        version.statuscode === VERSION_STATUS_DRAFT &&
+        (version.statuscode === VERSION_STATUS_DRAFT || requiresAmendments) &&
         !hasDefinitionChanges;
     const canRespondToReview =
         isVersionEditable &&
         version.statuscode === VERSION_STATUS_PENDING_REVIEW &&
         userCanApproveChecklistVersion &&
         !hasDefinitionChanges;
-    const versionActionLabel = requiresChecklistVersionReview ? "Submit for Approval" : "Publish";
+    const versionActionLabel = requiresAmendments
+        ? requiresChecklistVersionReview
+            ? "Resubmit for Approval"
+            : "Publish Amendments"
+        : requiresChecklistVersionReview
+          ? "Submit for Approval"
+          : "Publish";
     const versionActionIcon = requiresChecklistVersionReview ? <SendRegular /> : <CheckmarkRegular />;
-    const versionActionDescription = requiresChecklistVersionReview
-        ? "This will submit the checklist version for review. An approver will need to approve it before it can become the active version."
-        : "This will publish the checklist version and make it the active version.";
+    const versionActionDescription = requiresAmendments
+        ? requiresChecklistVersionReview
+            ? "This will resubmit the amended checklist version for review."
+            : "This will publish the amended checklist version and make it the active version."
+        : requiresChecklistVersionReview
+          ? "This will submit the checklist version for review. An approver will need to approve it before it can become the active version."
+          : "This will publish the checklist version and make it the active version.";
     const buildSubmissionPayload = (comments = ""): ChecklistVersionSubmissionPayload => ({
         submissionComments: comments.trim(),
     });
@@ -6155,9 +6261,10 @@ function ChecklistDetails({
     const renderTimelineEntry = (entry: ChecklistVersionHistoryEntry, index: number) => {
         const isFirst = index === 0;
         const isLast = index === timelineEntries.length - 1;
-        const eventDate = formatDisplayDateTime(entry.eventOn || entry.createdOn);
+        const eventDateValue = entry.eventOn || entry.createdOn;
+        const friendlyEventDate = formatFriendlyDateTime(eventDateValue, relativeTimeNow);
+        const fullEventDate = formatFullTimelineDateTime(eventDateValue);
         const metaParts = [
-            eventDate,
             entry.eventBy ? `by ${entry.eventBy}` : "",
         ].filter(Boolean);
         const statusTransition = entry.fromStatusLabel || entry.toStatusLabel
@@ -6180,7 +6287,11 @@ function ChecklistDetails({
                 <div className={`${styles.timelineBody} ${isLast ? styles.timelineBodyLast : ""}`}>
                     <div className={styles.timelineTitleRow}>
                         <Text className={styles.timelineTitle}>{entry.title || entry.eventTypeLabel || "Checklist version event"}</Text>
-                        {entry.eventTypeLabel && <span className={styles.timelineEventType}>{entry.eventTypeLabel}</span>}
+                        {friendlyEventDate && (
+                            <Tooltip relationship="description" content={fullEventDate || friendlyEventDate}>
+                                <span className={styles.timelineRelativeTime}>{friendlyEventDate}</span>
+                            </Tooltip>
+                        )}
                     </div>
                     {metaParts.length > 0 && (
                         <Caption1 className={styles.timelineMeta}>{metaParts.join(" | ")}</Caption1>
@@ -6291,6 +6402,20 @@ function ChecklistDetails({
             {saveError && (
                 <MessageBar intent="error" className={styles.noPrint}>
                     <MessageBarBody>{saveError}</MessageBarBody>
+                </MessageBar>
+            )}
+            {requiresAmendments && (
+                <MessageBar intent="warning" layout="multiline" className={styles.noPrint}>
+                    <MessageBarBody>
+                        <div className={styles.amendmentMessageBody}>
+                            <Text className={styles.amendmentMessageTitle}>Requires amendments:</Text>
+                            {reviewerComments && (
+                                <Text className={styles.amendmentMessageComments}>
+                                    {reviewerComments}
+                                </Text>
+                            )}
+                        </div>
+                    </MessageBarBody>
                 </MessageBar>
             )}
             <div className={styles.printContentsDocument} aria-hidden={activeTab !== "contents"}>
