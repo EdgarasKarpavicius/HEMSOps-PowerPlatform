@@ -56,8 +56,8 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             SetStringIfPresent(history, ChecklistVersionConstants.ChecklistVersionHistory.Comments, comments);
             SetStringIfPresent(history, ChecklistVersionConstants.ChecklistVersionHistory.DetailsJson, detailsJson);
             SetOptionIfPresent(history, ChecklistVersionConstants.ChecklistVersionHistory.ReviewDecision, reviewDecision);
-            SetOptionIfPresent(history, ChecklistVersionConstants.ChecklistVersionHistory.FromStatus, fromStatus);
-            SetOptionIfPresent(history, ChecklistVersionConstants.ChecklistVersionHistory.ToStatus, toStatus);
+            SetIntegerIfPresent(history, ChecklistVersionConstants.ChecklistVersionHistory.FromStatus, fromStatus);
+            SetIntegerIfPresent(history, ChecklistVersionConstants.ChecklistVersionHistory.ToStatus, toStatus);
 
             _service.Create(history);
         }
@@ -75,6 +75,14 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             if (value.HasValue)
             {
                 entity[attributeName] = new OptionSetValue(value.Value);
+            }
+        }
+
+        private static void SetIntegerIfPresent(Entity entity, string attributeName, int? value)
+        {
+            if (value.HasValue)
+            {
+                entity[attributeName] = value.Value;
             }
         }
     }
