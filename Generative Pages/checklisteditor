@@ -665,6 +665,16 @@ const useStyles = makeStyles({
             color: "#ffffff",
         },
     },
+    rejectButtonIcon: {
+        "& svg": {
+            color: "#b10e1c",
+        },
+    },
+    requiresAmendmentsButtonIcon: {
+        "& svg": {
+            color: "#f7630c",
+        },
+    },
     approvalHistoryEmpty: {
         color: tokens.colorNeutralForeground3,
     },
@@ -1940,8 +1950,18 @@ function getReviewDecisionDisplayLabel(version: ChecklistVersion) {
     return "";
 }
 
+function getUsableFormattedLabel(value: number | null, formattedLabel = "") {
+    const label = String(formattedLabel || "").trim();
+    if (!label) return "";
+    if (value === null) return label;
+
+    const numericLabel = Number(label.replace(/,/g, ""));
+    return Number.isFinite(numericLabel) && numericLabel === value ? "" : label;
+}
+
 function getReviewDecisionLabelFromValue(value: number | null, formattedLabel = "") {
-    if (formattedLabel) return formattedLabel;
+    const usableFormattedLabel = getUsableFormattedLabel(value, formattedLabel);
+    if (usableFormattedLabel) return usableFormattedLabel;
     if (value === REVIEW_DECISION_APPROVED) return "Approved";
     if (value === REVIEW_DECISION_REJECTED) return "Rejected";
     if (value === REVIEW_DECISION_REQUIRES_AMENDMENTS) return "Requires Amendments";
@@ -1949,7 +1969,8 @@ function getReviewDecisionLabelFromValue(value: number | null, formattedLabel = 
 }
 
 function getHistoryEventTypeLabel(value: number | null, formattedLabel = "") {
-    if (formattedLabel) return formattedLabel;
+    const usableFormattedLabel = getUsableFormattedLabel(value, formattedLabel);
+    if (usableFormattedLabel) return usableFormattedLabel;
     if (value === HISTORY_EVENT_DRAFT_CREATED) return "Draft Created";
     if (value === HISTORY_EVENT_SUBMITTED) return "Submitted";
     if (value === HISTORY_EVENT_PUBLISHED) return "Published";
@@ -1962,7 +1983,8 @@ function getHistoryEventTypeLabel(value: number | null, formattedLabel = "") {
 }
 
 function getChecklistVersionStatusLabel(value: number | null, formattedLabel = "") {
-    if (formattedLabel) return formattedLabel;
+    const usableFormattedLabel = getUsableFormattedLabel(value, formattedLabel);
+    if (usableFormattedLabel) return usableFormattedLabel;
     if (value === VERSION_STATUS_DRAFT) return "Draft";
     if (value === VERSION_STATUS_PENDING_REVIEW) return "Pending Review";
     if (value === VERSION_STATUS_PUBLISHED) return "Published";
@@ -6114,6 +6136,7 @@ function ChecklistDetails({
                             <>
                                 <Button
                                     appearance="secondary"
+                                    className={styles.rejectButtonIcon}
                                     icon={<DismissRegular />}
                                     disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("reject")}
@@ -6122,6 +6145,7 @@ function ChecklistDetails({
                                 </Button>
                                 <Button
                                     appearance="secondary"
+                                    className={styles.requiresAmendmentsButtonIcon}
                                     icon={<WarningRegular />}
                                     disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("requiresAmendments")}
@@ -6202,6 +6226,7 @@ function ChecklistDetails({
                             <>
                                 <Button
                                     appearance="secondary"
+                                    className={styles.rejectButtonIcon}
                                     icon={<DismissRegular />}
                                     disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("reject")}
@@ -6210,6 +6235,7 @@ function ChecklistDetails({
                                 </Button>
                                 <Button
                                     appearance="secondary"
+                                    className={styles.requiresAmendmentsButtonIcon}
                                     icon={<WarningRegular />}
                                     disabled={isWorkflowActionRunning}
                                     onClick={() => requestReviewResponse("requiresAmendments")}
