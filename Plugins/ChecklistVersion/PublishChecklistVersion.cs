@@ -22,7 +22,8 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             bool approvalPathValidated,
             Guid publishingUserId,
             DateTime operationTime,
-            string comments = null)
+            string comments = null,
+            DateTime? publishedHistoryEventOn = null)
         {
             if (checklistVersionReference == null)
             {
@@ -108,7 +109,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 checklistVersionReference.Id,
                 ChecklistVersionConstants.HistoryEventType.Published,
                 publishingUserId,
-                operationTime,
+                publishedHistoryEventOn ?? operationTime,
                 "Published",
                 description: "Checklist version published.",
                 comments: comments,

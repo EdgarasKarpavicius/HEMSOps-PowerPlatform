@@ -71,12 +71,15 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                     "Approved",
                     description: "Checklist version approved for publishing.",
                     comments: reason,
-                    reviewDecision: ChecklistVersionConstants.ReviewDecision.Approved,
-                    fromStatus: ChecklistVersionConstants.ChecklistVersionStatus.PendingReview,
-                    toStatus: ChecklistVersionConstants.ChecklistVersionStatus.PendingReview);
+                    reviewDecision: ChecklistVersionConstants.ReviewDecision.Approved);
 
                 response = new PublishChecklistVersion(service, localPluginContext.TracingService)
-                    .Execute(target, approvalPathValidated: true, publishingUserId: context.InitiatingUserId, operationTime: context.OperationCreatedOn);
+                    .Execute(
+                        target,
+                        approvalPathValidated: true,
+                        publishingUserId: context.InitiatingUserId,
+                        operationTime: context.OperationCreatedOn,
+                        publishedHistoryEventOn: context.OperationCreatedOn.AddTicks(-1));
             }
             else if (reviewDecision == ChecklistVersionConstants.ReviewDecision.RequiresAmendments)
             {
