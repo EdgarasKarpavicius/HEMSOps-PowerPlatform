@@ -71,7 +71,9 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                     "Approved",
                     description: "Checklist version approved for publishing.",
                     comments: reason,
-                    reviewDecision: ChecklistVersionConstants.ReviewDecision.Approved);
+                    reviewDecision: ChecklistVersionConstants.ReviewDecision.Approved,
+                    fromStatus: ChecklistVersionConstants.ChecklistVersionStatus.PendingReview,
+                    toStatus: ChecklistVersionConstants.ChecklistVersionStatus.Published);
 
                 response = new PublishChecklistVersion(service, localPluginContext.TracingService)
                     .Execute(
@@ -173,7 +175,8 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 checklistReference.Id,
                 reason,
                 ChecklistVersionConstants.State.Active,
-                ChecklistVersionConstants.ChecklistVersionStatus.Draft,
+                ChecklistVersionConstants.ChecklistVersionStatus.RequiresAmendments,
+                ChecklistVersionConstants.ChecklistStatus.RequiresAmendments,
                 ChecklistVersionConstants.ReviewDecision.RequiresAmendments);
 
             return new ChecklistVersionApiResponse
@@ -199,6 +202,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 reason,
                 ChecklistVersionConstants.State.Inactive,
                 ChecklistVersionConstants.ChecklistVersionStatus.Rejected,
+                ChecklistVersionConstants.ChecklistStatus.RequiresAttention,
                 ChecklistVersionConstants.ReviewDecision.Rejected);
 
             return new ChecklistVersionApiResponse
@@ -216,6 +220,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             string reason,
             int checklistVersionState,
             int checklistVersionStatus,
+            int checklistStatus,
             int reviewDecision)
         {
             var updateVersion = new Entity(ChecklistVersionConstants.Table.ChecklistVersion, checklistVersionId)
@@ -232,7 +237,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             var updateChecklist = new Entity(ChecklistVersionConstants.Table.Checklist, checklistId)
             {
                 [ChecklistVersionConstants.SystemAttribute.StateCode] = new OptionSetValue(ChecklistVersionConstants.State.Active),
-                [ChecklistVersionConstants.SystemAttribute.StatusCode] = new OptionSetValue(ChecklistVersionConstants.ChecklistStatus.RequiresAttention)
+                [ChecklistVersionConstants.SystemAttribute.StatusCode] = new OptionSetValue(checklistStatus)
             };
             service.Update(updateChecklist);
 
@@ -266,7 +271,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
         private static string GetReviewHistoryDescription(int reviewDecision)
         {
             return reviewDecision == ChecklistVersionConstants.ReviewDecision.RequiresAmendments
-                ? "Checklist version returned to draft for amendments."
+                ? "Checklist version requires amendments before it can progress."
                 : "Checklist version rejected.";
         }
     }

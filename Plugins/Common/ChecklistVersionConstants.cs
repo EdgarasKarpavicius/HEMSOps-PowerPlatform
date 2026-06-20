@@ -72,6 +72,7 @@ namespace Intelogy.HEMSOps.Plugins.Common
         public static class ChecklistVersionStatus
         {
             public const int Draft = 100000000;
+            public const int RequiresAmendments = 100000005;
             public const int PendingReview = 100000010;
             public const int Published = 100000020;
             public const int Rejected = 100000030;
@@ -83,6 +84,7 @@ namespace Intelogy.HEMSOps.Plugins.Common
         public static class ChecklistStatus
         {
             public const int RequiresAttention = 100000000;
+            public const int RequiresAmendments = 100000005;
             public const int PendingReview = 100000010;
             public const int Published = 100000020;
         }

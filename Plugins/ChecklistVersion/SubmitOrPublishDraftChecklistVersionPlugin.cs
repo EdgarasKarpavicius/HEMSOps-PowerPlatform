@@ -77,10 +77,13 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             var stateCode = version.GetOptionValue(ChecklistVersionConstants.SystemAttribute.StateCode);
             var statusCode = version.GetOptionValue(ChecklistVersionConstants.SystemAttribute.StatusCode);
 
-            if (stateCode != ChecklistVersionConstants.State.Active ||
-                statusCode != ChecklistVersionConstants.ChecklistVersionStatus.Draft)
+            var isSubmittableStatus =
+                statusCode == ChecklistVersionConstants.ChecklistVersionStatus.Draft ||
+                statusCode == ChecklistVersionConstants.ChecklistVersionStatus.RequiresAmendments;
+
+            if (stateCode != ChecklistVersionConstants.State.Active || !isSubmittableStatus)
             {
-                throw new InvalidPluginExecutionException("Only draft checklist versions can be submitted or published.");
+                throw new InvalidPluginExecutionException("Only draft or requires-amendments checklist versions can be submitted or published.");
             }
 
             if (version.GetAttributeValue<EntityReference>(ChecklistVersionConstants.ChecklistVersion.Checklist) == null)
@@ -102,6 +105,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
         {
             var checklistReference = version.GetAttributeValue<EntityReference>(ChecklistVersionConstants.ChecklistVersion.Checklist);
             var reviewDecision = version.GetOptionValue(ChecklistVersionConstants.ChecklistVersion.ReviewDecision);
+            var currentStatus = version.GetOptionValue(ChecklistVersionConstants.SystemAttribute.StatusCode);
 
             var updateVersion = new Entity(ChecklistVersionConstants.Table.ChecklistVersion, version.Id)
             {
@@ -137,7 +141,7 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 "Submitted for review",
                 description: "Checklist version submitted for review.",
                 comments: submissionComments,
-                fromStatus: ChecklistVersionConstants.ChecklistVersionStatus.Draft,
+                fromStatus: currentStatus,
                 toStatus: ChecklistVersionConstants.ChecklistVersionStatus.PendingReview);
 
             return new ChecklistVersionApiResponse

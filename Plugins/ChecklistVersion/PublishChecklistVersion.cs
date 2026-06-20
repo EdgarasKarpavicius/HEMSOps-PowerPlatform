@@ -105,6 +105,11 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
             _service.Update(publishVersion);
 
             var historyWriter = new ChecklistVersionHistoryWriter(_service);
+            var publishedFromStatus = approvalPathValidated ? (int?)null : statusCode;
+            var publishedToStatus = approvalPathValidated
+                ? (int?)null
+                : ChecklistVersionConstants.ChecklistVersionStatus.Published;
+
             historyWriter.Create(
                 checklistVersionReference.Id,
                 ChecklistVersionConstants.HistoryEventType.Published,
@@ -113,8 +118,8 @@ namespace Intelogy.HEMSOps.Plugins.ChecklistVersion
                 "Published",
                 description: "Checklist version published.",
                 comments: comments,
-                fromStatus: statusCode,
-                toStatus: ChecklistVersionConstants.ChecklistVersionStatus.Published);
+                fromStatus: publishedFromStatus,
+                toStatus: publishedToStatus);
 
             foreach (var publishedVersion in RetrieveOtherPublishedVersions(checklistVersionReference.Id, checklistReference.Id).Entities)
             {
