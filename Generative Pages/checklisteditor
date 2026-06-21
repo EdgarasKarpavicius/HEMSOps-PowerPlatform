@@ -301,6 +301,15 @@ type ChecklistVersionReviewPayload = {
 
 type KeyboardPane = "sections" | "items";
 
+type SectionKeyboardTarget =
+    | { type: "section"; sectionId: string }
+    | { type: "addChildSection"; sectionId: string }
+    | { type: "addTopLevelSection" };
+
+type ItemKeyboardTarget =
+    | { type: "item"; itemId: string }
+    | { type: "addItem" };
+
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     return (
@@ -689,6 +698,14 @@ const useStyles = makeStyles({
             backgroundColor: "#0C5F0C",
             color: "#ffffff",
         },
+        ":disabled": {
+            backgroundColor: tokens.colorNeutralBackgroundDisabled,
+            color: tokens.colorNeutralForegroundDisabled,
+        },
+        ":disabled:hover": {
+            backgroundColor: tokens.colorNeutralBackgroundDisabled,
+            color: tokens.colorNeutralForegroundDisabled,
+        },
     },
     rejectButtonIcon: {
         "& svg": {
@@ -946,6 +963,12 @@ const useStyles = makeStyles({
         minHeight: 0,
         overflow: "hidden",
         padding: "6px 0 0",
+        ":focus": {
+            outlineStyle: "none",
+        },
+        ":focus-visible": {
+            outlineStyle: "none",
+        },
         "@media (max-width: 900px)": {
             overflow: "auto",
         },
@@ -1087,6 +1110,37 @@ const useStyles = makeStyles({
             fontSize: "8.5pt",
             textAlign: "right",
             whiteSpace: "nowrap",
+        },
+    },
+    printCompletionOptions: {
+        "@media print": {
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(54px, auto))",
+            gap: "4px 6px",
+            justifyContent: "end",
+            alignItems: "center",
+            marginTop: "5px",
+        },
+    },
+    printCompletionOption: {
+        "@media print": {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            gap: "4px",
+            minWidth: "54px",
+            color: "#222",
+            fontSize: "8.5pt",
+            whiteSpace: "nowrap",
+        },
+        "::before": {
+            content: '""',
+            width: "10px",
+            height: "10px",
+            border: "1px solid #555",
+            backgroundColor: "#fff",
+            printColorAdjust: "exact",
+            WebkitPrintColorAdjust: "exact",
         },
     },
     printEmptyState: {
@@ -1481,6 +1535,11 @@ const useStyles = makeStyles({
         fontWeight: tokens.fontWeightSemibold,
         minWidth: "auto",
         padding: "0",
+        ":focus-visible": {
+            boxShadow: `0 0 0 2px ${tokens.colorNeutralBackground1}, 0 0 0 4px ${tokens.colorBrandStroke1}`,
+            outlineStyle: "none",
+            borderRadius: tokens.borderRadiusMedium,
+        },
     },
     sectionMain: {
         display: "flex",
@@ -1598,24 +1657,27 @@ const useStyles = makeStyles({
         fontWeight: tokens.fontWeightSemibold,
     },
     keyboardFocusRow: {
-        borderTopColor: tokens.colorNeutralForeground1,
-        borderRightColor: tokens.colorNeutralForeground1,
-        borderBottomColor: tokens.colorNeutralForeground1,
-        borderLeftColor: tokens.colorNeutralForeground1,
-        boxShadow: `inset 0 0 0 2px ${tokens.colorNeutralForeground1}`,
-        outlineWidth: "2px",
-        outlineStyle: "solid",
-        outlineColor: tokens.colorNeutralForeground1,
-        outlineOffset: "-2px",
+        position: "relative",
     },
     keyboardFocusOverlay: {
         position: "absolute",
         inset: "2px",
         borderRadius: tokens.borderRadiusMedium,
-        ...shorthands.border("2px", "solid", tokens.colorNeutralForeground1),
+        ...shorthands.border("2px", "solid", tokens.colorBrandStroke1),
         boxShadow: `0 0 0 1px ${tokens.colorNeutralBackground1}`,
         pointerEvents: "none",
         zIndex: 5,
+    },
+    keyboardActionFocus: {
+        boxShadow: `0 0 0 2px ${tokens.colorNeutralBackground1}, 0 0 0 4px ${tokens.colorBrandStroke1}`,
+        outlineWidth: "2px",
+        outlineStyle: "solid",
+        outlineColor: tokens.colorBrandStroke1,
+        outlineOffset: "2px",
+        borderRadius: tokens.borderRadiusMedium,
+        "@media (forced-colors: active)": {
+            outlineColor: "Highlight",
+        },
     },
     draggingRow: {
         opacity: 0.55,
@@ -1793,7 +1855,7 @@ const useStyles = makeStyles({
         cursor: "default",
     },
     selectedItemRow: {
-        ...shorthands.border("1px", "solid", tokens.colorNeutralForeground1),
+        backgroundColor: tokens.colorBrandBackground2,
     },
     itemReadOnlyText: {
         display: "flex",
@@ -4171,6 +4233,9 @@ function ChecklistDetails({
         flattenSections(version.definition.checklistVersionContents.sections)[0]?.section.id || ""
     );
     const [selectedItemId, setSelectedItemId] = useState("");
+    const [focusedSectionAction, setFocusedSectionAction] = useState<SectionKeyboardTarget | null>(null);
+    const [focusedItemAction, setFocusedItemAction] = useState<ItemKeyboardTarget | null>(null);
+    const [focusedAddButtonKey, setFocusedAddButtonKey] = useState("");
     const [keyboardPane, setKeyboardPane] = useState<KeyboardPane>("sections");
     const [keyboardNavigationActive, setKeyboardNavigationActive] = useState(false);
     const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
@@ -4187,6 +4252,7 @@ function ChecklistDetails({
     const sectionPointerDragRef = useRef<SectionPointerDrag>(null);
     const itemPointerDragRef = useRef<ItemPointerDrag>(null);
     const itemNameInputRef = useRef<HTMLInputElement>(null);
+    const contentsPanelRef = useRef<HTMLDivElement>(null);
     const sectionTreeBodyRef = useRef<HTMLDivElement>(null);
     const ignoreNextSectionClickRef = useRef(false);
     const ignoreNextItemClickRef = useRef(false);
@@ -4303,6 +4369,28 @@ function ChecklistDetails({
         [collapsedSectionIds, sections]
     );
     const visibleSections = useMemo(() => flattenVisibleSections(sections, collapsedSectionIds), [collapsedSectionIds, sections]);
+    const canFocusAddActions = showAddContentActions && isVersionEditable && !draftSection && !draftItem;
+    const sectionKeyboardTargets = useMemo(() => {
+        const buildTargets = (items: ChecklistSection[]): SectionKeyboardTarget[] =>
+            items.flatMap((section) => {
+                const isCollapsed = collapsedSectionIds.has(section.id);
+                const childTargets = isCollapsed ? [] : buildTargets(section.sections);
+                const canAddChild =
+                    canFocusAddActions &&
+                    !isCollapsed &&
+                    section.parentId === null &&
+                    section.sections.length > 0;
+                return [
+                    { type: "section", sectionId: section.id } as SectionKeyboardTarget,
+                    ...childTargets,
+                    ...(canAddChild ? [{ type: "addChildSection", sectionId: section.id } as SectionKeyboardTarget] : []),
+                ];
+            });
+        return [
+            ...buildTargets(sections),
+            ...(canFocusAddActions ? [{ type: "addTopLevelSection" } as SectionKeyboardTarget] : []),
+        ];
+    }, [canFocusAddActions, collapsedSectionIds, sections]);
     const selectedSection = useMemo(
         () => findSectionById(sections, selectedSectionId),
         [sections, selectedSectionId]
@@ -4327,7 +4415,13 @@ function ChecklistDetails({
         () => selectedSection?.items.find((item) => item.id === selectedItemId) || null,
         [selectedItemId, selectedSection]
     );
-    const canStartItemForSelectedSection = Boolean(selectedSection && !selectedSectionHasChildren);
+    const itemKeyboardTargets = useMemo<ItemKeyboardTarget[]>(() => {
+        if (!selectedSection || selectedSection.sections.length > 0) return [];
+        return [
+            ...selectedSection.items.map((item) => ({ type: "item", itemId: item.id } as ItemKeyboardTarget)),
+            ...(canFocusAddActions ? [{ type: "addItem" } as ItemKeyboardTarget] : []),
+        ];
+    }, [canFocusAddActions, selectedSection]);
     useEffect(() => {
         if (
             draftItem &&
@@ -4361,42 +4455,140 @@ function ChecklistDetails({
         setSelectedSectionId(sectionId);
         setHighlightedSectionId(sectionId);
         setSelectedItemId("");
+        setFocusedSectionAction(null);
+        setFocusedItemAction(null);
     };
     const selectSectionPane = (sectionId: string) => {
         setKeyboardPane("sections");
         selectSection(sectionId);
     };
+    const focusSectionsPaneForContentTab = () => {
+        setKeyboardPane("sections");
+        setSelectedItemId("");
+        setFocusedItemAction(null);
+        const selectedVisibleSection = visibleSections.find(({ section }) => section.id === selectedSectionId)?.section;
+        const firstVisibleSection = visibleSections[0]?.section || null;
+        const nextSection = selectedVisibleSection || firstVisibleSection;
+        if (nextSection) {
+            setHighlightedSectionId(nextSection.id);
+            setFocusedSectionAction(null);
+            setKeyboardNavigationActive(false);
+            return;
+        }
+        const addTopLevelTarget = sectionKeyboardTargets.find((target) => target.type === "addTopLevelSection") || null;
+        if (addTopLevelTarget) {
+            setFocusedSectionAction(addTopLevelTarget);
+            setKeyboardNavigationActive(false);
+            return;
+        }
+        setFocusedSectionAction(null);
+        setKeyboardNavigationActive(false);
+    };
     const moveSectionHighlight = (direction: 1 | -1) => {
-        if (!visibleSections.length) return;
-        const currentIndex = visibleSections.findIndex(({ section }) => section.id === highlightedSectionId);
+        if (!sectionKeyboardTargets.length) return;
+        const currentIndex = focusedSectionAction
+            ? sectionKeyboardTargets.findIndex((target) =>
+                  target.type === focusedSectionAction.type &&
+                  (target.type === "addTopLevelSection" || focusedSectionAction.type === "addTopLevelSection"
+                      ? true
+                      : target.sectionId === focusedSectionAction.sectionId)
+              )
+            : sectionKeyboardTargets.findIndex((target) => target.type === "section" && target.sectionId === highlightedSectionId);
         const nextIndex =
             currentIndex < 0
                 ? 0
-                : Math.min(visibleSections.length - 1, Math.max(0, currentIndex + direction));
+                : Math.min(sectionKeyboardTargets.length - 1, Math.max(0, currentIndex + direction));
+        const nextTarget = sectionKeyboardTargets[nextIndex];
         setKeyboardPane("sections");
-        setHighlightedSectionId(visibleSections[nextIndex].section.id);
         setSelectedItemId("");
+        setFocusedItemAction(null);
+        if (nextTarget.type === "section") {
+            setHighlightedSectionId(nextTarget.sectionId);
+            setFocusedSectionAction(null);
+        } else {
+            setFocusedSectionAction(nextTarget);
+        }
         if (sectionFocusResetTimerRef.current) window.clearTimeout(sectionFocusResetTimerRef.current);
         sectionFocusResetTimerRef.current = window.setTimeout(() => {
             setHighlightedSectionId(selectedSectionId);
+            setFocusedSectionAction(null);
+            setFocusedItemAction(null);
             setKeyboardNavigationActive(false);
             sectionFocusResetTimerRef.current = null;
         }, 5000);
     };
     const moveItemHighlight = (direction: 1 | -1) => {
-        if (!selectedSection?.items.length) return;
-        const currentIndex = selectedSection.items.findIndex((item) => item.id === selectedItemId);
+        if (!itemKeyboardTargets.length) return;
+        const currentIndex = focusedItemAction
+            ? itemKeyboardTargets.findIndex((target) => target.type === focusedItemAction.type)
+            : itemKeyboardTargets.findIndex((target) => target.type === "item" && target.itemId === selectedItemId);
         const nextIndex =
             currentIndex < 0
                 ? 0
-                : Math.min(selectedSection.items.length - 1, Math.max(0, currentIndex + direction));
-        setSelectedItemId(selectedSection.items[nextIndex].id);
+                : Math.min(itemKeyboardTargets.length - 1, Math.max(0, currentIndex + direction));
+        const nextTarget = itemKeyboardTargets[nextIndex];
+        setFocusedSectionAction(null);
+        if (nextTarget.type === "item") {
+            setSelectedItemId(nextTarget.itemId);
+            setFocusedItemAction(null);
+        } else {
+            setFocusedItemAction(nextTarget);
+        }
+    };
+    const moveContentsHighlight = (direction: 1 | -1) => {
+        setKeyboardNavigationActive(true);
+        if (keyboardPane === "items" && itemKeyboardTargets.length) {
+            moveItemHighlight(direction);
+            return;
+        }
+        setKeyboardPane("sections");
+        moveSectionHighlight(direction);
     };
     const moveKeyboardPane = (pane: KeyboardPane) => {
         setKeyboardPane(pane);
+        setFocusedSectionAction(null);
+        setFocusedItemAction(null);
         if (pane === "items" && selectedSection?.items.length && !selectedItem) {
             setSelectedItemId(selectedSection.items[0].id);
         }
+    };
+    const switchContentsKeyboardPane = () => {
+        setKeyboardNavigationActive(true);
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        if (keyboardPane === "sections" && selectedSection) {
+            moveKeyboardPane("items");
+        } else {
+            moveKeyboardPane("sections");
+        }
+        window.setTimeout(() => contentsPanelRef.current?.focus(), 0);
+    };
+    const addActionFocusStyle: React.CSSProperties = {
+        boxShadow: `0 0 0 2px ${tokens.colorNeutralBackground1}, 0 0 0 4px ${tokens.colorBrandStroke1}`,
+        outline: `2px solid ${tokens.colorBrandStroke1}`,
+        outlineOffset: "2px",
+        borderRadius: tokens.borderRadiusMedium,
+    };
+    const getAddActionFocusStyle = (isFocused: boolean): React.CSSProperties | undefined =>
+        isFocused ? addActionFocusStyle : undefined;
+    const activateFocusedSectionAction = () => {
+        if (!focusedSectionAction) return false;
+        if (focusedSectionAction.type === "addTopLevelSection") {
+            startNewSection(null);
+            return true;
+        }
+        if (focusedSectionAction.type === "addChildSection") {
+            startNewSection(focusedSectionAction.sectionId);
+            return true;
+        }
+        return false;
+    };
+    const activateFocusedItemAction = () => {
+        if (!focusedItemAction || !selectedSection) return false;
+        if (focusedItemAction.type === "addItem") {
+            startNewItem(selectedSection.id);
+            return true;
+        }
+        return false;
     };
     const startSectionAfterFocus = () => {
         const focusedSection = keyboardNavigationActive ? highlightedSection : null;
@@ -4443,6 +4635,12 @@ function ChecklistDetails({
     const startNewSection = (parentId: string | null, afterSectionId: string | null = null) => {
         if (!isVersionEditable) return;
         setKeyboardPane("sections");
+        setKeyboardNavigationActive(false);
+        setFocusedSectionAction(null);
+        setFocusedItemAction(null);
+        if (parentId) {
+            selectSection(parentId);
+        }
         setDraftSection({ parentId, afterSectionId, name: "" });
         setDraftItem(null);
         if (parentId) {
@@ -4491,32 +4689,17 @@ function ChecklistDetails({
 
             if (event.key === "Tab") {
                 event.preventDefault();
-                if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-                if (keyboardPane === "sections" && canStartItemForSelectedSection) {
-                    moveKeyboardPane("items");
-                } else {
-                    moveKeyboardPane("sections");
-                }
+                switchContentsKeyboardPane();
                 return;
             }
             if (event.key === "ArrowUp") {
                 event.preventDefault();
-                setKeyboardNavigationActive(true);
-                if (keyboardPane === "sections") {
-                    moveSectionHighlight(-1);
-                } else {
-                    moveItemHighlight(-1);
-                }
+                moveContentsHighlight(-1);
                 return;
             }
             if (event.key === "ArrowDown") {
                 event.preventDefault();
-                setKeyboardNavigationActive(true);
-                if (keyboardPane === "sections") {
-                    moveSectionHighlight(1);
-                } else {
-                    moveItemHighlight(1);
-                }
+                moveContentsHighlight(1);
                 return;
             }
             if (event.key === "Enter" && keyboardPane === "sections") {
@@ -4527,6 +4710,11 @@ function ChecklistDetails({
                 } else {
                     startSectionAfterFocus();
                 }
+                return;
+            }
+            if (event.key === " " && keyboardPane === "sections" && keyboardNavigationActive && focusedSectionAction) {
+                event.preventDefault();
+                activateFocusedSectionAction();
                 return;
             }
             if (event.key === " " && keyboardPane === "sections" && keyboardNavigationActive && highlightedSection) {
@@ -4540,9 +4728,16 @@ function ChecklistDetails({
                 startItemAfterFocus();
                 return;
             }
+            if (event.key === " " && keyboardPane === "items" && keyboardNavigationActive && focusedItemAction) {
+                if (!isVersionEditable) return;
+                event.preventDefault();
+                activateFocusedItemAction();
+                return;
+            }
             if (event.key === " " && keyboardPane === "items" && keyboardNavigationActive && selectedSection && selectedItem) {
                 if (!isVersionEditable) return;
                 event.preventDefault();
+                if (activateFocusedItemAction()) return;
                 startEditItem(selectedSection.id, selectedItem);
                 return;
             }
@@ -4575,13 +4770,15 @@ function ChecklistDetails({
         return () => document.removeEventListener("keydown", handleKeyDown);
     }, [
         activeTab,
-        canStartItemForSelectedSection,
         draftItem,
         draftSection,
         editingSectionId,
         editingSelectedSectionTitleId,
+        focusedItemAction,
+        focusedSectionAction,
         highlightedSection,
         hasDefinitionChanges,
+        itemKeyboardTargets,
         isVersionEditable,
         isSaving,
         keyboardNavigationActive,
@@ -4591,6 +4788,8 @@ function ChecklistDetails({
         selectedSection,
         selectedSectionId,
         selectedSectionPath,
+        sectionKeyboardTargets,
+        switchContentsKeyboardPane,
         visibleSections,
     ]);
     const showDuplicateSectionNameMessage = (parentId: string | null) => {
@@ -4611,6 +4810,9 @@ function ChecklistDetails({
         }
         const newSection = createEmptySection(nextName, draftSection.parentId);
         updateSections((current) => addSection(current, draftSection.parentId, newSection, draftSection.afterSectionId));
+        if (draftSection.parentId) {
+            setCollapsedSectionIds((current) => expandSectionInSet(current, draftSection.parentId || ""));
+        }
         selectSection(newSection.id);
         setDraftSection(null);
     };
@@ -4634,6 +4836,8 @@ function ChecklistDetails({
         if (!isVersionEditable) return;
         setKeyboardPane("items");
         setSelectedItemId("");
+        setFocusedSectionAction(null);
+        setFocusedItemAction(null);
         setEquipmentTypeSearchText("");
         setDraftItem({
             sectionId,
@@ -4796,17 +5000,13 @@ function ChecklistDetails({
         if (event.key === "ArrowUp") {
             event.preventDefault();
             event.stopPropagation();
-            setKeyboardNavigationActive(true);
-            setKeyboardPane("sections");
-            moveSectionHighlight(-1);
+            moveContentsHighlight(-1);
             return;
         }
         if (event.key === "ArrowDown") {
             event.preventDefault();
             event.stopPropagation();
-            setKeyboardNavigationActive(true);
-            setKeyboardPane("sections");
-            moveSectionHighlight(1);
+            moveContentsHighlight(1);
             return;
         }
         if (event.key === " ") {
@@ -4814,7 +5014,36 @@ function ChecklistDetails({
             event.stopPropagation();
             setKeyboardNavigationActive(true);
             setKeyboardPane("sections");
+            if (activateFocusedSectionAction()) return;
             confirmHighlightedSection();
+            return;
+        }
+        if (event.key === "Tab") {
+            event.preventDefault();
+            event.stopPropagation();
+            switchContentsKeyboardPane();
+            return;
+        }
+        if (event.key === "Enter") {
+            event.preventDefault();
+            event.stopPropagation();
+            setKeyboardNavigationActive(true);
+            setKeyboardPane("sections");
+            if (event.shiftKey) {
+                startChildSectionFromFocus();
+            } else {
+                startSectionAfterFocus();
+            }
+            return;
+        }
+        if (
+            (event.key === "Delete" || event.key === "Backspace") &&
+            keyboardNavigationActive &&
+            highlightedSection
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            requestDeleteSection(highlightedSection);
         }
     };
     useEffect(() => {
@@ -5277,8 +5506,16 @@ function ChecklistDetails({
                     setDraftSection((current) => current ? { ...current, name: data.value } : current)
                 }
                 onKeyDown={(event) => {
-                    if (event.key === "Enter") confirmDraftSection();
-                    if (event.key === "Escape") setDraftSection(null);
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        confirmDraftSection();
+                    }
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setDraftSection(null);
+                    }
                 }}
             />
             <Button
@@ -5561,14 +5798,16 @@ function ChecklistDetails({
     };
     const renderSectionRow = (section: ChecklistSection, depth = 0): React.ReactNode => {
         const hasChildren = section.sections.length > 0;
+        const hasPendingChildDraft = draftSection?.parentId === section.id;
+        const hasBranchChildren = hasChildren || hasPendingChildDraft;
         const isCollapsed = collapsedSectionIds.has(section.id);
         const isSelectedSection = selectedSectionId === section.id;
         const isHighlightedSection =
             showEditHoverActions &&
             keyboardNavigationActive &&
             keyboardPane === "sections" &&
-            highlightedSectionId === section.id &&
-            highlightedSectionId !== selectedSectionId;
+            !focusedSectionAction &&
+            highlightedSectionId === section.id;
         const isEditingThisSection = editingSectionId === section.id;
         const isSelectedAncestorSection =
             depth === 0 &&
@@ -5616,7 +5855,7 @@ function ChecklistDetails({
             depth === 0 &&
             section.sections.length > 0 &&
             !isCollapsed;
-        const isEmptySection = section.sections.length === 0 && section.items.length === 0;
+        const isEmptySection = section.sections.length === 0 && section.items.length === 0 && !hasPendingChildDraft;
         const openChildSectionIds = !isCollapsed
             ? getOpenSiblingSectionIds(section.sections, collapsedSectionIds)
             : [];
@@ -5624,7 +5863,7 @@ function ChecklistDetails({
         return (
             <React.Fragment key={section.id}>
                 <TreeItem
-                    itemType={hasChildren ? "branch" : "leaf"}
+                    itemType={hasBranchChildren ? "branch" : "leaf"}
                     value={section.id}
                     className={styles.sectionTreeItem}
                 >
@@ -5650,7 +5889,7 @@ function ChecklistDetails({
                         style={selectedSectionStyle}
                         onClick={(event) => {
                             if (isEditingThisSection) return;
-                            if (isInSectionDisclosureZone(event, hasChildren)) return;
+                            if (isInSectionDisclosureZone(event, hasBranchChildren)) return;
                             if (ignoreNextSectionClickRef.current) {
                                 ignoreNextSectionClickRef.current = false;
                                 return;
@@ -5713,8 +5952,16 @@ function ChecklistDetails({
                                         value={sectionNameDraft}
                                         onChange={(_, data) => setSectionNameDraft(data.value)}
                                         onKeyDown={(event) => {
-                                            if (event.key === "Enter") confirmEditingSectionName();
-                                            if (event.key === "Escape") setEditingSectionId("");
+                                            if (event.key === "Enter") {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                confirmEditingSectionName();
+                                            }
+                                            if (event.key === "Escape") {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                setEditingSectionId("");
+                                            }
                                         }}
                                         onBlur={confirmEditingSectionName}
                                     />
@@ -5772,37 +6019,44 @@ function ChecklistDetails({
                         </div>
                         {isHighlightedSection && <span className={styles.keyboardFocusOverlay} />}
                     </TreeItemLayout>
-                    {hasChildren && !isCollapsed && (
+                    {hasBranchChildren && !isCollapsed && (
                         <>
-                            <Tree
-                                aria-label={`${section.name || "Unnamed section"} child sections`}
-                                className={styles.sectionChildren}
-                                openItems={openChildSectionIds}
-                                onOpenChange={handleSectionTreeOpenChange}
-                            >
-                                {section.sections.map((childSection, index) => (
-                                    <React.Fragment key={childSection.id}>
-                                        {index > 0 && <div className={styles.childSectionDivider} />}
-                                        {renderSectionRow(childSection, depth + 1)}
-                                        {draftSection?.parentId === section.id &&
-                                            draftSection.afterSectionId === childSection.id &&
-                                            renderDraftSectionRow(depth + 1)}
-                                    </React.Fragment>
-                                ))}
-                                {canDropAtChildrenEnd && (
-                                    <div
-                                        data-section-children-end={section.id}
-                                        className={[
-                                            styles.topLevelEndDropTarget,
-                                            dragOverTarget?.type === "sectionChildrenEnd" && dragOverTarget.parentId === section.id
-                                                ? styles.activeSectionChildrenEndDropTarget
-                                                : "",
-                                        ].filter(Boolean).join(" ")}
-                                    />
-                                )}
-                            </Tree>
+                            {hasChildren && (
+                                <Tree
+                                    aria-label={`${section.name || "Unnamed section"} child sections`}
+                                    className={styles.sectionChildren}
+                                    openItems={openChildSectionIds}
+                                    onOpenChange={handleSectionTreeOpenChange}
+                                >
+                                    {section.sections.map((childSection, index) => (
+                                        <React.Fragment key={childSection.id}>
+                                            {index > 0 && <div className={styles.childSectionDivider} />}
+                                            {renderSectionRow(childSection, depth + 1)}
+                                            {draftSection?.parentId === section.id &&
+                                                draftSection.afterSectionId === childSection.id &&
+                                                renderDraftSectionRow(depth + 1)}
+                                        </React.Fragment>
+                                    ))}
+                                    {canDropAtChildrenEnd && (
+                                        <div
+                                            data-section-children-end={section.id}
+                                            className={[
+                                                styles.topLevelEndDropTarget,
+                                                dragOverTarget?.type === "sectionChildrenEnd" && dragOverTarget.parentId === section.id
+                                                    ? styles.activeSectionChildrenEndDropTarget
+                                                    : "",
+                                            ].filter(Boolean).join(" ")}
+                                        />
+                                    )}
+                                </Tree>
+                            )}
                             {draftSection?.parentId === section.id && !draftSection.afterSectionId && (
-                                <div className={styles.sectionChildrenEndDraft}>
+                                <div
+                                    className={[
+                                        hasChildren ? styles.sectionChildrenEndDraft : styles.sectionChildren,
+                                        !hasChildren ? styles.sectionChildrenEndDraft : "",
+                                    ].filter(Boolean).join(" ")}
+                                >
                                     {renderDraftSectionRow(depth + 1)}
                                 </div>
                             )}
@@ -5811,9 +6065,32 @@ function ChecklistDetails({
                                     <Button
                                         appearance="subtle"
                                         icon={<AddRegular />}
-                                        className={styles.sectionAddAnotherButton}
+                                        className={[
+                                            styles.sectionAddAnotherButton,
+                                            keyboardNavigationActive &&
+                                            focusedSectionAction?.type === "addChildSection" &&
+                                            focusedSectionAction.sectionId === section.id
+                                                ? styles.keyboardActionFocus
+                                                : "",
+                                        ].filter(Boolean).join(" ")}
+                                        style={getAddActionFocusStyle(
+                                            (
+                                                keyboardNavigationActive &&
+                                                focusedSectionAction?.type === "addChildSection" &&
+                                                focusedSectionAction.sectionId === section.id
+                                            ) ||
+                                            focusedAddButtonKey === `add-child-section-${section.id}`
+                                        )}
                                         disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
                                         onPointerDown={(event) => event.stopPropagation()}
+                                        onFocus={() => {
+                                            setKeyboardNavigationActive(true);
+                                            setKeyboardPane("sections");
+                                            setFocusedSectionAction({ type: "addChildSection", sectionId: section.id });
+                                            setFocusedItemAction(null);
+                                            setFocusedAddButtonKey(`add-child-section-${section.id}`);
+                                        }}
+                                        onBlur={() => setFocusedAddButtonKey("")}
                                         onClick={(event) => {
                                             event.stopPropagation();
                                             startNewSection(section.id);
@@ -5883,10 +6160,19 @@ function ChecklistDetails({
             setIsSaving(false);
         }
     };
-    const canSubmitForApproval =
+    const hasChecklistSections = flattenedSections.length > 0;
+    const hasChecklistItems = flattenedSections.some(({ section }) => section.items.length > 0);
+    const hasEmptySections = flattenedSections.some(
+        ({ section }) => section.sections.length === 0 && section.items.length === 0
+    );
+    const hasSubmittableContents = hasChecklistSections && hasChecklistItems && !hasEmptySections;
+    const canShowSubmitForApproval =
         isVersionEditable &&
-        (version.statuscode === VERSION_STATUS_DRAFT || requiresAmendments) &&
-        !hasDefinitionChanges;
+        (version.statuscode === VERSION_STATUS_DRAFT || requiresAmendments);
+    const canSubmitForApproval =
+        canShowSubmitForApproval &&
+        !hasDefinitionChanges &&
+        hasSubmittableContents;
     const canRespondToReview =
         isVersionEditable &&
         version.statuscode === VERSION_STATUS_PENDING_REVIEW &&
@@ -5907,6 +6193,33 @@ function ChecklistDetails({
         : requiresChecklistVersionReview
           ? "This will submit the checklist version for review. An approver will need to approve it before it can become the active version."
           : "This will publish the checklist version and make it the active version.";
+    const versionActionDisabledReason = (() => {
+        if (isWorkflowActionRunning) return "This action is already running.";
+        if (hasDefinitionChanges) return "Save your changes before submitting or publishing this checklist version.";
+        if (!hasChecklistSections) return "Add at least one section before submitting or publishing.";
+        if (!hasChecklistItems) return "Add at least one checklist item before submitting or publishing.";
+        if (hasEmptySections) return "Remove empty sections or add content to them before submitting or publishing.";
+        return "";
+    })();
+    const isVersionActionDisabled = !canSubmitForApproval || isWorkflowActionRunning;
+    const renderVersionActionButton = () => (
+        <Tooltip
+            relationship="description"
+            content={isVersionActionDisabled ? versionActionDisabledReason || "This action is not currently available." : versionActionDescription}
+        >
+            <span>
+                <Button
+                    appearance="primary"
+                    className={requiresChecklistVersionReview ? undefined : styles.publishButton}
+                    icon={versionActionIcon}
+                    disabled={isVersionActionDisabled}
+                    onClick={handleSubmitForApproval}
+                >
+                    {versionActionLabel}
+                </Button>
+            </span>
+        </Tooltip>
+    );
     const buildSubmissionPayload = (comments = ""): ChecklistVersionSubmissionPayload => ({
         submissionComments: comments.trim(),
     });
@@ -5976,6 +6289,12 @@ function ChecklistDetails({
     };
     const sectionCount = flattenedSections.length;
     const timelineEntries = version.history;
+    const includeNaCompletionOption = Boolean(
+        options.find((option) => option.key === "enableNaItemStatusOption")?.value
+    );
+    const completionOptionLabels = includeNaCompletionOption
+        ? ["Fail", "Warning", "Pass", "N/A"]
+        : ["Fail", "Warning", "Pass"];
     const escapePrintHtml = (value: unknown) =>
         String(value ?? "")
             .replace(/&/g, "&amp;")
@@ -5983,6 +6302,11 @@ function ChecklistDetails({
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
+    const renderCompletionOptionsHtml = () => `
+        <div class="response-options">
+            ${completionOptionLabels.map((label) => `<span class="response-option">${escapePrintHtml(label)}</span>`).join("")}
+        </div>
+    `;
     const renderPrintableSectionHtml = (section: ChecklistSection, depth = 0): string => {
         const hasChildren = section.sections.length > 0;
         const itemCount = section.items.length;
@@ -6008,7 +6332,10 @@ function ChecklistDetails({
                         <div class="item-title">${escapePrintHtml(item.name || "Unnamed item")}</div>
                         ${item.description ? `<div class="item-description">${escapePrintHtml(item.description)}</div>` : ""}
                     </div>
-                    ${itemMeta ? `<div class="item-meta">${escapePrintHtml(itemMeta)}</div>` : ""}
+                    <div class="item-actions">
+                        ${itemMeta ? `<div class="item-meta">${escapePrintHtml(itemMeta)}</div>` : ""}
+                        ${renderCompletionOptionsHtml()}
+                    </div>
                 </div>
             `;
         }).join("");
@@ -6143,6 +6470,34 @@ function ChecklistDetails({
         text-align: right;
         white-space: nowrap;
     }
+    .item-actions {
+        min-width: 128px;
+    }
+    .response-options {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(54px, auto));
+        gap: 4px 6px;
+        justify-content: end;
+        align-items: center;
+        margin-top: 5px;
+    }
+    .response-option {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 4px;
+        min-width: 54px;
+        color: #222;
+        font-size: 8.5pt;
+        white-space: nowrap;
+    }
+    .response-option::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border: 1px solid #555;
+        background: #fff;
+    }
     .empty-state {
         margin-top: 6px;
         color: #555;
@@ -6242,7 +6597,14 @@ function ChecklistDetails({
                                             <div className={styles.printItemDescription}>{item.description}</div>
                                         )}
                                     </div>
-                                    {itemMeta && <div className={styles.printItemMeta}>{itemMeta}</div>}
+                                    <div>
+                                        {itemMeta && <div className={styles.printItemMeta}>{itemMeta}</div>}
+                                        <div className={styles.printCompletionOptions}>
+                                            {completionOptionLabels.map((label) => (
+                                                <span key={label} className={styles.printCompletionOption}>{label}</span>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                             );
                         })}
@@ -6321,10 +6683,35 @@ function ChecklistDetails({
         const nextTab = String(data.value);
         if (nextTab === "approvalHistory" && !canShowApprovalHistory) return;
         setActiveTab(nextTab);
-        setKeyboardNavigationActive(false);
+        if (nextTab === "contents") {
+            focusSectionsPaneForContentTab();
+            window.setTimeout(() => contentsPanelRef.current?.focus(), 0);
+        } else {
+            setKeyboardNavigationActive(false);
+            setFocusedSectionAction(null);
+            setFocusedItemAction(null);
+        }
     };
     const clearTabFocus = (event: React.FocusEvent<HTMLElement> | React.MouseEvent<HTMLElement>) => {
         event.currentTarget.blur();
+    };
+    const handleContentTabFocus = (event: React.FocusEvent<HTMLElement> | React.MouseEvent<HTMLElement>) => {
+        clearTabFocus(event);
+        if (activeTab === "contents") {
+            focusSectionsPaneForContentTab();
+            window.setTimeout(() => contentsPanelRef.current?.focus(), 0);
+        }
+    };
+    const handleContentsPanelKeyDownCapture = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+        if (event.key !== "Tab") return;
+        if (activeTab !== "contents" || !isVersionEditable) return;
+        if (isEditableKeyboardTarget(event.target)) return;
+        if (draftSection || draftItem || editingSectionId || editingSelectedSectionTitleId) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        switchContentsKeyboardPane();
     };
 
     return (
@@ -6385,17 +6772,7 @@ function ChecklistDetails({
                                 </Button>
                             </>
                         )}
-                        {canSubmitForApproval && (
-                            <Button
-                                appearance="primary"
-                                className={requiresChecklistVersionReview ? undefined : styles.publishButton}
-                                icon={versionActionIcon}
-                                disabled={isWorkflowActionRunning}
-                                onClick={handleSubmitForApproval}
-                            >
-                                {versionActionLabel}
-                            </Button>
-                        )}
+                        {canShowSubmitForApproval && renderVersionActionButton()}
                     </div>
                 </div>
             )}
@@ -6445,7 +6822,7 @@ function ChecklistDetails({
                         onTabSelect={handleTabSelect}
                     >
                         <Tab className={styles.tabLabel} value="general" onFocus={clearTabFocus} onClick={clearTabFocus}>General</Tab>
-                        <Tab className={styles.tabLabel} value="contents" onFocus={clearTabFocus} onClick={clearTabFocus}>Contents</Tab>
+                        <Tab className={styles.tabLabel} value="contents" onFocus={handleContentTabFocus} onClick={handleContentTabFocus}>Contents</Tab>
                         <Tab className={styles.tabLabel} value="options" onFocus={clearTabFocus} onClick={clearTabFocus}>Options</Tab>
                         {canShowApprovalHistory && (
                             <Tab className={styles.tabLabel} value="approvalHistory" onFocus={clearTabFocus} onClick={clearTabFocus}>Approval History</Tab>
@@ -6491,17 +6868,7 @@ function ChecklistDetails({
                                 </Button>
                             </>
                         )}
-                        {useCompactVersionHeader && canSubmitForApproval && (
-                            <Button
-                                appearance="primary"
-                                className={requiresChecklistVersionReview ? undefined : styles.publishButton}
-                                icon={versionActionIcon}
-                                disabled={isWorkflowActionRunning}
-                                onClick={handleSubmitForApproval}
-                            >
-                                {versionActionLabel}
-                            </Button>
-                        )}
+                        {useCompactVersionHeader && canShowSubmitForApproval && renderVersionActionButton()}
                         {isVersionEditable && hasDefinitionChanges && (
                             <div className={styles.saveActions}>
                                 <Button
@@ -6646,7 +7013,17 @@ function ChecklistDetails({
                         </div>
                     </div>
                 ) : activeTab === "contents" ? (
-                    <div className={styles.tabPanel}>
+                    <div
+                        className={styles.tabPanel}
+                        ref={contentsPanelRef}
+                        tabIndex={-1}
+                        onKeyDownCapture={handleContentsPanelKeyDownCapture}
+                        onMouseDown={(event) => {
+                            if (isEditableKeyboardTarget(event.target)) return;
+                            if (event.target instanceof HTMLElement && event.target.closest("button,[role='button'],a")) return;
+                            window.setTimeout(() => contentsPanelRef.current?.focus(), 0);
+                        }}
+                    >
                         {isVersionEditable && (
                             <div className={styles.shortcutHelpPanel}>
                                 <Button
@@ -6748,9 +7125,29 @@ function ChecklistDetails({
                                                 <Button
                                                     appearance="subtle"
                                                     icon={<AddRegular />}
-                                                    className={styles.sectionAddAnotherButton}
+                                                    className={[
+                                                        styles.sectionAddAnotherButton,
+                                                        keyboardNavigationActive && focusedSectionAction?.type === "addTopLevelSection"
+                                                            ? styles.keyboardActionFocus
+                                                            : "",
+                                                    ].filter(Boolean).join(" ")}
+                                                    style={getAddActionFocusStyle(
+                                                        (
+                                                            keyboardNavigationActive &&
+                                                            focusedSectionAction?.type === "addTopLevelSection"
+                                                        ) ||
+                                                        focusedAddButtonKey === "add-top-level-section"
+                                                    )}
                                                     disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
                                                     onPointerDown={(event) => event.stopPropagation()}
+                                                    onFocus={() => {
+                                                        setKeyboardNavigationActive(true);
+                                                        setKeyboardPane("sections");
+                                                        setFocusedSectionAction({ type: "addTopLevelSection" });
+                                                        setFocusedItemAction(null);
+                                                        setFocusedAddButtonKey("add-top-level-section");
+                                                    }}
+                                                    onBlur={() => setFocusedAddButtonKey("")}
                                                     onClick={(event) => {
                                                         event.stopPropagation();
                                                         startNewSection(null);
@@ -6785,8 +7182,16 @@ function ChecklistDetails({
                                                                         value={selectedSectionTitleDraft}
                                                                         onChange={(_, data) => setSelectedSectionTitleDraft(data.value)}
                                                                         onKeyDown={(event) => {
-                                                                            if (event.key === "Enter") confirmEditingSelectedSectionTitle();
-                                                                            if (event.key === "Escape") setEditingSelectedSectionTitleId("");
+                                                                            if (event.key === "Enter") {
+                                                                                event.preventDefault();
+                                                                                event.stopPropagation();
+                                                                                confirmEditingSelectedSectionTitle();
+                                                                            }
+                                                                            if (event.key === "Escape") {
+                                                                                event.preventDefault();
+                                                                                event.stopPropagation();
+                                                                                setEditingSelectedSectionTitleId("");
+                                                                            }
                                                                         }}
                                                                         onBlur={confirmEditingSelectedSectionTitle}
                                                                     />
@@ -6881,8 +7286,8 @@ function ChecklistDetails({
                                                             className={[
                                                                 styles.itemRow,
                                                                 showEditHoverActions ? "" : styles.itemRowReadOnly,
-                                                                showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.selectedItemRow : "",
-                                                                showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id ? styles.keyboardFocusRow : "",
+                                                                showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && !focusedItemAction && selectedItemId === item.id ? styles.selectedItemRow : "",
+                                                                showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && !focusedItemAction && selectedItemId === item.id ? styles.keyboardFocusRow : "",
                                                                 draggedItem?.type === "item" && draggedItem.id === item.id ? styles.draggingRow : "",
                                                                 dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement !== "after" ? styles.dropBeforeRow : "",
                                                                 dragOverTarget?.type === "item" && dragOverTarget.id === item.id && dragOverTarget.placement === "after" ? styles.dropAfterRow : "",
@@ -6935,7 +7340,7 @@ function ChecklistDetails({
                                                                     }}
                                                                 />
                                                             </div>
-                                                            {showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && selectedItemId === item.id && (
+                                                            {showEditHoverActions && keyboardNavigationActive && keyboardPane === "items" && !focusedItemAction && selectedItemId === item.id && (
                                                                 <span className={styles.keyboardFocusOverlay} />
                                                             )}
                                                         </div>
@@ -6954,8 +7359,23 @@ function ChecklistDetails({
                                                 <div className={styles.itemAddAnotherRow}>
                                                     <Button
                                                         appearance="subtle"
-                                                        className={styles.sectionAddAnotherButton}
+                                                        className={[
+                                                            styles.sectionAddAnotherButton,
+                                                            keyboardNavigationActive && focusedItemAction?.type === "addItem" ? styles.keyboardActionFocus : "",
+                                                        ].filter(Boolean).join(" ")}
+                                                        style={getAddActionFocusStyle(
+                                                            (keyboardNavigationActive && focusedItemAction?.type === "addItem") ||
+                                                            focusedAddButtonKey === "add-item"
+                                                        )}
                                                         disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                        onFocus={() => {
+                                                            setKeyboardNavigationActive(true);
+                                                            setKeyboardPane("items");
+                                                            setFocusedSectionAction(null);
+                                                            setFocusedItemAction({ type: "addItem" });
+                                                            setFocusedAddButtonKey("add-item");
+                                                        }}
+                                                        onBlur={() => setFocusedAddButtonKey("")}
                                                         onClick={() => startNewItem(selectedSection.id)}
                                                     >
                                                         + Add an item
@@ -6972,18 +7392,41 @@ function ChecklistDetails({
                                                         <div className={styles.placeholderActions}>
                                                             <Button
                                                                 icon={<AddRegular />}
+                                                                className={focusedAddButtonKey === `placeholder-add-child-section-${selectedSection.id}` ? styles.keyboardActionFocus : undefined}
+                                                                style={getAddActionFocusStyle(focusedAddButtonKey === `placeholder-add-child-section-${selectedSection.id}`)}
                                                                 disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                                onFocus={() => {
+                                                                    setKeyboardNavigationActive(true);
+                                                                    setKeyboardPane("sections");
+                                                                    setFocusedSectionAction(null);
+                                                                    setFocusedItemAction(null);
+                                                                    setFocusedAddButtonKey(`placeholder-add-child-section-${selectedSection.id}`);
+                                                                }}
+                                                                onBlur={() => setFocusedAddButtonKey("")}
                                                                 onClick={() => startNewSection(selectedSection.id)}
                                                             >
                                                                 Add child section
                                                             </Button>
                                                             <Button
-                                                                appearance="subtle"
-                                                                className={styles.sectionAddAnotherButton}
+                                                                appearance="primary"
+                                                                icon={<AddRegular />}
+                                                                className={keyboardNavigationActive && focusedItemAction?.type === "addItem" ? styles.keyboardActionFocus : undefined}
+                                                                style={getAddActionFocusStyle(
+                                                                    (keyboardNavigationActive && focusedItemAction?.type === "addItem") ||
+                                                                    focusedAddButtonKey === "add-item-empty-section"
+                                                                )}
                                                                 disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                                onFocus={() => {
+                                                                    setKeyboardNavigationActive(true);
+                                                                    setKeyboardPane("items");
+                                                                    setFocusedSectionAction(null);
+                                                                    setFocusedItemAction({ type: "addItem" });
+                                                                    setFocusedAddButtonKey("add-item-empty-section");
+                                                                }}
+                                                                onBlur={() => setFocusedAddButtonKey("")}
                                                                 onClick={() => startNewItem(selectedSection.id)}
                                                             >
-                                                                + Add an item
+                                                                Add an item
                                                             </Button>
                                                         </div>
                                                     )}
@@ -6994,12 +7437,25 @@ function ChecklistDetails({
                                                     <Text weight="semibold">No items have been defined for this section.</Text>
                                                     {showAddContentActions && (
                                                         <Button
-                                                            appearance="subtle"
-                                                            className={styles.sectionAddAnotherButton}
+                                                            appearance="primary"
+                                                            icon={<AddRegular />}
+                                                            className={keyboardNavigationActive && focusedItemAction?.type === "addItem" ? styles.keyboardActionFocus : undefined}
+                                                            style={getAddActionFocusStyle(
+                                                                (keyboardNavigationActive && focusedItemAction?.type === "addItem") ||
+                                                                focusedAddButtonKey === "add-item-empty-list"
+                                                            )}
                                                             disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                            onFocus={() => {
+                                                                setKeyboardNavigationActive(true);
+                                                                setKeyboardPane("items");
+                                                                setFocusedSectionAction(null);
+                                                                setFocusedItemAction({ type: "addItem" });
+                                                                setFocusedAddButtonKey("add-item-empty-list");
+                                                            }}
+                                                            onBlur={() => setFocusedAddButtonKey("")}
                                                             onClick={() => startNewItem(selectedSection.id)}
                                                         >
-                                                            + Add an item
+                                                            Add an item
                                                         </Button>
                                                     )}
                                                 </div>
