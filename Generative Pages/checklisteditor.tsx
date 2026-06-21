@@ -2833,17 +2833,38 @@ function isAnyIdentificationTarget(target: IdentificationTargetOption | null | u
     return target?.entityName === "any" || isAnyIdentificationTargetId(target?.id);
 }
 
+function supportsAnyIdentificationTarget(targetTypeValue: number | null) {
+    return targetTypeValue === CHECKLIST_TARGET_AIRCRAFT || targetTypeValue === CHECKLIST_TARGET_VEHICLE;
+}
+
+function getAnyIdentificationTargetName(targetTypeValue: number | null) {
+    if (targetTypeValue === CHECKLIST_TARGET_AIRCRAFT) return "Any aircraft type";
+    if (targetTypeValue === CHECKLIST_TARGET_VEHICLE) return "Any vehicle type";
+    return "Any";
+}
+
+function createAnyIdentificationTarget(targetTypeValue: number | null): IdentificationTargetOption | null {
+    if (!supportsAnyIdentificationTarget(targetTypeValue)) return null;
+    return {
+        id: ANY_IDENTIFICATION_TARGET_ID,
+        name: getAnyIdentificationTargetName(targetTypeValue),
+        targetTypeValue: targetTypeValue!,
+        entityName: "any",
+    };
+}
+
 function createChecklistItemFromDraft(
     draftItem: DraftItem,
     identificationOptions: IdentificationOptionsByTarget
 ): ChecklistItem {
     const selectedTarget = draftItem.identificationTargetId
-        ? findIdentificationTargetById(
-              identificationOptions,
-              draftItem.identificationTargetTypeValue,
-              draftItem.identificationTargetId
-          ) ||
-          (!isAnyIdentificationTarget(draftItem.identificationTarget) ? draftItem.identificationTarget : null)
+        ? isAnyIdentificationTargetId(draftItem.identificationTargetId)
+            ? draftItem.identificationTarget || createAnyIdentificationTarget(draftItem.identificationTargetTypeValue)
+            : findIdentificationTargetById(
+                  identificationOptions,
+                  draftItem.identificationTargetTypeValue,
+                  draftItem.identificationTargetId
+              ) || draftItem.identificationTarget
         : null;
     return {
         id: draftItem.itemId || makeId(),
@@ -5681,9 +5702,6 @@ function ChecklistDetails({
         if (!isVersionEditable) return;
         setKeyboardPane("items");
         setSelectedItemId(item.id);
-        const editableIdentificationTarget = isAnyIdentificationTarget(item.identificationTarget)
-            ? null
-            : item.identificationTarget;
         setDraftItem({
             sectionId,
             itemId: item.id,
@@ -5692,8 +5710,8 @@ function ChecklistDetails({
             quantity: item.quantity === null || item.quantity === undefined ? "" : String(item.quantity),
             requestItemIdentification: item.requestItemIdentification,
             identificationTargetTypeValue: item.identificationTargetTypeValue,
-            identificationTargetId: editableIdentificationTarget?.id || "",
-            identificationTarget: editableIdentificationTarget,
+            identificationTargetId: item.identificationTarget?.id || "",
+            identificationTarget: item.identificationTarget,
         });
         setDraftSection(null);
     };
@@ -6312,10 +6330,15 @@ function ChecklistDetails({
                 selectedTargetTypeValue,
                 draftItem?.identificationTargetId || ""
             ) ||
-            (!isAnyIdentificationTarget(draftItem?.identificationTarget) ? draftItem?.identificationTarget : null) ||
+            (
+                isAnyIdentificationTargetId(draftItem?.identificationTargetId || "")
+                    ? draftItem?.identificationTarget || createAnyIdentificationTarget(selectedTargetTypeValue)
+                    : draftItem?.identificationTarget
+            ) ||
             null;
         const needsIdentificationTarget =
             Boolean(selectedTargetTypeValue) && selectedTargetTypeValue !== CHECKLIST_TARGET_BASE_SITE;
+        const anyIdentificationTarget = createAnyIdentificationTarget(selectedTargetTypeValue);
         const shouldGroupIdentificationTargets = selectedTargetTypeValue === CHECKLIST_TARGET_EQUIPMENT;
         const shouldShowCurrentTarget =
             Boolean(selectedTarget) &&
@@ -6335,7 +6358,9 @@ function ChecklistDetails({
         };
         const selectIdentificationTarget = (targetId: string) => {
             if (!targetId) return;
-            const selected = findIdentificationTargetById(identificationOptions, selectedTargetTypeValue, targetId);
+            const selected = isAnyIdentificationTargetId(targetId)
+                ? createAnyIdentificationTarget(selectedTargetTypeValue)
+                : findIdentificationTargetById(identificationOptions, selectedTargetTypeValue, targetId);
             if (!selected) return;
             setDraftItem((current) =>
                 current
@@ -6461,6 +6486,18 @@ function ChecklistDetails({
                                             >
                                                 <span className={styles.identificationTargetOption}>
                                                     {getIdentificationTargetOptionText(selectedTarget)}
+                                                </span>
+                                            </Option>
+                                        )}
+                                        {anyIdentificationTarget && (
+                                            <Option
+                                                key={ANY_IDENTIFICATION_TARGET_ID}
+                                                value={ANY_IDENTIFICATION_TARGET_ID}
+                                                text={anyIdentificationTarget.name}
+                                                onClick={() => selectIdentificationTarget(ANY_IDENTIFICATION_TARGET_ID)}
+                                            >
+                                                <span className={styles.identificationTargetOption}>
+                                                    {anyIdentificationTarget.name}
                                                 </span>
                                             </Option>
                                         )}
