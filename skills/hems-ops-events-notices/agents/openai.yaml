@@ -1,0 +1,4 @@
+interface:
+  display_name: "HEMS Ops Events Notices"
+  short_description: "Seed HEMS Ops crew events and notices"
+  default_prompt: "Use $hems-ops-events-notices to create realistic HEMS Ops crew events and notices scoped to base sites."
