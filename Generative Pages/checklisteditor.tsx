@@ -3,7 +3,6 @@ import {
     Button,
     Caption1,
     Checkbox,
-    Combobox,
     Dialog,
     DialogActions,
     DialogBody,
@@ -16,6 +15,7 @@ import {
     MessageBar,
     MessageBarBody,
     Option,
+    OptionGroup,
     Spinner,
     Tab,
     TabList,
@@ -346,7 +346,8 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
         target.isContentEditable ||
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT"
+        target.tagName === "SELECT" ||
+        Boolean(target.closest("[role='combobox'],[role='listbox'],[role='group'],[role='option']"))
     );
 }
 
@@ -478,7 +479,8 @@ const ITEM_IDENTIFICATION_TARGET_TYPES = [
     { value: CHECKLIST_TARGET_BASE_SITE, label: "Base Site" },
     { value: CHECKLIST_TARGET_NO_TARGET, label: "No target" },
 ].filter((target) => target.value !== CHECKLIST_TARGET_NO_TARGET);
-const ANY_IDENTIFICATION_TARGET_ID = "any";
+const ANY_IDENTIFICATION_TARGET_ID = "00000000-0000-0000-0000-000000000000";
+const LEGACY_ANY_IDENTIFICATION_TARGET_ID = "any";
 
 const CHECKLIST_OPTION_DEFINITIONS = [
     {
@@ -2763,12 +2765,24 @@ function normalizeItems(items: any[]): ChecklistItem[] {
                   groupName: String(item.identificationEquipmentType.categoryName || ""),
               }
             : null;
+        const rawIdentificationTargetId =
+            item.identificationTarget && typeof item.identificationTarget === "object"
+                ? String(item.identificationTarget.id || "")
+                : "";
+        const rawIdentificationTargetEntityName =
+            item.identificationTarget && typeof item.identificationTarget === "object"
+                ? String(item.identificationTarget.entityName || "")
+                : "";
         const identificationTarget = item.identificationTarget && typeof item.identificationTarget === "object"
             ? {
-                  id: String(item.identificationTarget.id || ""),
+                  id:
+                      rawIdentificationTargetId === LEGACY_ANY_IDENTIFICATION_TARGET_ID ||
+                      rawIdentificationTargetEntityName === "any"
+                          ? ANY_IDENTIFICATION_TARGET_ID
+                          : rawIdentificationTargetId,
                   name: String(item.identificationTarget.name || ""),
                   targetTypeValue: Number(item.identificationTarget.targetTypeValue || item.identificationTargetTypeValue || 0),
-                  entityName: String(item.identificationTarget.entityName || ""),
+                  entityName: rawIdentificationTargetEntityName,
                   groupId: item.identificationTarget.groupId ? String(item.identificationTarget.groupId) : undefined,
                   groupName: item.identificationTarget.groupName ? String(item.identificationTarget.groupName) : undefined,
               }
@@ -2811,17 +2825,26 @@ function findIdentificationTargetById(
     return null;
 }
 
+function isAnyIdentificationTargetId(targetId: string | null | undefined) {
+    return targetId === ANY_IDENTIFICATION_TARGET_ID || targetId === LEGACY_ANY_IDENTIFICATION_TARGET_ID;
+}
+
+function isAnyIdentificationTarget(target: IdentificationTargetOption | null | undefined) {
+    return target?.entityName === "any" || isAnyIdentificationTargetId(target?.id);
+}
+
 function createChecklistItemFromDraft(
     draftItem: DraftItem,
     identificationOptions: IdentificationOptionsByTarget
 ): ChecklistItem {
-    const selectedTarget =
-        findIdentificationTargetById(
-            identificationOptions,
-            draftItem.identificationTargetTypeValue,
-            draftItem.identificationTargetId
-        ) ||
-        draftItem.identificationTarget;
+    const selectedTarget = draftItem.identificationTargetId
+        ? findIdentificationTargetById(
+              identificationOptions,
+              draftItem.identificationTargetTypeValue,
+              draftItem.identificationTargetId
+          ) ||
+          (!isAnyIdentificationTarget(draftItem.identificationTarget) ? draftItem.identificationTarget : null)
+        : null;
     return {
         id: draftItem.itemId || makeId(),
         name: draftItem.name.trim(),
@@ -3333,24 +3356,8 @@ function getIdentificationTargetOptionText(option: IdentificationTargetOption | 
     return option ? [option.groupName, option.name].filter(Boolean).join(" / ") : "";
 }
 
-function supportsAnyIdentificationTarget(targetTypeValue: number | null) {
-    return targetTypeValue === CHECKLIST_TARGET_AIRCRAFT || targetTypeValue === CHECKLIST_TARGET_VEHICLE;
-}
-
-function getAnyIdentificationTargetName(targetTypeValue: number | null) {
-    if (targetTypeValue === CHECKLIST_TARGET_AIRCRAFT) return "Any aircraft type";
-    if (targetTypeValue === CHECKLIST_TARGET_VEHICLE) return "Any vehicle type";
-    return "Any";
-}
-
-function createAnyIdentificationTarget(targetTypeValue: number | null): IdentificationTargetOption | null {
-    if (!supportsAnyIdentificationTarget(targetTypeValue)) return null;
-    return {
-        id: ANY_IDENTIFICATION_TARGET_ID,
-        name: getAnyIdentificationTargetName(targetTypeValue),
-        targetTypeValue: targetTypeValue!,
-        entityName: "any",
-    };
+function requiresSpecificIdentificationTarget(targetTypeValue: number | null) {
+    return targetTypeValue === CHECKLIST_TARGET_EQUIPMENT;
 }
 
 function formatVersionNumber(value: unknown) {
@@ -4949,7 +4956,6 @@ function ChecklistDetails({
     const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
     const [draftSection, setDraftSection] = useState<DraftSection | null>(null);
     const [draftItem, setDraftItem] = useState<DraftItem | null>(null);
-    const [equipmentTypeSearchText, setEquipmentTypeSearchText] = useState("");
     const [editingSectionId, setEditingSectionId] = useState("");
     const [sectionNameDraft, setSectionNameDraft] = useState("");
     const [editingSelectedSectionTitleId, setEditingSelectedSectionTitleId] = useState("");
@@ -5600,7 +5606,6 @@ function ChecklistDetails({
         setSelectedItemId("");
         setFocusedSectionAction(null);
         setFocusedItemAction(null);
-        setEquipmentTypeSearchText("");
         setDraftItem({
             sectionId,
             afterItemId,
@@ -5676,7 +5681,9 @@ function ChecklistDetails({
         if (!isVersionEditable) return;
         setKeyboardPane("items");
         setSelectedItemId(item.id);
-        setEquipmentTypeSearchText("");
+        const editableIdentificationTarget = isAnyIdentificationTarget(item.identificationTarget)
+            ? null
+            : item.identificationTarget;
         setDraftItem({
             sectionId,
             itemId: item.id,
@@ -5685,8 +5692,8 @@ function ChecklistDetails({
             quantity: item.quantity === null || item.quantity === undefined ? "" : String(item.quantity),
             requestItemIdentification: item.requestItemIdentification,
             identificationTargetTypeValue: item.identificationTargetTypeValue,
-            identificationTargetId: item.identificationTarget?.id || "",
-            identificationTarget: item.identificationTarget,
+            identificationTargetId: editableIdentificationTarget?.id || "",
+            identificationTarget: editableIdentificationTarget,
         });
         setDraftSection(null);
     };
@@ -5698,7 +5705,7 @@ function ChecklistDetails({
             (
                 !draftItem.identificationTargetTypeValue ||
                 (
-                    draftItem.identificationTargetTypeValue !== CHECKLIST_TARGET_BASE_SITE &&
+                    requiresSpecificIdentificationTarget(draftItem.identificationTargetTypeValue) &&
                     !draftItem.identificationTargetId
                 )
             )
@@ -5711,7 +5718,6 @@ function ChecklistDetails({
                 : addItemToSection(current, sectionId, item, draftItem.afterItemId)
         );
         setSelectedItemId(continueAdding ? "" : item.id);
-        setEquipmentTypeSearchText("");
         setDraftItem(continueAdding ? {
             sectionId,
             afterItemId: item.id,
@@ -5727,7 +5733,6 @@ function ChecklistDetails({
     };
     const cancelDraftItem = () => {
         const cancelledDraft = draftItem;
-        setEquipmentTypeSearchText("");
         setDraftItem(null);
         if (!cancelledDraft || cancelledDraft.itemId) return;
         const draftSection = findSectionById(sections, cancelledDraft.sectionId);
@@ -6307,44 +6312,37 @@ function ChecklistDetails({
                 selectedTargetTypeValue,
                 draftItem?.identificationTargetId || ""
             ) ||
-            draftItem?.identificationTarget ||
-            (draftItem?.identificationTargetId === ANY_IDENTIFICATION_TARGET_ID
-                ? createAnyIdentificationTarget(selectedTargetTypeValue)
-                : null) ||
+            (!isAnyIdentificationTarget(draftItem?.identificationTarget) ? draftItem?.identificationTarget : null) ||
             null;
         const needsIdentificationTarget =
             Boolean(selectedTargetTypeValue) && selectedTargetTypeValue !== CHECKLIST_TARGET_BASE_SITE;
-        const isEquipmentIdentificationTarget = selectedTargetTypeValue === CHECKLIST_TARGET_EQUIPMENT;
-        const normalizedEquipmentSearchText = equipmentTypeSearchText.trim().toLowerCase();
-        const visibleSelectedTargetGroups =
-            isEquipmentIdentificationTarget && normalizedEquipmentSearchText
-                ? selectedTargetGroups
-                      .map((group) => ({
-                          ...group,
-                          options: group.options.filter((option) =>
-                              `${group.name} ${option.name}`.toLowerCase().includes(normalizedEquipmentSearchText)
-                          ),
-                      }))
-                      .filter((group) => group.options.length > 0)
-                : selectedTargetGroups;
+        const shouldGroupIdentificationTargets = selectedTargetTypeValue === CHECKLIST_TARGET_EQUIPMENT;
         const shouldShowCurrentTarget =
             Boolean(selectedTarget) &&
-            selectedTarget?.id !== ANY_IDENTIFICATION_TARGET_ID &&
-            !visibleSelectedTargetGroups.some((group) => group.options.some((option) => option.id === selectedTarget?.id));
-        const selectedTargetInputValue =
-            isEquipmentIdentificationTarget && equipmentTypeSearchText
-                ? equipmentTypeSearchText
-                : getIdentificationTargetOptionText(selectedTarget);
+            !isAnyIdentificationTarget(selectedTarget) &&
+            !selectedTargetGroups.some((group) => group.options.some((option) => option.id === selectedTarget?.id));
         const selectIdentificationTargetType = (targetTypeValue: number | null) => {
-            const defaultTarget = createAnyIdentificationTarget(targetTypeValue);
-            setEquipmentTypeSearchText("");
             setDraftItem((current) =>
                 current
                     ? {
                           ...current,
                           identificationTargetTypeValue: targetTypeValue,
-                          identificationTargetId: defaultTarget?.id || "",
-                          identificationTarget: defaultTarget,
+                          identificationTargetId: "",
+                          identificationTarget: null,
+                      }
+                    : current
+            );
+        };
+        const selectIdentificationTarget = (targetId: string) => {
+            if (!targetId) return;
+            const selected = findIdentificationTargetById(identificationOptions, selectedTargetTypeValue, targetId);
+            if (!selected) return;
+            setDraftItem((current) =>
+                current
+                    ? {
+                          ...current,
+                          identificationTargetId: selected.id,
+                          identificationTarget: selected,
                       }
                     : current
             );
@@ -6418,122 +6416,92 @@ function ChecklistDetails({
                                 style={{ gridColumn: needsIdentificationTarget ? undefined : "1 / -1" }}
                             >
                                 <Dropdown
+                                    inlinePopup
                                     className={styles.controlFullWidth}
                                     placeholder="Select target type"
                                     selectedOptions={selectedTargetTypeValue ? [String(selectedTargetTypeValue)] : []}
                                     value={selectedTargetTypeLabel}
                                     onOptionSelect={(_, data) => {
-                                        const optionValue = String(data.optionValue || "");
-                                        selectIdentificationTargetType(Number(optionValue || 0) || null);
+                                        const selectedOption = data.selectedOptions[0] || data.optionValue || "";
+                                        selectIdentificationTargetType(Number(selectedOption || 0) || null);
                                     }}
                                 >
                                     {ITEM_IDENTIFICATION_TARGET_TYPES.map((target) => (
-                                        <Option key={target.value} value={String(target.value)} text={target.label}>
+                                        <Option
+                                            key={target.value}
+                                            value={String(target.value)}
+                                            text={target.label}
+                                            onClick={() => selectIdentificationTargetType(target.value)}
+                                        >
                                             {target.label}
                                         </Option>
                                     ))}
                                 </Dropdown>
                             </Field>
                             {needsIdentificationTarget && (
-                                <Field label={selectedTargetSelectorLabel}>
-                                    {isEquipmentIdentificationTarget ? (
-                                        <Combobox
-                                            className={styles.controlFullWidth}
-                                            placeholder="Search or select equipment type"
-                                            selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
-                                            value={selectedTargetInputValue}
-                                            disabled={!selectedTargetTypeValue}
-                                            onChange={(event) => setEquipmentTypeSearchText(event.currentTarget.value)}
-                                            onOptionSelect={(_, data) => {
-                                                const optionValue = String(data.optionValue || "");
-                                                if (optionValue.startsWith("group:")) return;
-                                                const selected = findIdentificationTargetById(
-                                                    identificationOptions,
-                                                    selectedTargetTypeValue,
-                                                    optionValue
-                                                );
-                                                setEquipmentTypeSearchText(getIdentificationTargetOptionText(selected));
-                                                setDraftItem((current) =>
-                                                    current
-                                                        ? {
-                                                              ...current,
-                                                              identificationTargetId: selected?.id || "",
-                                                              identificationTarget: selected,
-                                                          }
-                                                        : current
-                                                );
-                                            }}
-                                        >
-                                            {shouldShowCurrentTarget && selectedTarget && (
-                                                <Option key={selectedTarget.id} value={selectedTarget.id}>
-                                                    <span className={styles.identificationTargetOption}>
-                                                        {getIdentificationTargetOptionText(selectedTarget)}
-                                                    </span>
-                                                </Option>
-                                            )}
-                                            {visibleSelectedTargetGroups.flatMap((group) => [
-                                                <Option key={`group:${group.id}`} value={`group:${group.id}`} disabled>
-                                                    <span className={styles.identificationGroupOption}>{group.name}</span>
-                                                </Option>,
-                                                ...group.options.map((option) => (
-                                                    <Option key={option.id} value={option.id}>
-                                                        <span className={styles.identificationTargetOption}>{option.name}</span>
+                                <Field key={`identification-target-${selectedTargetTypeValue || "none"}`} label={selectedTargetSelectorLabel}>
+                                    <Dropdown
+                                        inlinePopup
+                                        className={styles.controlFullWidth}
+                                        placeholder={`Select ${selectedTargetSelectorLabel.toLowerCase()}`}
+                                        selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
+                                        value={getIdentificationTargetOptionText(selectedTarget)}
+                                        disabled={!selectedTargetTypeValue}
+                                        onOptionSelect={(_, data) => {
+                                            const selectedOption = data.selectedOptions[0] || data.optionValue || "";
+                                            selectIdentificationTarget(selectedOption);
+                                        }}
+                                    >
+                                        {shouldShowCurrentTarget && selectedTarget && (
+                                            <Option
+                                                key={selectedTarget.id}
+                                                value={selectedTarget.id}
+                                                text={getIdentificationTargetOptionText(selectedTarget)}
+                                                onClick={() => selectIdentificationTarget(selectedTarget.id)}
+                                            >
+                                                <span className={styles.identificationTargetOption}>
+                                                    {getIdentificationTargetOptionText(selectedTarget)}
+                                                </span>
+                                            </Option>
+                                        )}
+                                        {shouldGroupIdentificationTargets
+                                            ? selectedTargetGroups.map((group) => (
+                                                  <OptionGroup
+                                                      key={group.id}
+                                                      label={{
+                                                          children: group.name,
+                                                          className: styles.identificationGroupOption,
+                                                      }}
+                                                  >
+                                                      {group.options.map((option) => (
+                                                          <Option
+                                                              key={option.id}
+                                                              value={option.id}
+                                                              text={option.name}
+                                                              onClick={() => selectIdentificationTarget(option.id)}
+                                                          >
+                                                              <span className={styles.identificationTargetOption}>
+                                                                  {option.name}
+                                                              </span>
+                                                          </Option>
+                                                      ))}
+                                                  </OptionGroup>
+                                              ))
+                                            : selectedTargetGroups.flatMap((group) =>
+                                                  group.options.map((option) => {
+                                                const optionText = getIdentificationTargetOptionText(option);
+                                                return (
+                                                    <Option
+                                                        key={option.id}
+                                                        value={option.id}
+                                                        text={optionText}
+                                                        onClick={() => selectIdentificationTarget(option.id)}
+                                                    >
+                                                        <span className={styles.identificationTargetOption}>{optionText}</span>
                                                     </Option>
-                                                )),
-                                            ])}
-                                        </Combobox>
-                                    ) : (
-                                        <Dropdown
-                                            className={styles.controlFullWidth}
-                                            placeholder={`Select ${selectedTargetSelectorLabel.toLowerCase()}`}
-                                            selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
-                                            value={getIdentificationTargetOptionText(selectedTarget)}
-                                            disabled={!selectedTargetTypeValue}
-                                            onOptionSelect={(_, data) => {
-                                                const optionValue = String(data.optionValue || "");
-                                                if (optionValue.startsWith("group:")) return;
-                                                const selected =
-                                                    optionValue === ANY_IDENTIFICATION_TARGET_ID
-                                                        ? createAnyIdentificationTarget(selectedTargetTypeValue)
-                                                        : findIdentificationTargetById(
-                                                              identificationOptions,
-                                                              selectedTargetTypeValue,
-                                                              optionValue
-                                                          );
-                                                setDraftItem((current) =>
-                                                    current
-                                                        ? {
-                                                              ...current,
-                                                              identificationTargetId: selected?.id || "",
-                                                              identificationTarget: selected,
-                                                          }
-                                                        : current
                                                 );
-                                            }}
-                                        >
-                                            {supportsAnyIdentificationTarget(selectedTargetTypeValue) && (
-                                                <Option key={ANY_IDENTIFICATION_TARGET_ID} value={ANY_IDENTIFICATION_TARGET_ID}>
-                                                    <span className={styles.identificationTargetOption}>
-                                                        {getAnyIdentificationTargetName(selectedTargetTypeValue)}
-                                                    </span>
-                                                </Option>
-                                            )}
-                                            {shouldShowCurrentTarget && selectedTarget && (
-                                                <Option key={selectedTarget.id} value={selectedTarget.id}>
-                                                    <span className={styles.identificationTargetOption}>
-                                                        {getIdentificationTargetOptionText(selectedTarget)}
-                                                    </span>
-                                                </Option>
-                                            )}
-                                            {visibleSelectedTargetGroups.flatMap((group) =>
-                                                group.options.map((option) => (
-                                                    <Option key={option.id} value={option.id}>
-                                                        <span className={styles.identificationTargetOption}>{option.name}</span>
-                                                    </Option>
-                                                ))
-                                            )}
-                                        </Dropdown>
-                                    )}
+                                            }))}
+                                    </Dropdown>
                                 </Field>
                             )}
                         </div>
@@ -6551,7 +6519,7 @@ function ChecklistDetails({
                             (
                                 !draftItem.identificationTargetTypeValue ||
                                 (
-                                    draftItem.identificationTargetTypeValue !== CHECKLIST_TARGET_BASE_SITE &&
+                                    requiresSpecificIdentificationTarget(draftItem.identificationTargetTypeValue) &&
                                     !draftItem.identificationTargetId
                                 )
                             )
