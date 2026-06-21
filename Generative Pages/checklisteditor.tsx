@@ -15,7 +15,6 @@ import {
     MessageBar,
     MessageBarBody,
     Option,
-    OptionGroup,
     Spinner,
     Tab,
     TabList,
@@ -149,6 +148,8 @@ type ChecklistItem = {
     requestItemIdentification: boolean;
     identificationTargetTypeValue: number | null;
     identificationTarget: IdentificationTargetOption | null;
+    requiresChecklistRuns: boolean;
+    requiredChecklistRuns: RequiredChecklistRunOption[];
 };
 
 type GenerativePageInput = {
@@ -183,6 +184,13 @@ type IdentificationTargetGroup = {
 
 type IdentificationOptionsByTarget = Record<number, IdentificationTargetGroup[]>;
 
+type RequiredChecklistRunOption = {
+    id: string;
+    name: string;
+    versionSnapshotId: string;
+    versionNumber?: string;
+};
+
 type AppliesToTargetDefinition = {
     entityName: string;
     idField: string;
@@ -209,9 +217,13 @@ type DraftItem = {
     description: string;
     quantity: string;
     requestItemIdentification: boolean;
+    identificationCategoryId: string;
     identificationTargetTypeValue: number | null;
     identificationTargetId: string;
     identificationTarget: IdentificationTargetOption | null;
+    requiresChecklistRuns: boolean;
+    requiredChecklistRunIds: string[];
+    requiredChecklistRuns: RequiredChecklistRunOption[];
 };
 
 type DraggedItem =
@@ -2606,12 +2618,14 @@ function getPrintableSectionPresentation(section: ChecklistSection, depth: numbe
 
 function getPrintableItemMeta(item: ChecklistItem) {
     const identifyText = item.requestItemIdentification
-        ? `Identify ${getIdentificationTargetTypeLabel(item.identificationTargetTypeValue).toLowerCase() || "item"}${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`
+        ? `Identify equipment${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`
         : "";
+    const checklistRunsText = item.requiresChecklistRuns ? getRequiredChecklistRunsText(item.requiredChecklistRuns) : "";
 
     return [
         item.quantity !== null && item.quantity !== undefined ? `Quantity ${item.quantity}` : "",
         identifyText,
+        checklistRunsText,
     ].filter(Boolean).join(" | ");
 }
 
@@ -2789,6 +2803,17 @@ function normalizeItems(items: any[]): ChecklistItem[] {
             : legacyEquipmentType;
         const identificationTargetTypeValue =
             Number(item.identificationTargetTypeValue || identificationTarget?.targetTypeValue || 0) || null;
+        const requiredChecklistRuns = (Array.isArray(item.requiredChecklistRuns)
+            ? item.requiredChecklistRuns
+            : Array.isArray(item.relatedChecklistRuns)
+              ? item.relatedChecklistRuns
+              : []
+        ).map((checklist: any) => ({
+            id: String(checklist.id || checklist.checklistId || ""),
+            name: String(checklist.name || checklist.checklistName || ""),
+            versionSnapshotId: String(checklist.versionSnapshotId || checklist.checklistVersionId || ""),
+            versionNumber: checklist.versionNumber ? String(checklist.versionNumber) : undefined,
+        })).filter((checklist: RequiredChecklistRunOption) => checklist.id);
         return {
             id: String(item.id || makeId()),
             name: String(item.name || ""),
@@ -2797,6 +2822,8 @@ function normalizeItems(items: any[]): ChecklistItem[] {
             requestItemIdentification: Boolean(item.requestItemIdentification),
             identificationTargetTypeValue,
             identificationTarget,
+            requiresChecklistRuns: Boolean(item.requiresChecklistRuns || item.requiresRelatedChecklistRuns),
+            requiredChecklistRuns,
         };
     });
 }
@@ -2825,32 +2852,24 @@ function findIdentificationTargetById(
     return null;
 }
 
-function isAnyIdentificationTargetId(targetId: string | null | undefined) {
-    return targetId === ANY_IDENTIFICATION_TARGET_ID || targetId === LEGACY_ANY_IDENTIFICATION_TARGET_ID;
+function findIdentificationTargetGroupById(
+    identificationOptions: IdentificationOptionsByTarget,
+    targetTypeValue: number | null,
+    groupId: string
+): IdentificationTargetGroup | null {
+    if (!targetTypeValue || !groupId) return null;
+    return (identificationOptions[targetTypeValue] || []).find((group) => group.id === groupId) || null;
 }
 
-function isAnyIdentificationTarget(target: IdentificationTargetOption | null | undefined) {
-    return target?.entityName === "any" || isAnyIdentificationTargetId(target?.id);
-}
-
-function supportsAnyIdentificationTarget(targetTypeValue: number | null) {
-    return targetTypeValue === CHECKLIST_TARGET_AIRCRAFT || targetTypeValue === CHECKLIST_TARGET_VEHICLE;
-}
-
-function getAnyIdentificationTargetName(targetTypeValue: number | null) {
-    if (targetTypeValue === CHECKLIST_TARGET_AIRCRAFT) return "Any aircraft type";
-    if (targetTypeValue === CHECKLIST_TARGET_VEHICLE) return "Any vehicle type";
-    return "Any";
-}
-
-function createAnyIdentificationTarget(targetTypeValue: number | null): IdentificationTargetOption | null {
-    if (!supportsAnyIdentificationTarget(targetTypeValue)) return null;
-    return {
-        id: ANY_IDENTIFICATION_TARGET_ID,
-        name: getAnyIdentificationTargetName(targetTypeValue),
-        targetTypeValue: targetTypeValue!,
-        entityName: "any",
-    };
+function findIdentificationTargetGroupForTargetId(
+    identificationOptions: IdentificationOptionsByTarget,
+    targetTypeValue: number | null,
+    targetId: string
+): IdentificationTargetGroup | null {
+    if (!targetTypeValue || !targetId) return null;
+    return (identificationOptions[targetTypeValue] || []).find((group) =>
+        group.options.some((option) => option.id === targetId)
+    ) || null;
 }
 
 function createChecklistItemFromDraft(
@@ -2858,13 +2877,11 @@ function createChecklistItemFromDraft(
     identificationOptions: IdentificationOptionsByTarget
 ): ChecklistItem {
     const selectedTarget = draftItem.identificationTargetId
-        ? isAnyIdentificationTargetId(draftItem.identificationTargetId)
-            ? draftItem.identificationTarget || createAnyIdentificationTarget(draftItem.identificationTargetTypeValue)
-            : findIdentificationTargetById(
-                  identificationOptions,
-                  draftItem.identificationTargetTypeValue,
-                  draftItem.identificationTargetId
-              ) || draftItem.identificationTarget
+        ? findIdentificationTargetById(
+              identificationOptions,
+              CHECKLIST_TARGET_EQUIPMENT,
+              draftItem.identificationTargetId
+          ) || draftItem.identificationTarget
         : null;
     return {
         id: draftItem.itemId || makeId(),
@@ -2872,8 +2889,13 @@ function createChecklistItemFromDraft(
         description: draftItem.description.trim(),
         quantity: parseOptionalQuantity(draftItem.quantity.trim()),
         requestItemIdentification: draftItem.requestItemIdentification,
-        identificationTargetTypeValue: draftItem.requestItemIdentification ? draftItem.identificationTargetTypeValue : null,
+        identificationTargetTypeValue: draftItem.requestItemIdentification ? CHECKLIST_TARGET_EQUIPMENT : null,
         identificationTarget: draftItem.requestItemIdentification ? selectedTarget : null,
+        requiresChecklistRuns: Boolean(draftItem.requestItemIdentification && draftItem.requiresChecklistRuns),
+        requiredChecklistRuns:
+            draftItem.requestItemIdentification && draftItem.requiresChecklistRuns
+                ? draftItem.requiredChecklistRuns.filter((checklist) => draftItem.requiredChecklistRunIds.includes(checklist.id))
+                : [],
     };
 }
 
@@ -3377,8 +3399,10 @@ function getIdentificationTargetOptionText(option: IdentificationTargetOption | 
     return option ? [option.groupName, option.name].filter(Boolean).join(" / ") : "";
 }
 
-function requiresSpecificIdentificationTarget(targetTypeValue: number | null) {
-    return targetTypeValue === CHECKLIST_TARGET_EQUIPMENT;
+function getRequiredChecklistRunsText(checklists: RequiredChecklistRunOption[]) {
+    if (!checklists.length) return "";
+    if (checklists.length === 1) return `Requires checklist run: ${checklists[0].name}`;
+    return `Requires ${checklists.length} checklist runs`;
 }
 
 function formatVersionNumber(value: unknown) {
@@ -3543,32 +3567,61 @@ async function loadFlatIdentificationGroup({
 }
 
 async function loadIdentificationOptions(): Promise<IdentificationOptionsByTarget> {
-    const [equipment, vehicles, aircraft] = await Promise.all([
-        loadEquipmentIdentificationGroups(),
-        loadFlatIdentificationGroup({
-            targetTypeValue: CHECKLIST_TARGET_VEHICLE,
-            entityName: "int_vehicletype",
-            idField: "int_vehicletypeid",
-            groupId: "vehicle-types",
-            groupName: "Vehicle types",
-            fallbackName: "Unnamed vehicle type",
-        }),
-        loadFlatIdentificationGroup({
-            targetTypeValue: CHECKLIST_TARGET_AIRCRAFT,
-            entityName: "int_aircrafttype",
-            idField: "int_aircrafttypeid",
-            groupId: "aircraft-types",
-            groupName: "Aircraft types",
-            fallbackName: "Unnamed aircraft type",
-        }),
-    ]);
+    const equipment = await loadEquipmentIdentificationGroups();
 
     return {
-        [CHECKLIST_TARGET_AIRCRAFT]: aircraft,
+        [CHECKLIST_TARGET_AIRCRAFT]: [],
         [CHECKLIST_TARGET_EQUIPMENT]: equipment,
-        [CHECKLIST_TARGET_VEHICLE]: vehicles,
+        [CHECKLIST_TARGET_VEHICLE]: [],
         [CHECKLIST_TARGET_BASE_SITE]: [],
     };
+}
+
+async function loadPublishedChecklistRunOptionsForEquipmentType(
+    equipmentTypeId: string,
+    currentChecklistId = ""
+): Promise<RequiredChecklistRunOption[]> {
+    if (!hasDataverse() || !Xrm.WebApi?.retrieveRecord) return [];
+    const normalizedEquipmentTypeId = equipmentTypeId.replace(/[{}]/g, "");
+    const normalizedCurrentChecklistId = currentChecklistId.replace(/[{}]/g, "").toLowerCase();
+    if (!normalizedEquipmentTypeId) return [];
+
+    try {
+        const records = await retrieveAllDataverseRecords(
+            TABLE_NAME,
+            `?$select=int_checklistid,int_name,_int_equipmenttype_value,_int_versionsnapshot_value&$filter=statecode eq 0 and _int_equipmenttype_value eq ${normalizedEquipmentTypeId}&$orderby=int_name asc`
+        );
+        const candidates = records.filter((record) => {
+            const checklistId = getLookupId(record, ["int_checklistid"]).toLowerCase();
+            const versionSnapshotId = getLookupId(record, ["_int_versionsnapshot_value"]);
+            return checklistId && versionSnapshotId && checklistId !== normalizedCurrentChecklistId;
+        });
+        const options = await Promise.all(candidates.map(async (record) => {
+            const versionSnapshotId = getLookupId(record, ["_int_versionsnapshot_value"]);
+            try {
+                const versionRecord = await Xrm.WebApi.retrieveRecord(
+                    VERSION_TABLE_NAME,
+                    versionSnapshotId,
+                    "?$select=statuscode,int_versionnumber"
+                );
+                if (Number(getValue(versionRecord, ["statuscode"], 0)) !== VERSION_STATUS_PUBLISHED) return null;
+                const versionNumber = formatVersionNumber(getValue(versionRecord, ["int_versionnumber"], ""));
+                return {
+                    id: getLookupId(record, ["int_checklistid"]),
+                    name: String(getValue(record, ["int_name"], "Unnamed checklist")),
+                    versionSnapshotId,
+                    versionNumber,
+                } as RequiredChecklistRunOption;
+            } catch {
+                return null;
+            }
+        }));
+        return options
+            .filter((option): option is RequiredChecklistRunOption => Boolean(option?.id))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+        return [];
+    }
 }
 
 function buildChecklistVersionDefinition({
@@ -3622,15 +3675,21 @@ function serializeChecklistSections(sections: ChecklistSection[]): any[] {
                 };
                 if (item.description) serializedItem.description = item.description;
                 if (item.quantity !== null && item.quantity !== undefined) serializedItem.quantity = item.quantity;
-                if (item.requestItemIdentification) {
-                    serializedItem.requestItemIdentification = true;
-                    if (item.identificationTargetTypeValue) {
-                        serializedItem.identificationTargetTypeValue = item.identificationTargetTypeValue;
-                    }
-                    if (item.identificationTarget) {
-                        serializedItem.identificationTarget = item.identificationTarget;
-                    }
-                }
+	                if (item.requestItemIdentification) {
+	                    serializedItem.requestItemIdentification = true;
+	                    if (item.identificationTargetTypeValue) {
+	                        serializedItem.identificationTargetTypeValue = item.identificationTargetTypeValue;
+	                    }
+	                    if (item.identificationTarget) {
+	                        serializedItem.identificationTarget = item.identificationTarget;
+	                    }
+	                    if (item.requiresChecklistRuns) {
+	                        serializedItem.requiresChecklistRuns = true;
+	                        if (item.requiredChecklistRuns.length > 0) {
+	                            serializedItem.requiredChecklistRuns = item.requiredChecklistRuns;
+	                        }
+	                    }
+	                }
                 return serializedItem;
             });
         }
@@ -4962,6 +5021,8 @@ function ChecklistDetails({
     const [appliesTo, setAppliesTo] = useState<AppliesToSelection | null>(version.definition.checklistVersionDetails.appliesTo);
     const [options, setOptions] = useState(version.definition.checklistVersionDetails.options);
     const [sections, setSections] = useState(version.definition.checklistVersionContents.sections);
+    const [requiredChecklistOptionsByEquipmentType, setRequiredChecklistOptionsByEquipmentType] = useState<Record<string, RequiredChecklistRunOption[]>>({});
+    const [loadingRequiredChecklistEquipmentTypeId, setLoadingRequiredChecklistEquipmentTypeId] = useState("");
     const [selectedSectionId, setSelectedSectionId] = useState(
         flattenSections(version.definition.checklistVersionContents.sections)[0]?.section.id || ""
     );
@@ -5187,25 +5248,58 @@ function ChecklistDetails({
             !draftItem.itemId &&
             draftItem.name === "" &&
             draftItem.description === "" &&
-            draftItem.quantity === "" &&
-            !draftItem.requestItemIdentification &&
-            draftItem.identificationTargetTypeValue === null &&
-            draftItem.identificationTargetId === "" &&
-            draftItem.identificationTarget === null
-        ) {
-            itemNameInputRef.current?.focus();
-        }
+	            draftItem.quantity === "" &&
+	            !draftItem.requestItemIdentification &&
+	            draftItem.identificationCategoryId === "" &&
+	            draftItem.identificationTargetTypeValue === null &&
+	            draftItem.identificationTargetId === "" &&
+	            draftItem.identificationTarget === null &&
+	            !draftItem.requiresChecklistRuns &&
+	            draftItem.requiredChecklistRunIds.length === 0 &&
+	            draftItem.requiredChecklistRuns.length === 0
+	        ) {
+	            itemNameInputRef.current?.focus();
+	        }
     }, [
         draftItem?.sectionId,
         draftItem?.itemId,
         draftItem?.name,
         draftItem?.description,
-        draftItem?.quantity,
-        draftItem?.requestItemIdentification,
-        draftItem?.identificationTargetTypeValue,
-        draftItem?.identificationTargetId,
-        draftItem?.identificationTarget,
-    ]);
+	        draftItem?.quantity,
+	        draftItem?.requestItemIdentification,
+	        draftItem?.identificationCategoryId,
+	        draftItem?.identificationTargetTypeValue,
+	        draftItem?.identificationTargetId,
+	        draftItem?.identificationTarget,
+	        draftItem?.requiresChecklistRuns,
+	        draftItem?.requiredChecklistRunIds,
+	        draftItem?.requiredChecklistRuns,
+	    ]);
+	    useEffect(() => {
+	        const equipmentTypeId = draftItem?.requestItemIdentification ? draftItem.identificationTargetId : "";
+	        if (!equipmentTypeId || requiredChecklistOptionsByEquipmentType[equipmentTypeId]) return;
+	        let isMounted = true;
+	        setLoadingRequiredChecklistEquipmentTypeId(equipmentTypeId);
+	        loadPublishedChecklistRunOptionsForEquipmentType(equipmentTypeId, checklist.id || "")
+	            .then((items) => {
+	                if (!isMounted) return;
+	                setRequiredChecklistOptionsByEquipmentType((current) => ({
+	                    ...current,
+	                    [equipmentTypeId]: items,
+	                }));
+	            })
+	            .finally(() => {
+	                if (isMounted) setLoadingRequiredChecklistEquipmentTypeId("");
+	            });
+	        return () => {
+	            isMounted = false;
+	        };
+	    }, [
+	        checklist.id,
+	        draftItem?.requestItemIdentification,
+	        draftItem?.identificationTargetId,
+	        requiredChecklistOptionsByEquipmentType,
+	    ]);
     const clearKeyboardFocusResetTimer = () => {
         if (sectionFocusResetTimerRef.current) {
             window.clearTimeout(sectionFocusResetTimerRef.current);
@@ -5627,17 +5721,21 @@ function ChecklistDetails({
         setSelectedItemId("");
         setFocusedSectionAction(null);
         setFocusedItemAction(null);
-        setDraftItem({
-            sectionId,
-            afterItemId,
-            name: "",
-            description: "",
-            quantity: "",
-            requestItemIdentification: false,
-            identificationTargetTypeValue: null,
-            identificationTargetId: "",
-            identificationTarget: null,
-        });
+	        setDraftItem({
+	            sectionId,
+	            afterItemId,
+	            name: "",
+	            description: "",
+	            quantity: "",
+	            requestItemIdentification: false,
+	            identificationCategoryId: "",
+	            identificationTargetTypeValue: null,
+	            identificationTargetId: "",
+	            identificationTarget: null,
+	            requiresChecklistRuns: false,
+	            requiredChecklistRunIds: [],
+	            requiredChecklistRuns: [],
+	        });
         setDraftSection(null);
     };
     const startEditSectionName = (section: ChecklistSection) => {
@@ -5698,36 +5796,46 @@ function ChecklistDetails({
         updateSections((current) => updateSectionName(current, editingSelectedSectionTitleId, nextName));
         setEditingSelectedSectionTitleId("");
     };
-    const startEditItem = (sectionId: string, item: ChecklistItem) => {
-        if (!isVersionEditable) return;
-        setKeyboardPane("items");
-        setSelectedItemId(item.id);
-        setDraftItem({
-            sectionId,
-            itemId: item.id,
-            name: item.name,
-            description: item.description,
-            quantity: item.quantity === null || item.quantity === undefined ? "" : String(item.quantity),
-            requestItemIdentification: item.requestItemIdentification,
-            identificationTargetTypeValue: item.identificationTargetTypeValue,
-            identificationTargetId: item.identificationTarget?.id || "",
-            identificationTarget: item.identificationTarget,
-        });
-        setDraftSection(null);
-    };
+	    const startEditItem = (sectionId: string, item: ChecklistItem) => {
+	        if (!isVersionEditable) return;
+	        setKeyboardPane("items");
+	        setSelectedItemId(item.id);
+	        const equipmentTarget =
+	            item.identificationTarget?.entityName === "int_equipmenttype"
+	                ? item.identificationTarget
+	                : null;
+	        const equipmentCategory =
+	            equipmentTarget?.groupId
+	                ? findIdentificationTargetGroupById(identificationOptions, CHECKLIST_TARGET_EQUIPMENT, equipmentTarget.groupId)
+	                : findIdentificationTargetGroupForTargetId(identificationOptions, CHECKLIST_TARGET_EQUIPMENT, equipmentTarget?.id || "");
+	        setDraftItem({
+	            sectionId,
+	            itemId: item.id,
+	            name: item.name,
+	            description: item.description,
+	            quantity: item.quantity === null || item.quantity === undefined ? "" : String(item.quantity),
+	            requestItemIdentification: Boolean(item.requestItemIdentification && equipmentTarget),
+	            identificationCategoryId: equipmentCategory?.id || equipmentTarget?.groupId || "",
+	            identificationTargetTypeValue: equipmentTarget ? CHECKLIST_TARGET_EQUIPMENT : null,
+	            identificationTargetId: equipmentTarget?.id || "",
+	            identificationTarget: equipmentTarget,
+	            requiresChecklistRuns: Boolean(item.requiresChecklistRuns),
+	            requiredChecklistRunIds: item.requiredChecklistRuns.map((checklist) => checklist.id),
+	            requiredChecklistRuns: item.requiredChecklistRuns,
+	        });
+	        setDraftSection(null);
+	    };
     const confirmDraftItem = (continueAdding = false) => {
         if (!isVersionEditable) return false;
         if (!draftItem?.name.trim()) return false;
-        if (
-            draftItem.requestItemIdentification &&
-            (
-                !draftItem.identificationTargetTypeValue ||
-                (
-                    requiresSpecificIdentificationTarget(draftItem.identificationTargetTypeValue) &&
-                    !draftItem.identificationTargetId
-                )
-            )
-        ) return false;
+	        if (
+	            draftItem.requestItemIdentification &&
+	            (
+	                !draftItem.identificationCategoryId ||
+	                !draftItem.identificationTargetId ||
+	                (draftItem.requiresChecklistRuns && draftItem.requiredChecklistRunIds.length === 0)
+	            )
+	        ) return false;
         const item = createChecklistItemFromDraft(draftItem, identificationOptions);
         const sectionId = draftItem.sectionId;
         updateSections((current) =>
@@ -5740,13 +5848,17 @@ function ChecklistDetails({
             sectionId,
             afterItemId: item.id,
             name: "",
-            description: "",
-            quantity: "",
-            requestItemIdentification: false,
-            identificationTargetTypeValue: null,
-            identificationTargetId: "",
-            identificationTarget: null,
-        } : null);
+	            description: "",
+	            quantity: "",
+	            requestItemIdentification: false,
+	            identificationCategoryId: "",
+	            identificationTargetTypeValue: null,
+	            identificationTargetId: "",
+	            identificationTarget: null,
+	            requiresChecklistRuns: false,
+	            requiredChecklistRunIds: [],
+	            requiredChecklistRuns: [],
+	        } : null);
         return true;
     };
     const cancelDraftItem = () => {
@@ -6311,67 +6423,102 @@ function ChecklistDetails({
                 onClick={confirmDraftSection}
             />
         </div>
-    );
-    const renderDraftItemRow = () => {
-        const selectedTargetTypeValue = draftItem?.identificationTargetTypeValue || null;
-        const selectedTargetGroups = selectedTargetTypeValue ? identificationOptions[selectedTargetTypeValue] || [] : [];
-        const selectedTargetTypeLabel = getIdentificationTargetTypeLabel(selectedTargetTypeValue);
-        const selectedTargetSelectorLabel =
-            selectedTargetTypeValue === CHECKLIST_TARGET_AIRCRAFT
-                ? "Aircraft type"
-                : selectedTargetTypeValue === CHECKLIST_TARGET_EQUIPMENT
-                  ? "Equipment type"
-                  : selectedTargetTypeValue === CHECKLIST_TARGET_VEHICLE
-                    ? "Vehicle type"
-                    : selectedTargetTypeLabel || "Target";
-        const selectedTarget =
-            findIdentificationTargetById(
-                identificationOptions,
-                selectedTargetTypeValue,
-                draftItem?.identificationTargetId || ""
-            ) ||
-            (
-                isAnyIdentificationTargetId(draftItem?.identificationTargetId || "")
-                    ? draftItem?.identificationTarget || createAnyIdentificationTarget(selectedTargetTypeValue)
-                    : draftItem?.identificationTarget
-            ) ||
-            null;
-        const needsIdentificationTarget =
-            Boolean(selectedTargetTypeValue) && selectedTargetTypeValue !== CHECKLIST_TARGET_BASE_SITE;
-        const anyIdentificationTarget = createAnyIdentificationTarget(selectedTargetTypeValue);
-        const shouldGroupIdentificationTargets = selectedTargetTypeValue === CHECKLIST_TARGET_EQUIPMENT;
-        const shouldShowCurrentTarget =
-            Boolean(selectedTarget) &&
-            !isAnyIdentificationTarget(selectedTarget) &&
-            !selectedTargetGroups.some((group) => group.options.some((option) => option.id === selectedTarget?.id));
-        const selectIdentificationTargetType = (targetTypeValue: number | null) => {
-            setDraftItem((current) =>
-                current
-                    ? {
-                          ...current,
-                          identificationTargetTypeValue: targetTypeValue,
-                          identificationTargetId: "",
-                          identificationTarget: null,
-                      }
-                    : current
-            );
-        };
-        const selectIdentificationTarget = (targetId: string) => {
-            if (!targetId) return;
-            const selected = isAnyIdentificationTargetId(targetId)
-                ? createAnyIdentificationTarget(selectedTargetTypeValue)
-                : findIdentificationTargetById(identificationOptions, selectedTargetTypeValue, targetId);
-            if (!selected) return;
-            setDraftItem((current) =>
-                current
-                    ? {
-                          ...current,
-                          identificationTargetId: selected.id,
-                          identificationTarget: selected,
-                      }
-                    : current
-            );
-        };
+	    );
+	    const renderDraftItemRow = () => {
+	        const equipmentCategories = identificationOptions[CHECKLIST_TARGET_EQUIPMENT] || [];
+	        const selectedEquipmentCategory =
+	            findIdentificationTargetGroupById(
+	                identificationOptions,
+	                CHECKLIST_TARGET_EQUIPMENT,
+	                draftItem?.identificationCategoryId || ""
+	            ) ||
+	            findIdentificationTargetGroupForTargetId(
+	                identificationOptions,
+	                CHECKLIST_TARGET_EQUIPMENT,
+	                draftItem?.identificationTargetId || ""
+	            );
+	        const selectedEquipmentTypes = selectedEquipmentCategory?.options || [];
+	        const selectedEquipmentType =
+	            findIdentificationTargetById(
+	                identificationOptions,
+	                CHECKLIST_TARGET_EQUIPMENT,
+	                draftItem?.identificationTargetId || ""
+	            ) ||
+	            (
+	                draftItem?.identificationTarget?.entityName === "int_equipmenttype"
+	                    ? draftItem.identificationTarget
+	                    : null
+	            );
+	        const loadedRequiredChecklistOptions = draftItem?.identificationTargetId
+	            ? requiredChecklistOptionsByEquipmentType[draftItem.identificationTargetId] || []
+	            : [];
+	        const requiredChecklistOptions = [
+	            ...(draftItem?.requiredChecklistRuns || []).filter((checklist) =>
+	                !loadedRequiredChecklistOptions.some((option) => option.id === checklist.id)
+	            ),
+	            ...loadedRequiredChecklistOptions,
+	        ];
+	        const selectedRequiredChecklistRuns = requiredChecklistOptions.filter((checklist) =>
+	            draftItem?.requiredChecklistRunIds.includes(checklist.id)
+	        );
+	        const selectedRequiredChecklistText = selectedRequiredChecklistRuns.map((checklist) => checklist.name).join(", ");
+	        const isLoadingRequiredChecklists =
+	            Boolean(draftItem?.identificationTargetId) &&
+	            loadingRequiredChecklistEquipmentTypeId === draftItem?.identificationTargetId;
+	        const selectEquipmentCategory = (categoryId: string) => {
+	            setDraftItem((current) =>
+	                current
+	                    ? {
+	                          ...current,
+	                          identificationCategoryId: categoryId,
+	                          identificationTargetTypeValue: CHECKLIST_TARGET_EQUIPMENT,
+	                          identificationTargetId: "",
+	                          identificationTarget: null,
+	                          requiresChecklistRuns: false,
+	                          requiredChecklistRunIds: [],
+	                          requiredChecklistRuns: [],
+	                      }
+	                    : current
+	            );
+	        };
+	        const selectEquipmentType = (targetId: string) => {
+	            if (!targetId) return;
+	            const selected = findIdentificationTargetById(identificationOptions, CHECKLIST_TARGET_EQUIPMENT, targetId);
+	            if (!selected) return;
+	            const selectedGroup = findIdentificationTargetGroupForTargetId(
+	                identificationOptions,
+	                CHECKLIST_TARGET_EQUIPMENT,
+	                targetId
+	            );
+	            setDraftItem((current) =>
+	                current
+	                    ? {
+	                          ...current,
+	                          identificationCategoryId: selectedGroup?.id || selected.groupId || current.identificationCategoryId,
+	                          identificationTargetTypeValue: CHECKLIST_TARGET_EQUIPMENT,
+	                          identificationTargetId: selected.id,
+	                          identificationTarget: selected,
+	                          requiresChecklistRuns: false,
+	                          requiredChecklistRunIds: [],
+	                          requiredChecklistRuns: [],
+	                      }
+	                    : current
+	            );
+	        };
+	        const selectRequiredChecklists = (selectedIds: readonly string[]) => {
+	            const selectedIdSet = new Set(selectedIds);
+	            setDraftItem((current) =>
+	                current
+	                    ? {
+	                          ...current,
+	                          requiredChecklistRunIds: [...selectedIds],
+	                          requiredChecklistRuns: requiredChecklistOptions.filter((checklist) =>
+	                              selectedIdSet.has(checklist.id)
+	                          ),
+	                      }
+	                    : current
+	            );
+	        };
 
         return (
             <div className={styles.itemEditCard}>
@@ -6410,140 +6557,129 @@ function ChecklistDetails({
                         }
                         onKeyDown={(event) => handleItemEditKeyDown(event)}
                     />
-                </Field>
-                <div className={styles.itemIdentificationField}>
-                    <Tooltip
-                        relationship="description"
-                        content="When enabled, crew members will be prompted to choose the actual item they are recording a status for, scoped by the target type selected here. For example, for Blue Bags they would choose which specific Blue Bag they are checking in their checklist session."
-                    >
-                        <Checkbox
-                            checked={Boolean(draftItem?.requestItemIdentification)}
-                            label="Requires identification"
-                            onChange={(_, data) =>
-                                setDraftItem((current) =>
-                                    current
-                                        ? {
-                                              ...current,
-                                              requestItemIdentification: Boolean(data.checked),
-                                              identificationTargetTypeValue: data.checked ? current.identificationTargetTypeValue : null,
-                                              identificationTargetId: data.checked ? current.identificationTargetId : "",
-                                              identificationTarget: data.checked ? current.identificationTarget : null,
-                                          }
-                                        : current
-                                )
-                            }
-                        />
-                    </Tooltip>
-                    {draftItem?.requestItemIdentification && (
-                        <div className={styles.itemIdentificationControls}>
-                            <Field
-                                label="Target type"
-                                style={{ gridColumn: needsIdentificationTarget ? undefined : "1 / -1" }}
-                            >
-                                <Dropdown
-                                    inlinePopup
-                                    className={styles.controlFullWidth}
-                                    placeholder="Select target type"
-                                    selectedOptions={selectedTargetTypeValue ? [String(selectedTargetTypeValue)] : []}
-                                    value={selectedTargetTypeLabel}
-                                    onOptionSelect={(_, data) => {
-                                        const selectedOption = data.selectedOptions[0] || data.optionValue || "";
-                                        selectIdentificationTargetType(Number(selectedOption || 0) || null);
-                                    }}
-                                >
-                                    {ITEM_IDENTIFICATION_TARGET_TYPES.map((target) => (
-                                        <Option
-                                            key={target.value}
-                                            value={String(target.value)}
-                                            text={target.label}
-                                            onClick={() => selectIdentificationTargetType(target.value)}
-                                        >
-                                            {target.label}
-                                        </Option>
-                                    ))}
-                                </Dropdown>
-                            </Field>
-                            {needsIdentificationTarget && (
-                                <Field key={`identification-target-${selectedTargetTypeValue || "none"}`} label={selectedTargetSelectorLabel}>
-                                    <Dropdown
-                                        inlinePopup
-                                        className={styles.controlFullWidth}
-                                        placeholder={`Select ${selectedTargetSelectorLabel.toLowerCase()}`}
-                                        selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
-                                        value={getIdentificationTargetOptionText(selectedTarget)}
-                                        disabled={!selectedTargetTypeValue}
-                                        onOptionSelect={(_, data) => {
-                                            const selectedOption = data.selectedOptions[0] || data.optionValue || "";
-                                            selectIdentificationTarget(selectedOption);
-                                        }}
-                                    >
-                                        {shouldShowCurrentTarget && selectedTarget && (
-                                            <Option
-                                                key={selectedTarget.id}
-                                                value={selectedTarget.id}
-                                                text={getIdentificationTargetOptionText(selectedTarget)}
-                                                onClick={() => selectIdentificationTarget(selectedTarget.id)}
-                                            >
-                                                <span className={styles.identificationTargetOption}>
-                                                    {getIdentificationTargetOptionText(selectedTarget)}
-                                                </span>
-                                            </Option>
-                                        )}
-                                        {anyIdentificationTarget && (
-                                            <Option
-                                                key={ANY_IDENTIFICATION_TARGET_ID}
-                                                value={ANY_IDENTIFICATION_TARGET_ID}
-                                                text={anyIdentificationTarget.name}
-                                                onClick={() => selectIdentificationTarget(ANY_IDENTIFICATION_TARGET_ID)}
-                                            >
-                                                <span className={styles.identificationTargetOption}>
-                                                    {anyIdentificationTarget.name}
-                                                </span>
-                                            </Option>
-                                        )}
-                                        {shouldGroupIdentificationTargets
-                                            ? selectedTargetGroups.map((group) => (
-                                                  <OptionGroup
-                                                      key={group.id}
-                                                      label={{
-                                                          children: group.name,
-                                                          className: styles.identificationGroupOption,
-                                                      }}
-                                                  >
-                                                      {group.options.map((option) => (
-                                                          <Option
-                                                              key={option.id}
-                                                              value={option.id}
-                                                              text={option.name}
-                                                              onClick={() => selectIdentificationTarget(option.id)}
-                                                          >
-                                                              <span className={styles.identificationTargetOption}>
-                                                                  {option.name}
-                                                              </span>
-                                                          </Option>
-                                                      ))}
-                                                  </OptionGroup>
-                                              ))
-                                            : selectedTargetGroups.flatMap((group) =>
-                                                  group.options.map((option) => {
-                                                const optionText = getIdentificationTargetOptionText(option);
-                                                return (
-                                                    <Option
-                                                        key={option.id}
-                                                        value={option.id}
-                                                        text={optionText}
-                                                        onClick={() => selectIdentificationTarget(option.id)}
-                                                    >
-                                                        <span className={styles.identificationTargetOption}>{optionText}</span>
-                                                    </Option>
-                                                );
-                                            }))}
-                                    </Dropdown>
-                                </Field>
-                            )}
-                        </div>
-                    )}
-                </div>
+	                </Field>
+	                <div className={styles.itemIdentificationField}>
+	                    <Tooltip
+	                        relationship="description"
+	                        content="When enabled, crew members will choose the specific equipment item they are recording a status for during the checklist run."
+	                    >
+	                        <Checkbox
+	                            checked={Boolean(draftItem?.requestItemIdentification)}
+	                            label="Requires equipment identification"
+	                            onChange={(_, data) =>
+	                                setDraftItem((current) =>
+	                                    current
+	                                        ? {
+	                                              ...current,
+	                                              requestItemIdentification: Boolean(data.checked),
+	                                              identificationCategoryId: data.checked ? current.identificationCategoryId : "",
+	                                              identificationTargetTypeValue: data.checked ? CHECKLIST_TARGET_EQUIPMENT : null,
+	                                              identificationTargetId: data.checked ? current.identificationTargetId : "",
+	                                              identificationTarget: data.checked ? current.identificationTarget : null,
+	                                              requiresChecklistRuns: data.checked ? current.requiresChecklistRuns : false,
+	                                              requiredChecklistRunIds: data.checked ? current.requiredChecklistRunIds : [],
+	                                              requiredChecklistRuns: data.checked ? current.requiredChecklistRuns : [],
+	                                          }
+	                                        : current
+	                                )
+	                            }
+	                        />
+	                    </Tooltip>
+	                    {draftItem?.requestItemIdentification && (
+	                        <div className={styles.itemIdentificationControls}>
+	                            <Field label="Equipment category">
+	                                <Dropdown
+	                                    inlinePopup
+	                                    className={styles.controlFullWidth}
+	                                    placeholder="Select equipment category"
+	                                    selectedOptions={draftItem.identificationCategoryId ? [draftItem.identificationCategoryId] : []}
+	                                    value={selectedEquipmentCategory?.name || ""}
+	                                    onOptionSelect={(_, data) => {
+	                                        selectEquipmentCategory(data.selectedOptions[0] || data.optionValue || "");
+	                                    }}
+	                                >
+	                                    {equipmentCategories.map((category) => (
+	                                        <Option
+	                                            key={category.id}
+	                                            value={category.id}
+	                                            text={category.name}
+	                                            onClick={() => selectEquipmentCategory(category.id)}
+	                                        >
+	                                            {category.name}
+	                                        </Option>
+	                                    ))}
+	                                </Dropdown>
+	                            </Field>
+	                            <Field label="Equipment type">
+	                                <Dropdown
+	                                    inlinePopup
+	                                    className={styles.controlFullWidth}
+	                                    placeholder="Select equipment type"
+	                                    selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
+	                                    value={selectedEquipmentType?.name || ""}
+	                                    disabled={!selectedEquipmentCategory}
+	                                    onOptionSelect={(_, data) => {
+	                                        selectEquipmentType(data.selectedOptions[0] || data.optionValue || "");
+	                                    }}
+	                                >
+	                                    {selectedEquipmentTypes.map((option) => (
+	                                        <Option
+	                                            key={option.id}
+	                                            value={option.id}
+	                                            text={option.name}
+	                                            onClick={() => selectEquipmentType(option.id)}
+	                                        >
+	                                            {option.name}
+	                                        </Option>
+	                                    ))}
+	                                </Dropdown>
+	                            </Field>
+	                            <Checkbox
+	                                checked={Boolean(draftItem.requiresChecklistRuns)}
+	                                disabled={!selectedEquipmentType}
+	                                label="Requires checklist runs"
+	                                onChange={(_, data) =>
+	                                    setDraftItem((current) =>
+	                                        current
+	                                            ? {
+	                                                  ...current,
+	                                                  requiresChecklistRuns: Boolean(data.checked),
+	                                                  requiredChecklistRunIds: data.checked ? current.requiredChecklistRunIds : [],
+	                                                  requiredChecklistRuns: data.checked ? current.requiredChecklistRuns : [],
+	                                              }
+	                                            : current
+	                                    )
+	                                }
+	                            />
+	                            {draftItem.requiresChecklistRuns && (
+	                                <Field label="Required checklists" style={{ gridColumn: "1 / -1" }}>
+	                                    <Dropdown
+	                                        inlinePopup
+	                                        multiselect
+	                                        className={styles.controlFullWidth}
+	                                        placeholder={isLoadingRequiredChecklists ? "Loading checklists" : "Select checklists"}
+	                                        selectedOptions={draftItem.requiredChecklistRunIds}
+	                                        value={selectedRequiredChecklistText}
+	                                        disabled={!selectedEquipmentType || isLoadingRequiredChecklists}
+	                                        onOptionSelect={(_, data) => {
+	                                            selectRequiredChecklists(data.selectedOptions);
+	                                        }}
+	                                    >
+	                                        {requiredChecklistOptions.map((option) => (
+	                                            <Option
+	                                                key={option.id}
+	                                                value={option.id}
+	                                                text={option.name}
+	                                            >
+	                                                {option.versionNumber ? `${option.name} v${option.versionNumber}` : option.name}
+	                                            </Option>
+	                                        ))}
+	                                    </Dropdown>
+	                                </Field>
+	                            )}
+	                        </div>
+	                    )}
+	                </div>
                 <Button
                     aria-label="Confirm item details"
                     appearance="primary"
@@ -6552,16 +6688,14 @@ function ChecklistDetails({
                     disabled={
                         !draftItem?.name.trim() ||
                         Boolean(
-                            draftItem.requestItemIdentification &&
-                            (
-                                !draftItem.identificationTargetTypeValue ||
-                                (
-                                    requiresSpecificIdentificationTarget(draftItem.identificationTargetTypeValue) &&
-                                    !draftItem.identificationTargetId
-                                )
-                            )
-                        )
-                    }
+	                            draftItem.requestItemIdentification &&
+	                            (
+	                                !draftItem.identificationCategoryId ||
+	                                !draftItem.identificationTargetId ||
+	                                (draftItem.requiresChecklistRuns && draftItem.requiredChecklistRunIds.length === 0)
+	                            )
+	                        )
+	                    }
                     onClick={() => confirmDraftItem()}
                 />
             </div>
@@ -7913,14 +8047,17 @@ function ChecklistDetails({
                                                                 {item.description && (
                                                                     <Caption1 className={styles.mutedText}>{item.description}</Caption1>
                                                                 )}
-                                                                {item.requestItemIdentification && (
-                                                                    <Caption1 className={styles.itemIdentificationBadge}>
-                                                                        <TagRegular className={styles.itemIdentificationBadgeIcon} />
-                                                                        <span className={styles.itemIdentificationBadgeText}>
-                                                                            {`Identify ${getIdentificationTargetTypeLabel(item.identificationTargetTypeValue).toLowerCase() || "item"}${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`}
-                                                                        </span>
-                                                                    </Caption1>
-                                                                )}
+	                                                                {item.requestItemIdentification && (
+	                                                                    <Caption1 className={styles.itemIdentificationBadge}>
+	                                                                        <TagRegular className={styles.itemIdentificationBadgeIcon} />
+	                                                                        <span className={styles.itemIdentificationBadgeText}>
+	                                                                            {[
+	                                                                                `Identify equipment${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`,
+	                                                                                item.requiresChecklistRuns ? getRequiredChecklistRunsText(item.requiredChecklistRuns) : "",
+	                                                                            ].filter(Boolean).join(" | ")}
+	                                                                        </span>
+	                                                                    </Caption1>
+	                                                                )}
                                                             </div>
                                                             <div className={styles.rowActions}>
                                                                 {item.quantity !== null && item.quantity !== undefined && (
