@@ -1030,7 +1030,7 @@ const useStyles = makeStyles({
     },
     printSection: {
         "@media print": {
-            margin: "0 0 10px",
+            margin: "0 0 12px",
             printColorAdjust: "exact",
             WebkitPrintColorAdjust: "exact",
         },
@@ -1039,11 +1039,12 @@ const useStyles = makeStyles({
         "@media print": {
             display: "flex",
             justifyContent: "space-between",
-            gap: "10px",
-            padding: "7px 9px",
-            border: "1px solid #c8c8c8",
-            borderLeft: "5px solid #6b7280",
-            backgroundColor: "#eef2f7",
+            gap: "12px",
+            padding: "9px 12px",
+            border: "1px solid #d6dbe5",
+            borderLeft: "4px solid #2563eb",
+            borderRadius: "4px",
+            backgroundColor: "#eef4ff",
             printColorAdjust: "exact",
             WebkitPrintColorAdjust: "exact",
         },
@@ -1058,33 +1059,34 @@ const useStyles = makeStyles({
     },
     printSectionMeta: {
         "@media print": {
-            color: "#555",
+            color: "#4b5563",
             fontSize: "8.5pt",
             whiteSpace: "nowrap",
         },
     },
     printSectionChildren: {
         "@media print": {
-            marginTop: "6px",
+            marginTop: "8px",
             paddingLeft: "14px",
-            borderLeft: "1px solid #d6d6d6",
+            borderLeft: "1px solid #dbeafe",
         },
     },
     printItems: {
         "@media print": {
             display: "flex",
             flexDirection: "column",
-            gap: "5px",
-            marginTop: "6px",
+            gap: "7px",
+            marginTop: "8px",
         },
     },
     printItem: {
         "@media print": {
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) auto",
-            gap: "10px",
-            padding: "6px 8px",
-            border: "1px solid #d6d6d6",
+            display: "flex",
+            flexDirection: "column",
+            gap: "9px",
+            padding: "10px 11px",
+            border: "1px solid #e1e5ec",
+            borderRadius: "4px",
             backgroundColor: "#fff",
             breakInside: "avoid",
             pageBreakInside: "avoid",
@@ -1092,34 +1094,74 @@ const useStyles = makeStyles({
             WebkitPrintColorAdjust: "exact",
         },
     },
+    printItemDefinition: {
+        "@media print": {
+            display: "flex",
+            flexDirection: "column",
+            gap: "3px",
+            minWidth: 0,
+        },
+    },
     printItemTitle: {
         "@media print": {
             fontWeight: 700,
+            color: "#111827",
         },
     },
     printItemDescription: {
         "@media print": {
             marginTop: "2px",
-            color: "#444",
+            color: "#374151",
             whiteSpace: "pre-wrap",
         },
     },
     printItemMeta: {
         "@media print": {
-            color: "#444",
+            color: "#6b7280",
             fontSize: "8.5pt",
-            textAlign: "right",
-            whiteSpace: "nowrap",
+            textAlign: "left",
+            whiteSpace: "normal",
+        },
+    },
+    printOutcomePanel: {
+        "@media print": {
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            width: "100%",
+            padding: "9px 10px",
+            border: "1px solid #dbeafe",
+            borderRadius: "4px",
+            backgroundColor: "#f8fbff",
+            printColorAdjust: "exact",
+            WebkitPrintColorAdjust: "exact",
+        },
+    },
+    printOutcomeRow: {
+        "@media print": {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "14px",
+            flexWrap: "wrap",
+        },
+    },
+    printOutcomeTitle: {
+        "@media print": {
+            color: "#2563eb",
+            fontSize: "7.5pt",
+            fontWeight: 700,
+            letterSpacing: 0,
+            textTransform: "uppercase",
         },
     },
     printCompletionOptions: {
         "@media print": {
-            display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(54px, auto))",
-            gap: "4px 6px",
-            justifyContent: "end",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+            justifyContent: "flex-start",
             alignItems: "center",
-            marginTop: "5px",
         },
     },
     printCompletionOption: {
@@ -1127,17 +1169,67 @@ const useStyles = makeStyles({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "flex-start",
-            gap: "4px",
-            minWidth: "54px",
+            gap: "5px",
+            minWidth: "auto",
             color: "#222",
             fontSize: "8.5pt",
             whiteSpace: "nowrap",
         },
         "::before": {
             content: '""',
-            width: "10px",
-            height: "10px",
+            width: "11px",
+            height: "11px",
             border: "1px solid #555",
+            borderRadius: "2px",
+            backgroundColor: "#fff",
+            printColorAdjust: "exact",
+            WebkitPrintColorAdjust: "exact",
+        },
+    },
+    printCompletionOptionFail: {
+        "@media print": {
+            color: "#7f1d1d",
+        },
+        "::before": {
+            borderColor: "#dc2626",
+            backgroundColor: "#fee2e2",
+        },
+    },
+    printCompletionOptionWarning: {
+        "@media print": {
+            color: "#7c2d12",
+        },
+        "::before": {
+            borderColor: "#f97316",
+            backgroundColor: "#ffedd5",
+        },
+    },
+    printCompletionOptionPass: {
+        "@media print": {
+            color: "#14532d",
+        },
+        "::before": {
+            borderColor: "#16a34a",
+            backgroundColor: "#dcfce7",
+        },
+    },
+    printCompletionOptionNa: {
+        "@media print": {
+            color: "#4b5563",
+        },
+        "::before": {
+            borderColor: "#9ca3af",
+            backgroundColor: "#f3f4f6",
+        },
+    },
+    printCommentsBox: {
+        "@media print": {
+            minHeight: "54px",
+            padding: "8px 10px",
+            color: "#d1d5db",
+            fontSize: "8.5pt",
+            border: "1px solid #dbe1ea",
+            borderRadius: "3px",
             backgroundColor: "#fff",
             printColorAdjust: "exact",
             WebkitPrintColorAdjust: "exact",
@@ -1535,11 +1627,6 @@ const useStyles = makeStyles({
         fontWeight: tokens.fontWeightSemibold,
         minWidth: "auto",
         padding: "0",
-        ":focus-visible": {
-            boxShadow: `0 0 0 2px ${tokens.colorNeutralBackground1}, 0 0 0 4px ${tokens.colorBrandStroke1}`,
-            outlineStyle: "none",
-            borderRadius: tokens.borderRadiusMedium,
-        },
     },
     sectionMain: {
         display: "flex",
@@ -4306,10 +4393,13 @@ function ChecklistDetails({
         [appliesTo, checklist, checklistName, description, options, sections, versionNumber, versionType]
     );
     const appliesToTarget = APPLIES_TO_TARGETS[checklist.targetTypeValue];
-    const isVersionEditable = version.statecode === VERSION_STATE_ACTIVE;
+    const isVersionActive = version.statecode === VERSION_STATE_ACTIVE;
+    const isVersionEditable =
+        isVersionActive &&
+        (version.statuscode === VERSION_STATUS_DRAFT || version.statuscode === VERSION_STATUS_REQUIRES_AMENDMENTS);
     const canShowApprovalHistory = version.statuscode !== VERSION_STATUS_DRAFT;
-    const showAddContentActions = version.statecode !== VERSION_STATE_INACTIVE;
-    const showEditHoverActions = version.statecode !== VERSION_STATE_INACTIVE;
+    const showAddContentActions = isVersionEditable;
+    const showEditHoverActions = isVersionEditable;
     const requiresAmendments = version.statuscode === VERSION_STATUS_REQUIRES_AMENDMENTS;
     const reviewerComments = version.reviewReason.trim();
 
@@ -4447,25 +4537,55 @@ function ChecklistDetails({
         draftItem?.identificationTargetId,
         draftItem?.identificationTarget,
     ]);
-    const selectSection = (sectionId: string) => {
+    const clearKeyboardFocusResetTimer = () => {
         if (sectionFocusResetTimerRef.current) {
             window.clearTimeout(sectionFocusResetTimerRef.current);
             sectionFocusResetTimerRef.current = null;
         }
+    };
+    const clearKeyboardFocusMode = () => {
+        setHighlightedSectionId(selectedSectionId);
+        setFocusedSectionAction(null);
+        setFocusedItemAction(null);
+        setFocusedAddButtonKey("");
+        setKeyboardNavigationActive(false);
+    };
+    const resetKeyboardFocusMode = () => {
+        clearKeyboardFocusMode();
+        if (
+            document.activeElement instanceof HTMLElement &&
+            contentsPanelRef.current?.contains(document.activeElement)
+        ) {
+            document.activeElement.blur();
+            contentsPanelRef.current?.focus();
+        }
+        sectionFocusResetTimerRef.current = null;
+    };
+    const scheduleKeyboardFocusReset = () => {
+        clearKeyboardFocusResetTimer();
+        sectionFocusResetTimerRef.current = window.setTimeout(resetKeyboardFocusMode, 5000);
+    };
+    const selectSection = (sectionId: string) => {
+        clearKeyboardFocusResetTimer();
+        setKeyboardNavigationActive(false);
         setSelectedSectionId(sectionId);
         setHighlightedSectionId(sectionId);
         setSelectedItemId("");
         setFocusedSectionAction(null);
         setFocusedItemAction(null);
+        setFocusedAddButtonKey("");
     };
     const selectSectionPane = (sectionId: string) => {
         setKeyboardPane("sections");
         selectSection(sectionId);
     };
     const focusSectionsPaneForContentTab = () => {
+        clearKeyboardFocusResetTimer();
+        clearKeyboardFocusMode();
         setKeyboardPane("sections");
         setSelectedItemId("");
         setFocusedItemAction(null);
+        setFocusedAddButtonKey("");
         const selectedVisibleSection = visibleSections.find(({ section }) => section.id === selectedSectionId)?.section;
         const firstVisibleSection = visibleSections[0]?.section || null;
         const nextSection = selectedVisibleSection || firstVisibleSection;
@@ -4505,17 +4625,12 @@ function ChecklistDetails({
         if (nextTarget.type === "section") {
             setHighlightedSectionId(nextTarget.sectionId);
             setFocusedSectionAction(null);
+            setFocusedAddButtonKey("");
         } else {
             setFocusedSectionAction(nextTarget);
+            setFocusedAddButtonKey("");
         }
-        if (sectionFocusResetTimerRef.current) window.clearTimeout(sectionFocusResetTimerRef.current);
-        sectionFocusResetTimerRef.current = window.setTimeout(() => {
-            setHighlightedSectionId(selectedSectionId);
-            setFocusedSectionAction(null);
-            setFocusedItemAction(null);
-            setKeyboardNavigationActive(false);
-            sectionFocusResetTimerRef.current = null;
-        }, 5000);
+        scheduleKeyboardFocusReset();
     };
     const moveItemHighlight = (direction: 1 | -1) => {
         if (!itemKeyboardTargets.length) return;
@@ -4531,9 +4646,12 @@ function ChecklistDetails({
         if (nextTarget.type === "item") {
             setSelectedItemId(nextTarget.itemId);
             setFocusedItemAction(null);
+            setFocusedAddButtonKey("");
         } else {
             setFocusedItemAction(nextTarget);
+            setFocusedAddButtonKey("");
         }
+        scheduleKeyboardFocusReset();
     };
     const moveContentsHighlight = (direction: 1 | -1) => {
         setKeyboardNavigationActive(true);
@@ -4548,6 +4666,7 @@ function ChecklistDetails({
         setKeyboardPane(pane);
         setFocusedSectionAction(null);
         setFocusedItemAction(null);
+        setFocusedAddButtonKey("");
         if (pane === "items" && selectedSection?.items.length && !selectedItem) {
             setSelectedItemId(selectedSection.items[0].id);
         }
@@ -4560,6 +4679,7 @@ function ChecklistDetails({
         } else {
             moveKeyboardPane("sections");
         }
+        scheduleKeyboardFocusReset();
         window.setTimeout(() => contentsPanelRef.current?.focus(), 0);
     };
     const addActionFocusStyle: React.CSSProperties = {
@@ -6089,6 +6209,7 @@ function ChecklistDetails({
                                             setFocusedSectionAction({ type: "addChildSection", sectionId: section.id });
                                             setFocusedItemAction(null);
                                             setFocusedAddButtonKey(`add-child-section-${section.id}`);
+                                            scheduleKeyboardFocusReset();
                                         }}
                                         onBlur={() => setFocusedAddButtonKey("")}
                                         onClick={(event) => {
@@ -6174,7 +6295,7 @@ function ChecklistDetails({
         !hasDefinitionChanges &&
         hasSubmittableContents;
     const canRespondToReview =
-        isVersionEditable &&
+        isVersionActive &&
         version.statuscode === VERSION_STATUS_PENDING_REVIEW &&
         userCanApproveChecklistVersion &&
         !hasDefinitionChanges;
@@ -6295,6 +6416,13 @@ function ChecklistDetails({
     const completionOptionLabels = includeNaCompletionOption
         ? ["Fail", "Warning", "Pass", "N/A"]
         : ["Fail", "Warning", "Pass"];
+    const getCompletionOptionClassName = (label: string) => [
+        styles.printCompletionOption,
+        label === "Fail" ? styles.printCompletionOptionFail : "",
+        label === "Warning" ? styles.printCompletionOptionWarning : "",
+        label === "Pass" ? styles.printCompletionOptionPass : "",
+        label === "N/A" ? styles.printCompletionOptionNa : "",
+    ].filter(Boolean).join(" ");
     const escapePrintHtml = (value: unknown) =>
         String(value ?? "")
             .replace(/&/g, "&amp;")
@@ -6304,14 +6432,14 @@ function ChecklistDetails({
             .replace(/'/g, "&#39;");
     const renderCompletionOptionsHtml = () => `
         <div class="response-options">
-            ${completionOptionLabels.map((label) => `<span class="response-option">${escapePrintHtml(label)}</span>`).join("")}
+            ${completionOptionLabels.map((label) => `<span class="response-option response-${label === "N/A" ? "na" : label.toLowerCase()}">${escapePrintHtml(label)}</span>`).join("")}
         </div>
     `;
     const renderPrintableSectionHtml = (section: ChecklistSection, depth = 0): string => {
         const hasChildren = section.sections.length > 0;
         const itemCount = section.items.length;
-        const sectionShade = depth === 0 ? "#e8edf5" : depth === 1 ? "#f1f4f8" : "#f7f8fa";
-        const sectionAccent = depth === 0 ? "#4b5563" : depth === 1 ? "#6b7280" : "#9ca3af";
+        const sectionShade = depth === 0 ? "#eef4ff" : depth === 1 ? "#f5f8ff" : "#fbfcff";
+        const sectionAccent = depth === 0 ? "#2563eb" : depth === 1 ? "#60a5fa" : "#93c5fd";
         const sectionMeta = [
             section.bulkServiceable ? "Bulk check" : "",
             hasChildren ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}` : "",
@@ -6328,13 +6456,17 @@ function ChecklistDetails({
 
             return `
                 <div class="item">
-                    <div>
+                    <div class="item-definition">
                         <div class="item-title">${escapePrintHtml(item.name || "Unnamed item")}</div>
                         ${item.description ? `<div class="item-description">${escapePrintHtml(item.description)}</div>` : ""}
-                    </div>
-                    <div class="item-actions">
                         ${itemMeta ? `<div class="item-meta">${escapePrintHtml(itemMeta)}</div>` : ""}
-                        ${renderCompletionOptionsHtml()}
+                    </div>
+                    <div class="outcome-panel">
+                        <div class="outcome-row">
+                            <div class="outcome-title">Outcome</div>
+                            ${renderCompletionOptionsHtml()}
+                        </div>
+                        <div class="comments-box">Comments</div>
                     </div>
                 </div>
             `;
@@ -6414,17 +6546,19 @@ function ChecklistDetails({
         white-space: nowrap;
     }
     .section {
-        margin-bottom: 10px;
+        margin-bottom: 12px;
         break-inside: auto;
         page-break-inside: auto;
     }
     .section-header {
         display: flex;
         justify-content: space-between;
-        gap: 10px;
-        padding: 7px 9px;
-        border: 1px solid #c8c8c8;
-        border-left: 5px solid #6b7280;
+        gap: 12px;
+        padding: 9px 12px;
+        border: 1px solid #d6dbe5;
+        border-left: 4px solid #2563eb;
+        border-radius: 4px;
+        background: #eef4ff;
         break-after: avoid;
     }
     .section-header h2 {
@@ -6433,69 +6567,137 @@ function ChecklistDetails({
         line-height: 1.25;
     }
     .section-header span {
-        color: #555;
+        color: #4b5563;
         font-size: 8.5pt;
         white-space: nowrap;
     }
     .section-children {
-        margin-top: 6px;
+        margin-top: 8px;
         padding-left: 14px;
-        border-left: 1px solid #d6d6d6;
+        border-left: 1px solid #dbeafe;
     }
     .items {
         display: flex;
         flex-direction: column;
-        gap: 5px;
-        margin-top: 6px;
+        gap: 7px;
+        margin-top: 8px;
     }
     .item {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 10px;
-        padding: 6px 8px;
-        border: 1px solid #d6d6d6;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        padding: 10px 11px;
+        border: 1px solid #e1e5ec;
+        border-radius: 4px;
         background: #fff;
         break-inside: avoid;
         page-break-inside: avoid;
     }
-    .item-title { font-weight: 700; }
+    .item-definition {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+    }
+    .item-title {
+        color: #111827;
+        font-weight: 700;
+    }
     .item-description {
         margin-top: 2px;
-        color: #444;
+        color: #374151;
         white-space: pre-wrap;
     }
     .item-meta {
-        color: #444;
+        color: #6b7280;
         font-size: 8.5pt;
-        text-align: right;
-        white-space: nowrap;
+        text-align: left;
+        white-space: normal;
     }
-    .item-actions {
-        min-width: 128px;
+    .outcome-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+        padding: 9px 10px;
+        border: 1px solid #dbeafe;
+        border-radius: 4px;
+        background: #f8fbff;
+    }
+    .outcome-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+    .outcome-title {
+        color: #2563eb;
+        font-size: 7.5pt;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
     }
     .response-options {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(54px, auto));
-        gap: 4px 6px;
-        justify-content: end;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-start;
         align-items: center;
-        margin-top: 5px;
     }
     .response-option {
         display: inline-flex;
         align-items: center;
         justify-content: flex-start;
-        gap: 4px;
-        min-width: 54px;
+        gap: 5px;
+        min-width: auto;
         color: #222;
         font-size: 8.5pt;
         white-space: nowrap;
     }
     .response-option::before {
         content: "";
-        width: 10px;
-        height: 10px;
+        width: 11px;
+        height: 11px;
         border: 1px solid #555;
+        border-radius: 2px;
+        background: #fff;
+    }
+    .response-fail {
+        color: #7f1d1d;
+    }
+    .response-fail::before {
+        border-color: #dc2626;
+        background: #fee2e2;
+    }
+    .response-warning {
+        color: #7c2d12;
+    }
+    .response-warning::before {
+        border-color: #f97316;
+        background: #ffedd5;
+    }
+    .response-pass {
+        color: #14532d;
+    }
+    .response-pass::before {
+        border-color: #16a34a;
+        background: #dcfce7;
+    }
+    .response-na {
+        color: #4b5563;
+    }
+    .response-na::before {
+        border-color: #9ca3af;
+        background: #f3f4f6;
+    }
+    .comments-box {
+        min-height: 54px;
+        padding: 8px 10px;
+        color: #d1d5db;
+        font-size: 8.5pt;
+        border: 1px solid #dbe1ea;
+        border-radius: 3px;
         background: #fff;
     }
     .empty-state {
@@ -6554,8 +6756,8 @@ function ChecklistDetails({
     const renderPrintableSection = (section: ChecklistSection, depth = 0): React.ReactNode => {
         const hasChildren = section.sections.length > 0;
         const itemCount = section.items.length;
-        const sectionShade = depth === 0 ? "#e8edf5" : depth === 1 ? "#f1f4f8" : "#f7f8fa";
-        const sectionAccent = depth === 0 ? "#4b5563" : depth === 1 ? "#6b7280" : "#9ca3af";
+        const sectionShade = depth === 0 ? "#eef4ff" : depth === 1 ? "#f5f8ff" : "#fbfcff";
+        const sectionAccent = depth === 0 ? "#2563eb" : depth === 1 ? "#60a5fa" : "#93c5fd";
         const sectionMeta = [
             section.bulkServiceable ? "Bulk check" : "",
             hasChildren ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}` : "",
@@ -6591,19 +6793,23 @@ function ChecklistDetails({
 
                             return (
                                 <div key={item.id} className={styles.printItem}>
-                                    <div>
+                                    <div className={styles.printItemDefinition}>
                                         <div className={styles.printItemTitle}>{item.name || "Unnamed item"}</div>
                                         {item.description && (
                                             <div className={styles.printItemDescription}>{item.description}</div>
                                         )}
-                                    </div>
-                                    <div>
                                         {itemMeta && <div className={styles.printItemMeta}>{itemMeta}</div>}
-                                        <div className={styles.printCompletionOptions}>
-                                            {completionOptionLabels.map((label) => (
-                                                <span key={label} className={styles.printCompletionOption}>{label}</span>
-                                            ))}
+                                    </div>
+                                    <div className={styles.printOutcomePanel}>
+                                        <div className={styles.printOutcomeRow}>
+                                            <div className={styles.printOutcomeTitle}>Outcome</div>
+                                            <div className={styles.printCompletionOptions}>
+                                                {completionOptionLabels.map((label) => (
+                                                    <span key={label} className={getCompletionOptionClassName(label)}>{label}</span>
+                                                ))}
+                                            </div>
                                         </div>
+                                        <div className={styles.printCommentsBox}>Comments</div>
                                     </div>
                                 </div>
                             );
@@ -6712,6 +6918,12 @@ function ChecklistDetails({
         event.preventDefault();
         event.stopPropagation();
         switchContentsKeyboardPane();
+    };
+    const handleContentsPanelFocusCapture = (event: React.FocusEvent<HTMLDivElement>) => {
+        if (event.target === event.currentTarget) return;
+        clearKeyboardFocusResetTimer();
+        if (event.target instanceof HTMLElement && event.target.closest("button,[role='button']")) return;
+        clearKeyboardFocusMode();
     };
 
     return (
@@ -7018,7 +7230,12 @@ function ChecklistDetails({
                         ref={contentsPanelRef}
                         tabIndex={-1}
                         onKeyDownCapture={handleContentsPanelKeyDownCapture}
+                        onFocusCapture={handleContentsPanelFocusCapture}
                         onMouseDown={(event) => {
+                            clearKeyboardFocusResetTimer();
+                            if (!(event.target instanceof HTMLElement && event.target.closest("button,[role='button']"))) {
+                                clearKeyboardFocusMode();
+                            }
                             if (isEditableKeyboardTarget(event.target)) return;
                             if (event.target instanceof HTMLElement && event.target.closest("button,[role='button'],a")) return;
                             window.setTimeout(() => contentsPanelRef.current?.focus(), 0);
@@ -7146,6 +7363,7 @@ function ChecklistDetails({
                                                         setFocusedSectionAction({ type: "addTopLevelSection" });
                                                         setFocusedItemAction(null);
                                                         setFocusedAddButtonKey("add-top-level-section");
+                                                        scheduleKeyboardFocusReset();
                                                     }}
                                                     onBlur={() => setFocusedAddButtonKey("")}
                                                     onClick={(event) => {
@@ -7374,6 +7592,7 @@ function ChecklistDetails({
                                                             setFocusedSectionAction(null);
                                                             setFocusedItemAction({ type: "addItem" });
                                                             setFocusedAddButtonKey("add-item");
+                                                            scheduleKeyboardFocusReset();
                                                         }}
                                                         onBlur={() => setFocusedAddButtonKey("")}
                                                         onClick={() => startNewItem(selectedSection.id)}
@@ -7401,6 +7620,7 @@ function ChecklistDetails({
                                                                     setFocusedSectionAction(null);
                                                                     setFocusedItemAction(null);
                                                                     setFocusedAddButtonKey(`placeholder-add-child-section-${selectedSection.id}`);
+                                                                    scheduleKeyboardFocusReset();
                                                                 }}
                                                                 onBlur={() => setFocusedAddButtonKey("")}
                                                                 onClick={() => startNewSection(selectedSection.id)}
@@ -7422,6 +7642,7 @@ function ChecklistDetails({
                                                                     setFocusedSectionAction(null);
                                                                     setFocusedItemAction({ type: "addItem" });
                                                                     setFocusedAddButtonKey("add-item-empty-section");
+                                                                    scheduleKeyboardFocusReset();
                                                                 }}
                                                                 onBlur={() => setFocusedAddButtonKey("")}
                                                                 onClick={() => startNewItem(selectedSection.id)}
@@ -7451,6 +7672,7 @@ function ChecklistDetails({
                                                                 setFocusedSectionAction(null);
                                                                 setFocusedItemAction({ type: "addItem" });
                                                                 setFocusedAddButtonKey("add-item-empty-list");
+                                                                scheduleKeyboardFocusReset();
                                                             }}
                                                             onBlur={() => setFocusedAddButtonKey("")}
                                                             onClick={() => startNewItem(selectedSection.id)}
