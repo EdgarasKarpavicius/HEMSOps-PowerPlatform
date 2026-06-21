@@ -145,6 +145,7 @@ type ChecklistItem = {
     name: string;
     description: string;
     quantity: number | null;
+    requiresWrittenResponse: boolean;
     requestItemIdentification: boolean;
     identificationTargetTypeValue: number | null;
     identificationTarget: IdentificationTargetOption | null;
@@ -218,6 +219,7 @@ type DraftItem = {
     name: string;
     description: string;
     quantity: string;
+    requiresWrittenResponse: boolean;
     requestItemIdentification: boolean;
     identificationCategoryId: string;
     identificationTargetTypeValue: number | null;
@@ -2042,6 +2044,9 @@ const useStyles = makeStyles({
     itemQuantityField: {
         gridColumn: "2 / 3",
     },
+    itemWrittenResponseField: {
+        gridColumn: "1 / 3",
+    },
     itemIdentificationField: {
         gridColumn: "1 / 3",
     },
@@ -2626,15 +2631,16 @@ function getChecklistVersionWorkflowState({
 }
 
 function getPrintableSectionPresentation(section: ChecklistSection, depth: number) {
+    const contentSummary = section.sections.length
+        ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}`
+        : `${section.items.length} item${section.items.length === 1 ? "" : "s"}`;
+
     return {
         shade: depth === 0 ? "#eef4ff" : depth === 1 ? "#f5f8ff" : "#fbfcff",
         accent: depth === 0 ? "#2563eb" : depth === 1 ? "#60a5fa" : "#93c5fd",
         meta: [
             section.bulkServiceable ? "Bulk check" : "",
-            section.sections.length
-                ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}`
-                : "",
-            `${section.items.length} item${section.items.length === 1 ? "" : "s"}`,
+            contentSummary,
         ].filter(Boolean).join(" | "),
     };
 }
@@ -2647,6 +2653,7 @@ function getPrintableItemMeta(item: ChecklistItem) {
 
     return [
         item.quantity !== null && item.quantity !== undefined ? `Quantity ${item.quantity}` : "",
+        item.requiresWrittenResponse ? "Written response required" : "",
         identifyText,
         checklistRunsText,
     ].filter(Boolean).join(" | ");
@@ -2844,6 +2851,7 @@ function normalizeItems(items: any[]): ChecklistItem[] {
             name: String(item.name || ""),
             description: String(item.description || ""),
             quantity: parseOptionalQuantity(item.quantity),
+            requiresWrittenResponse: Boolean(item.requiresWrittenResponse),
             requestItemIdentification: Boolean(item.requestItemIdentification),
             identificationTargetTypeValue,
             identificationTarget,
@@ -2913,6 +2921,7 @@ function createChecklistItemFromDraft(
         name: draftItem.name.trim(),
         description: draftItem.description.trim(),
         quantity: parseOptionalQuantity(draftItem.quantity.trim()),
+        requiresWrittenResponse: draftItem.requiresWrittenResponse,
         requestItemIdentification: draftItem.requestItemIdentification,
         identificationTargetTypeValue: draftItem.requestItemIdentification ? CHECKLIST_TARGET_EQUIPMENT : null,
         identificationTarget: draftItem.requestItemIdentification ? selectedTarget : null,
@@ -3709,6 +3718,7 @@ function serializeChecklistSections(sections: ChecklistSection[]): any[] {
                 };
                 if (item.description) serializedItem.description = item.description;
                 if (item.quantity !== null && item.quantity !== undefined) serializedItem.quantity = item.quantity;
+                if (item.requiresWrittenResponse) serializedItem.requiresWrittenResponse = true;
 	                if (item.requestItemIdentification) {
 	                    serializedItem.requestItemIdentification = true;
 	                    if (item.identificationTargetTypeValue) {
@@ -5783,6 +5793,7 @@ function ChecklistDetails({
 	            name: "",
 	            description: "",
 	            quantity: "",
+	            requiresWrittenResponse: false,
 	            requestItemIdentification: false,
 	            identificationCategoryId: "",
 	            identificationTargetTypeValue: null,
@@ -5870,6 +5881,7 @@ function ChecklistDetails({
 	            name: item.name,
 	            description: item.description,
 	            quantity: item.quantity === null || item.quantity === undefined ? "" : String(item.quantity),
+	            requiresWrittenResponse: item.requiresWrittenResponse,
 	            requestItemIdentification: Boolean(item.requestItemIdentification && equipmentTarget),
 	            identificationCategoryId: equipmentCategory?.id || equipmentTarget?.groupId || "",
 	            identificationTargetTypeValue: equipmentTarget ? CHECKLIST_TARGET_EQUIPMENT : null,
@@ -5906,6 +5918,7 @@ function ChecklistDetails({
             name: "",
 	            description: "",
 	            quantity: "",
+	            requiresWrittenResponse: false,
 	            requestItemIdentification: false,
 	            identificationCategoryId: "",
 	            identificationTargetTypeValue: null,
@@ -6648,6 +6661,28 @@ function ChecklistDetails({
                         onKeyDown={(event) => handleItemEditKeyDown(event)}
                     />
 	                </Field>
+	                <div className={styles.itemWrittenResponseField}>
+	                    <Tooltip
+	                        relationship="description"
+	                        content="When enabled, the checklist run must capture a written response for this item."
+	                    >
+	                        <Checkbox
+	                            checked={Boolean(draftItem?.requiresWrittenResponse)}
+	                            label="Require written response"
+	                            disabled={isEditorDisabled}
+	                            onChange={(_, data) =>
+	                                setDraftItem((current) =>
+	                                    current
+	                                        ? {
+	                                              ...current,
+	                                              requiresWrittenResponse: Boolean(data.checked),
+	                                          }
+	                                        : current
+	                                )
+	                            }
+	                        />
+	                    </Tooltip>
+	                </div>
 	                <div className={styles.itemIdentificationField}>
 	                    <Tooltip
 	                        relationship="description"
@@ -7317,6 +7352,15 @@ function ChecklistDetails({
         label === "Pass" ? styles.printCompletionOptionPass : "",
         label === "N/A" ? styles.printCompletionOptionNa : "",
     ].filter(Boolean).join(" ");
+    const formatExportDateTime = () =>
+        new Date().toLocaleString(undefined, {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+        });
     const escapePrintHtml = (value: unknown) =>
         String(value ?? "")
             .replace(/&/g, "&amp;")
@@ -7373,7 +7417,7 @@ function ChecklistDetails({
     const buildPrintableContentsHtml = () => {
         const title = checklistName || checklist.name;
         const statusLabel = version.statusLabel || statusOptions[version.statuscode]?.text || "";
-        const printedOn = new Date().toLocaleDateString();
+        const printedOn = formatExportDateTime();
         const sectionsHtml = sections.length
             ? sections.map((section) => renderPrintableSectionHtml(section)).join("")
             : `<div class="empty-state">No sections have been defined.</div>`;
@@ -7806,7 +7850,7 @@ function ChecklistDetails({
                     </div>
                     <div className={styles.printMeta}>
                         <div>{version.statusLabel || statusOptions[version.statuscode]?.text || ""}</div>
-                        <div>{new Date().toLocaleDateString()}</div>
+                        <div>{formatExportDateTime()}</div>
                     </div>
                 </div>
                 {sections.length ? (
@@ -8197,6 +8241,14 @@ function ChecklistDetails({
                                                                 <Text weight="semibold">{item.name || "Unnamed item"}</Text>
                                                                 {item.description && (
                                                                     <Caption1 className={styles.mutedText}>{item.description}</Caption1>
+                                                                )}
+                                                                {item.requiresWrittenResponse && (
+                                                                    <Caption1 className={styles.itemIdentificationBadge}>
+                                                                        <WarningRegular className={styles.itemIdentificationBadgeIcon} />
+                                                                        <span className={styles.itemIdentificationBadgeText}>
+                                                                            Written response required
+                                                                        </span>
+                                                                    </Caption1>
                                                                 )}
 	                                                                {item.requestItemIdentification && (
 	                                                                    <Caption1 className={styles.itemIdentificationBadge}>
