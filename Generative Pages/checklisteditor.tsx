@@ -183,6 +183,13 @@ type IdentificationTargetGroup = {
 
 type IdentificationOptionsByTarget = Record<number, IdentificationTargetGroup[]>;
 
+type AppliesToTargetDefinition = {
+    entityName: string;
+    idField: string;
+    label: string;
+    categoryLookup?: string;
+};
+
 type FlatChecklistSection = {
     section: ChecklistSection;
     depth: number;
@@ -297,6 +304,29 @@ type ChecklistVersionSubmissionPayload = {
 type ChecklistVersionReviewPayload = {
     outcome: ChecklistVersionReviewOutcome;
     reason: string;
+};
+
+type DataverseRecord = Record<string, any>;
+
+type DataverseRetrieveMultipleResult<TRecord extends DataverseRecord = DataverseRecord> = {
+    entities?: TRecord[];
+    nextLink?: string;
+    "@odata.nextLink"?: string;
+};
+
+type ChecklistVersionWorkflowState = {
+    isVersionActive: boolean;
+    isVersionEditable: boolean;
+    canShowApprovalHistory: boolean;
+    requiresAmendments: boolean;
+    reviewerComments: string;
+    canShowSubmitForApproval: boolean;
+    canSubmitForApproval: boolean;
+    canRespondToReview: boolean;
+    versionActionLabel: string;
+    versionActionDescription: string;
+    versionActionDisabledReason: string;
+    isVersionActionDisabled: boolean;
 };
 
 type KeyboardPane = "sections" | "items";
@@ -417,7 +447,7 @@ const VERSION_TYPES = [
     { key: VERSION_TYPE_MINOR, text: "Minor" },
 ];
 
-const APPLIES_TO_TARGETS: Record<number, { entityName: string; idField: string; label: string; categoryLookup?: string }> = {
+const APPLIES_TO_TARGETS: Record<number, AppliesToTargetDefinition> = {
     [CHECKLIST_TARGET_AIRCRAFT]: {
         entityName: "int_aircrafttype",
         idField: "int_aircrafttypeid",
@@ -2069,6 +2099,38 @@ function hasDataverse() {
     return typeof Xrm !== "undefined" && !!Xrm.WebApi?.retrieveMultipleRecords;
 }
 
+function getNextDataverseQuery(result: DataverseRetrieveMultipleResult) {
+    const nextLink = result.nextLink || result["@odata.nextLink"] || "";
+    if (!nextLink) return "";
+    if (nextLink.startsWith("?")) return nextLink;
+
+    const queryStart = nextLink.indexOf("?");
+    return queryStart >= 0 ? nextLink.slice(queryStart) : "";
+}
+
+async function retrieveAllDataverseRecords<TRecord extends DataverseRecord = DataverseRecord>(
+    entityName: string,
+    query: string,
+    maxPageSize = 5000
+): Promise<TRecord[]> {
+    if (!hasDataverse()) return [];
+
+    const records: TRecord[] = [];
+    let nextQuery = query;
+
+    while (nextQuery) {
+        const result = await Xrm.WebApi.retrieveMultipleRecords(
+            entityName,
+            nextQuery,
+            maxPageSize
+        ) as DataverseRetrieveMultipleResult<TRecord>;
+        records.push(...(result.entities || []));
+        nextQuery = getNextDataverseQuery(result);
+    }
+
+    return records;
+}
+
 function getCollectionItems(collection: any): any[] {
     if (!collection) return [];
     if (Array.isArray(collection)) return collection;
@@ -2446,6 +2508,109 @@ function getReviewDecisionValue(outcome: ChecklistVersionReviewOutcome) {
     if (outcome === "approve") return REVIEW_DECISION_APPROVED;
     if (outcome === "requiresAmendments") return REVIEW_DECISION_REQUIRES_AMENDMENTS;
     return REVIEW_DECISION_REJECTED;
+}
+
+function getChecklistVersionWorkflowState({
+    version,
+    requiresChecklistVersionReview,
+    userCanApproveChecklistVersion,
+    hasDefinitionChanges,
+    hasChecklistSections,
+    hasChecklistItems,
+    hasEmptySections,
+    isWorkflowActionRunning,
+}: {
+    version: ChecklistVersion;
+    requiresChecklistVersionReview: boolean;
+    userCanApproveChecklistVersion: boolean;
+    hasDefinitionChanges: boolean;
+    hasChecklistSections: boolean;
+    hasChecklistItems: boolean;
+    hasEmptySections: boolean;
+    isWorkflowActionRunning: boolean;
+}): ChecklistVersionWorkflowState {
+    const isVersionActive = version.statecode === VERSION_STATE_ACTIVE;
+    const requiresAmendments = version.statuscode === VERSION_STATUS_REQUIRES_AMENDMENTS;
+    const isVersionEditable =
+        isVersionActive &&
+        (version.statuscode === VERSION_STATUS_DRAFT || requiresAmendments);
+    const canShowApprovalHistory = version.statuscode !== VERSION_STATUS_DRAFT;
+    const canShowSubmitForApproval =
+        isVersionEditable &&
+        (version.statuscode === VERSION_STATUS_DRAFT || requiresAmendments);
+    const canSubmitForApproval =
+        canShowSubmitForApproval &&
+        !hasDefinitionChanges &&
+        hasChecklistSections &&
+        hasChecklistItems &&
+        !hasEmptySections;
+    const canRespondToReview =
+        isVersionActive &&
+        version.statuscode === VERSION_STATUS_PENDING_REVIEW &&
+        userCanApproveChecklistVersion &&
+        !hasDefinitionChanges;
+    const versionActionLabel = requiresAmendments
+        ? requiresChecklistVersionReview
+            ? "Resubmit for Approval"
+            : "Publish Amendments"
+        : requiresChecklistVersionReview
+          ? "Submit for Approval"
+          : "Publish";
+    const versionActionDescription = requiresAmendments
+        ? requiresChecklistVersionReview
+            ? "This will resubmit the amended checklist version for review."
+            : "This will publish the amended checklist version and make it the active version."
+        : requiresChecklistVersionReview
+          ? "This will submit the checklist version for review. An approver will need to approve it before it can become the active version."
+          : "This will publish the checklist version and make it the active version.";
+    const versionActionDisabledReason = (() => {
+        if (isWorkflowActionRunning) return "This action is already running.";
+        if (hasDefinitionChanges) return "Save your changes before submitting or publishing this checklist version.";
+        if (!hasChecklistSections) return "Add at least one section before submitting or publishing.";
+        if (!hasChecklistItems) return "Add at least one checklist item before submitting or publishing.";
+        if (hasEmptySections) return "Remove empty sections or add content to them before submitting or publishing.";
+        return "";
+    })();
+
+    return {
+        isVersionActive,
+        isVersionEditable,
+        canShowApprovalHistory,
+        requiresAmendments,
+        reviewerComments: version.reviewReason.trim(),
+        canShowSubmitForApproval,
+        canSubmitForApproval,
+        canRespondToReview,
+        versionActionLabel,
+        versionActionDescription,
+        versionActionDisabledReason,
+        isVersionActionDisabled: !canSubmitForApproval || isWorkflowActionRunning,
+    };
+}
+
+function getPrintableSectionPresentation(section: ChecklistSection, depth: number) {
+    return {
+        shade: depth === 0 ? "#eef4ff" : depth === 1 ? "#f5f8ff" : "#fbfcff",
+        accent: depth === 0 ? "#2563eb" : depth === 1 ? "#60a5fa" : "#93c5fd",
+        meta: [
+            section.bulkServiceable ? "Bulk check" : "",
+            section.sections.length
+                ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}`
+                : "",
+            `${section.items.length} item${section.items.length === 1 ? "" : "s"}`,
+        ].filter(Boolean).join(" | "),
+    };
+}
+
+function getPrintableItemMeta(item: ChecklistItem) {
+    const identifyText = item.requestItemIdentification
+        ? `Identify ${getIdentificationTargetTypeLabel(item.identificationTargetTypeValue).toLowerCase() || "item"}${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`
+        : "";
+
+    return [
+        item.quantity !== null && item.quantity !== undefined ? `Quantity ${item.quantity}` : "",
+        identifyText,
+    ].filter(Boolean).join(" | ");
 }
 
 async function readDataverseResponseMessage(response: any) {
@@ -3202,12 +3367,12 @@ async function loadAppliesToOptions(targetTypeValue: number): Promise<AppliesToO
 
     try {
         const select = `$select=${target.idField},int_name`;
-        const result = await Xrm.WebApi.retrieveMultipleRecords(
+        const records = await retrieveAllDataverseRecords(
             target.entityName,
             `?${select}&$filter=statecode eq 0&$orderby=int_name asc`
         );
-        return (result.entities || [])
-            .map((record: Record<string, any>) => mapAppliesToRecord(record, target))
+        return records
+            .map((record) => mapAppliesToRecord(record, target))
             .filter((option: AppliesToOption) => option.id)
             .sort((a: AppliesToOption, b: AppliesToOption) =>
                 `${a.category || ""}|${a.name}`.localeCompare(`${b.category || ""}|${b.name}`)
@@ -3261,11 +3426,11 @@ async function loadEquipmentIdentificationGroups(): Promise<IdentificationTarget
     if (typeof Xrm === "undefined") return [];
 
     try {
-        const expanded = await Xrm.WebApi.retrieveMultipleRecords(
+        const categories = await retrieveAllDataverseRecords(
             "int_equipmentcategory",
             "?$select=int_equipmentcategoryid,int_name&$filter=statecode eq 0&$orderby=int_name asc&$expand=int_Category_int_equipmenttype($select=int_equipmenttypeid,int_name;$filter=statecode eq 0;$orderby=int_name asc)"
         );
-        return sortIdentificationGroups((expanded.entities || []).map((category: Record<string, any>) => {
+        return sortIdentificationGroups(categories.map((category) => {
             const categoryId = String(getValue(category, ["int_equipmentcategoryid"], "")).replace(/[{}]/g, "");
             const categoryName = String(getValue(category, ["int_name"], "Uncategorised"));
             const options = getCollectionItems(category.int_Category_int_equipmenttype)
@@ -3275,18 +3440,18 @@ async function loadEquipmentIdentificationGroups(): Promise<IdentificationTarget
         }).filter((category: IdentificationTargetGroup) => category.id));
     } catch {
         try {
-            const [categoriesResult, typesResult] = await Promise.all([
-                Xrm.WebApi.retrieveMultipleRecords(
+            const [categories, types] = await Promise.all([
+                retrieveAllDataverseRecords(
                     "int_equipmentcategory",
                     "?$select=int_equipmentcategoryid,int_name&$filter=statecode eq 0&$orderby=int_name asc"
                 ),
-                Xrm.WebApi.retrieveMultipleRecords(
+                retrieveAllDataverseRecords(
                     "int_equipmenttype",
                     "?$select=int_equipmenttypeid,int_name,_int_category_value&$filter=statecode eq 0&$orderby=int_name asc"
                 ),
             ]);
             const categoryMap = new Map<string, IdentificationTargetGroup>();
-            (categoriesResult.entities || []).forEach((category: Record<string, any>) => {
+            categories.forEach((category) => {
                 const categoryId = String(getValue(category, ["int_equipmentcategoryid"], "")).replace(/[{}]/g, "");
                 if (!categoryId) return;
                 categoryMap.set(categoryId, {
@@ -3295,7 +3460,7 @@ async function loadEquipmentIdentificationGroups(): Promise<IdentificationTarget
                     options: [],
                 });
             });
-            (typesResult.entities || []).forEach((typeRecord: Record<string, any>) => {
+            types.forEach((typeRecord) => {
                 const categoryId = String(getValue(typeRecord, ["_int_category_value"], "")).replace(/[{}]/g, "");
                 const category = categoryMap.get(categoryId);
                 if (!category) return;
@@ -3327,12 +3492,12 @@ async function loadFlatIdentificationGroup({
     if (typeof Xrm === "undefined") return [];
 
     try {
-        const result = await Xrm.WebApi.retrieveMultipleRecords(
+        const records = await retrieveAllDataverseRecords(
             entityName,
             `?$select=${idField},int_name&$filter=statecode eq 0&$orderby=int_name asc`
         );
-        const options = (result.entities || [])
-            .map((record: Record<string, any>) =>
+        const options = records
+            .map((record) =>
                 mapChildTargetRecord(
                     record,
                     targetTypeValue,
@@ -3597,8 +3762,8 @@ async function loadChecklistVersionHistoryFromDataverse(versionId: string): Prom
             `&$filter=_int_checklistversion_value eq ${normalizeLookupValue(versionId)}`,
             "&$orderby=int_eventon desc,createdon desc",
         ].join("");
-        const result = await Xrm.WebApi.retrieveMultipleRecords(VERSION_HISTORY_TABLE_NAME, query);
-        return (result.entities || []).map(mapChecklistVersionHistoryRecord);
+        const records = await retrieveAllDataverseRecords(VERSION_HISTORY_TABLE_NAME, query);
+        return records.map(mapChecklistVersionHistoryRecord);
     } catch (error) {
         console.warn("Checklist version history could not be loaded.", error);
         return [];
@@ -4273,6 +4438,462 @@ function useSectionDropIndicator(
     return sectionDropIndicator;
 }
 
+function ReviewActionButtons({
+    disabled,
+    styles,
+    onReviewResponse,
+}: {
+    disabled: boolean;
+    styles: ReturnType<typeof useStyles>;
+    onReviewResponse: (outcome: ChecklistVersionReviewOutcome) => void;
+}) {
+    return (
+        <>
+            <Button
+                appearance="secondary"
+                className={styles.rejectButtonIcon}
+                icon={<DismissRegular />}
+                disabled={disabled}
+                onClick={() => onReviewResponse("reject")}
+            >
+                Reject
+            </Button>
+            <Button
+                appearance="secondary"
+                className={styles.requiresAmendmentsButtonIcon}
+                icon={<WarningRegular />}
+                disabled={disabled}
+                onClick={() => onReviewResponse("requiresAmendments")}
+            >
+                Requires Amendments
+            </Button>
+            <Button
+                appearance="primary"
+                icon={<CheckmarkRegular />}
+                disabled={disabled}
+                onClick={() => onReviewResponse("approve")}
+            >
+                Approve
+            </Button>
+        </>
+    );
+}
+
+function ChecklistVersionActionGroup({
+    canRespondToReview,
+    isWorkflowActionRunning,
+    canShowSubmitForApproval,
+    submitActionButton,
+    styles,
+    onReviewResponse,
+}: {
+    canRespondToReview: boolean;
+    isWorkflowActionRunning: boolean;
+    canShowSubmitForApproval: boolean;
+    submitActionButton: React.ReactNode;
+    styles: ReturnType<typeof useStyles>;
+    onReviewResponse: (outcome: ChecklistVersionReviewOutcome) => void;
+}) {
+    return (
+        <>
+            {canRespondToReview && (
+                <ReviewActionButtons
+                    disabled={isWorkflowActionRunning}
+                    styles={styles}
+                    onReviewResponse={onReviewResponse}
+                />
+            )}
+            {canShowSubmitForApproval && submitActionButton}
+        </>
+    );
+}
+
+function GeneralTab({
+    styles,
+    useCompactVersionHeader,
+    version,
+    statusOptions,
+    checklistName,
+    versionType,
+    versionNumber,
+    description,
+    appliesTo,
+    appliesToTarget,
+    appliesToOptions,
+    isVersionEditable,
+    setChecklistName,
+    setVersionType,
+    setVersionNumber,
+    setDescription,
+    setAppliesTo,
+    markDefinitionChanged,
+}: {
+    styles: ReturnType<typeof useStyles>;
+    useCompactVersionHeader?: boolean;
+    version: ChecklistVersion;
+    statusOptions: Record<number, StatusOption>;
+    checklistName: string;
+    versionType: number;
+    versionNumber: string;
+    description: string;
+    appliesTo: AppliesToSelection | null;
+    appliesToTarget?: AppliesToTargetDefinition;
+    appliesToOptions: AppliesToOption[];
+    isVersionEditable: boolean;
+    setChecklistName: React.Dispatch<React.SetStateAction<string>>;
+    setVersionType: React.Dispatch<React.SetStateAction<number>>;
+    setVersionNumber: React.Dispatch<React.SetStateAction<string>>;
+    setDescription: React.Dispatch<React.SetStateAction<string>>;
+    setAppliesTo: React.Dispatch<React.SetStateAction<AppliesToSelection | null>>;
+    markDefinitionChanged: () => void;
+}) {
+    return (
+        <div className={styles.tabPanel}>
+            <div className={styles.formStack}>
+                <section className={styles.generalSection}>
+                    <div className={styles.generalSectionHeader}>
+                        <div className={styles.generalSectionHeading}>
+                            <Text className={styles.generalSectionTitle}>Version</Text>
+                        </div>
+                        {useCompactVersionHeader && (
+                            <div className={styles.sectionStatusRow}>
+                                <StatusPill
+                                    statuscode={version.statuscode}
+                                    fallbackLabel={version.statusLabel}
+                                    statusOptions={statusOptions}
+                                    className={`${styles.statusPill} ${styles.headerStatusPill}`}
+                                />
+                            </div>
+                        )}
+                    </div>
+                    <div className={styles.generalFormGrid}>
+                        <Field label="Checklist name" className={styles.generalFieldWide}>
+                            <Input
+                                className={styles.controlFullWidth}
+                                value={checklistName}
+                                disabled={!isVersionEditable}
+                                onChange={(_, data) => {
+                                    if (!isVersionEditable) return;
+                                    setChecklistName(data.value);
+                                    markDefinitionChanged();
+                                }}
+                            />
+                        </Field>
+                        <Field label="Version type">
+                            <Dropdown
+                                className={styles.controlFullWidth}
+                                selectedOptions={[String(versionType)]}
+                                value={VERSION_TYPES.find((item) => item.key === versionType)?.text || ""}
+                                disabled={!isVersionEditable}
+                                onOptionSelect={(_, data) => {
+                                    if (!isVersionEditable) return;
+                                    setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR);
+                                    markDefinitionChanged();
+                                }}
+                            >
+                                {VERSION_TYPES.map((item) => (
+                                    <Option key={item.key} value={String(item.key)}>
+                                        {item.text}
+                                    </Option>
+                                ))}
+                            </Dropdown>
+                        </Field>
+                        <Field label="Version number">
+                            <Input
+                                className={styles.controlFullWidth}
+                                type="number"
+                                step="0.01"
+                                value={versionNumber}
+                                disabled={!isVersionEditable}
+                                onChange={(_, data) => {
+                                    if (!isVersionEditable) return;
+                                    setVersionNumber(data.value);
+                                    markDefinitionChanged();
+                                }}
+                                onBlur={() => {
+                                    if (isVersionEditable) setVersionNumber((current) => formatVersionNumber(current));
+                                }}
+                            />
+                        </Field>
+                        <Field label="Description" className={styles.generalFieldWide}>
+                            <Textarea
+                                className={styles.controlFullWidth}
+                                resize="vertical"
+                                rows={5}
+                                value={description}
+                                disabled={!isVersionEditable}
+                                onChange={(_, data) => {
+                                    if (!isVersionEditable) return;
+                                    setDescription(data.value);
+                                    markDefinitionChanged();
+                                }}
+                            />
+                        </Field>
+                    </div>
+                </section>
+                <section className={styles.generalSection}>
+                    <div className={styles.generalSectionHeader}>
+                        <div className={styles.generalSectionHeading}>
+                            <Text className={styles.generalSectionTitle}>Application</Text>
+                        </div>
+                    </div>
+                    <div className={styles.generalFormGrid}>
+                        <Field label={appliesToTarget?.label || "Applied to"} className={styles.generalFieldWide}>
+                            <Dropdown
+                                className={styles.controlFullWidth}
+                                placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type is configured"}
+                                selectedOptions={appliesTo?.id ? [appliesTo.id] : []}
+                                value={appliesTo ? getAppliesToOptionText(appliesTo) : ""}
+                                disabled={!isVersionEditable || !appliesToTarget}
+                                onOptionSelect={(_, data) => {
+                                    if (!isVersionEditable) return;
+                                    const selected = appliesToOptions.find((item) => item.id === data.optionValue) || null;
+                                    setAppliesTo(selected);
+                                    markDefinitionChanged();
+                                }}
+                            >
+                                {appliesToOptions.map((item) => (
+                                    <Option key={item.id} value={item.id}>
+                                        <span>
+                                            {item.category && (
+                                                <span className={styles.optionGroupText}>{`${item.category} / `}</span>
+                                            )}
+                                            {item.name}
+                                        </span>
+                                    </Option>
+                                ))}
+                            </Dropdown>
+                        </Field>
+                    </div>
+                </section>
+            </div>
+        </div>
+    );
+}
+
+function OptionsTab({
+    styles,
+    options,
+    isVersionEditable,
+    updateOption,
+}: {
+    styles: ReturnType<typeof useStyles>;
+    options: ChecklistVersionOption[];
+    isVersionEditable: boolean;
+    updateOption: (key: string, value: boolean | number | string) => void;
+}) {
+    return (
+        <div className={styles.tabPanel}>
+            <div className={styles.optionsList}>
+                {options.map((option) => {
+                    const definition = CHECKLIST_OPTION_DEFINITIONS.find(
+                        (candidate) => candidate.key === option.key
+                    );
+                    if (!definition) return null;
+
+                    return (
+                        <div className={styles.optionRow} key={option.key}>
+                            <div className={styles.optionLabel}>
+                                <Text weight="semibold">{definition.label}</Text>
+                                <Text className={styles.optionDescription}>{definition.description}</Text>
+                            </div>
+                            {definition.type === "number" ? (
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    value={String(option.value || 1)}
+                                    disabled={!isVersionEditable}
+                                    onChange={(_, data) =>
+                                        updateOption(option.key, Math.max(1, Number(data.value) || 1))
+                                    }
+                                    style={{ width: 96 }}
+                                />
+                            ) : (
+                                <Checkbox
+                                    checked={Boolean(option.value)}
+                                    disabled={!isVersionEditable}
+                                    onChange={(_, data) => updateOption(option.key, Boolean(data.checked))}
+                                />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+function TimelineEntry({
+    entry,
+    index,
+    totalEntries,
+    relativeTimeNow,
+    styles,
+}: {
+    entry: ChecklistVersionHistoryEntry;
+    index: number;
+    totalEntries: number;
+    relativeTimeNow: Date;
+    styles: ReturnType<typeof useStyles>;
+}) {
+    const isFirst = index === 0;
+    const isLast = index === totalEntries - 1;
+    const eventDateValue = entry.eventOn || entry.createdOn;
+    const friendlyEventDate = formatFriendlyDateTime(eventDateValue, relativeTimeNow);
+    const fullEventDate = formatFullTimelineDateTime(eventDateValue);
+    const metaParts = [
+        entry.eventBy ? `by ${entry.eventBy}` : "",
+    ].filter(Boolean);
+    const statusTransition = entry.fromStatusLabel || entry.toStatusLabel
+        ? `${entry.fromStatusLabel || "-"} -> ${entry.toStatusLabel || "-"}`
+        : "";
+    const marker = getTimelineEventMarker(entry, styles);
+    const TimelineMarkerIcon = marker.Icon;
+
+    return (
+        <div className={styles.timelineItem} key={entry.id || `${entry.title}-${index}`}>
+            <div className={[
+                styles.timelineRail,
+                isFirst ? styles.timelineRailFirst : "",
+                isLast ? styles.timelineRailLast : "",
+            ].filter(Boolean).join(" ")}>
+                <span className={[styles.timelineDot, marker.className].filter(Boolean).join(" ")}>
+                    <TimelineMarkerIcon />
+                </span>
+            </div>
+            <div className={`${styles.timelineBody} ${isLast ? styles.timelineBodyLast : ""}`}>
+                <div className={styles.timelineTitleRow}>
+                    <Text className={styles.timelineTitle}>{entry.title || entry.eventTypeLabel || "Checklist version event"}</Text>
+                    {friendlyEventDate && (
+                        <Tooltip relationship="description" content={fullEventDate || friendlyEventDate}>
+                            <span className={styles.timelineRelativeTime}>{friendlyEventDate}</span>
+                        </Tooltip>
+                    )}
+                </div>
+                {metaParts.length > 0 && (
+                    <Caption1 className={styles.timelineMeta}>{metaParts.join(" | ")}</Caption1>
+                )}
+                {entry.description && <Text className={styles.timelineText}>{entry.description}</Text>}
+                {entry.comments && (
+                    <div className={styles.timelineComment}>
+                        <span className={styles.timelineCommentLabel}>Comment</span>
+                        <Text className={styles.timelineCommentText}>{entry.comments}</Text>
+                    </div>
+                )}
+                {(entry.reviewDecisionLabel || statusTransition) && (
+                    <div className={styles.timelineDetails}>
+                        {entry.reviewDecisionLabel && (
+                            <span className={styles.timelineChip}>{`Decision: ${entry.reviewDecisionLabel}`}</span>
+                        )}
+                        {statusTransition && (
+                            <span className={styles.timelineChip}>{`Status: ${statusTransition}`}</span>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function ApprovalHistoryTab({
+    styles,
+    timelineEntries,
+    relativeTimeNow,
+}: {
+    styles: ReturnType<typeof useStyles>;
+    timelineEntries: ChecklistVersionHistoryEntry[];
+    relativeTimeNow: Date;
+}) {
+    return (
+        <div className={styles.tabPanel}>
+            <div className={styles.formStack}>
+                <section className={styles.generalSection}>
+                    <div className={styles.generalSectionHeader}>
+                        <div className={styles.generalSectionHeading}>
+                            <Text className={styles.generalSectionTitle}>Timeline</Text>
+                        </div>
+                    </div>
+                    {timelineEntries.length ? (
+                        <div className={styles.timelineList}>
+                            {timelineEntries.map((entry, index) => (
+                                <TimelineEntry
+                                    key={entry.id || `${entry.title}-${index}`}
+                                    entry={entry}
+                                    index={index}
+                                    totalEntries={timelineEntries.length}
+                                    relativeTimeNow={relativeTimeNow}
+                                    styles={styles}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <Text className={styles.approvalHistoryEmpty}>No records were found in checklist version history.</Text>
+                    )}
+                </section>
+            </div>
+        </div>
+    );
+}
+
+function ChecklistEditorDialogs({
+    styles,
+    pendingSubmissionResponse,
+    pendingReviewResponse,
+    pendingValidationMessage,
+    pendingDelete,
+    isWorkflowActionRunning,
+    versionActionLabel,
+    versionActionDescription,
+    setPendingSubmissionResponse,
+    setPendingReviewResponse,
+    setPendingValidationMessage,
+    setPendingDelete,
+    confirmSubmissionResponse,
+    confirmReviewResponse,
+    confirmDelete,
+    getDeleteConfirmationMessage,
+}: {
+    styles: ReturnType<typeof useStyles>;
+    pendingSubmissionResponse: PendingSubmissionResponse;
+    pendingReviewResponse: PendingReviewResponse;
+    pendingValidationMessage: PendingValidationMessage;
+    pendingDelete: PendingDelete;
+    isWorkflowActionRunning: boolean;
+    versionActionLabel: string;
+    versionActionDescription: string;
+    setPendingSubmissionResponse: React.Dispatch<React.SetStateAction<PendingSubmissionResponse>>;
+    setPendingReviewResponse: React.Dispatch<React.SetStateAction<PendingReviewResponse>>;
+    setPendingValidationMessage: React.Dispatch<React.SetStateAction<PendingValidationMessage>>;
+    setPendingDelete: React.Dispatch<React.SetStateAction<PendingDelete>>;
+    confirmSubmissionResponse: () => void;
+    confirmReviewResponse: () => void;
+    confirmDelete: () => void;
+    getDeleteConfirmationMessage: () => string;
+}) {
+    return (
+        <>
+            <ChecklistEditorDialogs
+                styles={styles}
+                pendingSubmissionResponse={pendingSubmissionResponse}
+                pendingReviewResponse={pendingReviewResponse}
+                pendingValidationMessage={pendingValidationMessage}
+                pendingDelete={pendingDelete}
+                isWorkflowActionRunning={isWorkflowActionRunning}
+                versionActionLabel={versionActionLabel}
+                versionActionDescription={versionActionDescription}
+                setPendingSubmissionResponse={setPendingSubmissionResponse}
+                setPendingReviewResponse={setPendingReviewResponse}
+                setPendingValidationMessage={setPendingValidationMessage}
+                setPendingDelete={setPendingDelete}
+                confirmSubmissionResponse={confirmSubmissionResponse}
+                confirmReviewResponse={confirmReviewResponse}
+                confirmDelete={confirmDelete}
+                getDeleteConfirmationMessage={getDeleteConfirmationMessage}
+            />
+        </>
+    );
+}
+
 function ChecklistDetails({
     version,
     statusOptions,
@@ -4393,15 +5014,37 @@ function ChecklistDetails({
         [appliesTo, checklist, checklistName, description, options, sections, versionNumber, versionType]
     );
     const appliesToTarget = APPLIES_TO_TARGETS[checklist.targetTypeValue];
-    const isVersionActive = version.statecode === VERSION_STATE_ACTIVE;
-    const isVersionEditable =
-        isVersionActive &&
-        (version.statuscode === VERSION_STATUS_DRAFT || version.statuscode === VERSION_STATUS_REQUIRES_AMENDMENTS);
-    const canShowApprovalHistory = version.statuscode !== VERSION_STATUS_DRAFT;
+    const flattenedSections = useMemo(() => flattenSections(sections), [sections]);
+    const hasChecklistSections = flattenedSections.length > 0;
+    const hasChecklistItems = flattenedSections.some(({ section }) => section.items.length > 0);
+    const hasEmptySections = flattenedSections.some(
+        ({ section }) => section.sections.length === 0 && section.items.length === 0
+    );
+    const workflowState = getChecklistVersionWorkflowState({
+        version,
+        requiresChecklistVersionReview,
+        userCanApproveChecklistVersion,
+        hasDefinitionChanges,
+        hasChecklistSections,
+        hasChecklistItems,
+        hasEmptySections,
+        isWorkflowActionRunning,
+    });
+    const {
+        isVersionEditable,
+        canShowApprovalHistory,
+        requiresAmendments,
+        reviewerComments,
+        canShowSubmitForApproval,
+        canSubmitForApproval,
+        canRespondToReview,
+        versionActionLabel,
+        versionActionDescription,
+        versionActionDisabledReason,
+        isVersionActionDisabled,
+    } = workflowState;
     const showAddContentActions = isVersionEditable;
     const showEditHoverActions = isVersionEditable;
-    const requiresAmendments = version.statuscode === VERSION_STATUS_REQUIRES_AMENDMENTS;
-    const reviewerComments = version.reviewReason.trim();
 
     useEffect(() => {
         if (showEditHoverActions) return;
@@ -4453,7 +5096,6 @@ function ChecklistDetails({
         }
     }, [activeTab, canShowApprovalHistory]);
 
-    const flattenedSections = useMemo(() => flattenSections(sections), [sections]);
     const rootOpenSectionIds = useMemo(
         () => getOpenSiblingSectionIds(sections, collapsedSectionIds),
         [collapsedSectionIds, sections]
@@ -5693,6 +6335,20 @@ function ChecklistDetails({
             isEquipmentIdentificationTarget && equipmentTypeSearchText
                 ? equipmentTypeSearchText
                 : getIdentificationTargetOptionText(selectedTarget);
+        const selectIdentificationTargetType = (targetTypeValue: number | null) => {
+            const defaultTarget = createAnyIdentificationTarget(targetTypeValue);
+            setEquipmentTypeSearchText("");
+            setDraftItem((current) =>
+                current
+                    ? {
+                          ...current,
+                          identificationTargetTypeValue: targetTypeValue,
+                          identificationTargetId: defaultTarget?.id || "",
+                          identificationTarget: defaultTarget,
+                      }
+                    : current
+            );
+        };
 
         return (
             <div className={styles.itemEditCard}>
@@ -5767,128 +6423,118 @@ function ChecklistDetails({
                                     selectedOptions={selectedTargetTypeValue ? [String(selectedTargetTypeValue)] : []}
                                     value={selectedTargetTypeLabel}
                                     onOptionSelect={(_, data) => {
-                                        const targetTypeValue = Number(data.optionValue || 0) || null;
-                                        setEquipmentTypeSearchText("");
-                                        setDraftItem((current) =>
-                                            current
-                                                ? {
-                                                      ...current,
-                                                      identificationTargetTypeValue: targetTypeValue,
-                                                      identificationTargetId: "",
-                                                      identificationTarget: null,
-                                                  }
-                                                : current
-                                        );
+                                        const optionValue = String(data.optionValue || "");
+                                        selectIdentificationTargetType(Number(optionValue || 0) || null);
                                     }}
                                 >
                                     {ITEM_IDENTIFICATION_TARGET_TYPES.map((target) => (
-                                        <Option key={target.value} value={String(target.value)}>
+                                        <Option key={target.value} value={String(target.value)} text={target.label}>
                                             {target.label}
                                         </Option>
                                     ))}
                                 </Dropdown>
                             </Field>
                             {needsIdentificationTarget && (
-                            <Field label={selectedTargetSelectorLabel}>
-                                {isEquipmentIdentificationTarget ? (
-                                <Combobox
-                                    className={styles.controlFullWidth}
-                                    placeholder="Search or select equipment type"
-                                    selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
-                                    value={selectedTargetInputValue}
-                                    disabled={!selectedTargetTypeValue}
-                                    onChange={(event) => setEquipmentTypeSearchText(event.currentTarget.value)}
-                                    onOptionSelect={(_, data) => {
-                                        const optionValue = String(data.optionValue || "");
-                                        if (optionValue.startsWith("group:")) return;
-                                        const selected = findIdentificationTargetById(
-                                            identificationOptions,
-                                            selectedTargetTypeValue,
-                                            optionValue
-                                        );
-                                        setEquipmentTypeSearchText(getIdentificationTargetOptionText(selected));
-                                        setDraftItem((current) =>
-                                            current
-                                                ? {
-                                                      ...current,
-                                                      identificationTargetId: selected?.id || "",
-                                                      identificationTarget: selected,
-                                                  }
-                                                : current
-                                        );
-                                    }}
-                                >
-                                    {shouldShowCurrentTarget && selectedTarget && (
-                                        <Option key={selectedTarget.id} value={selectedTarget.id}>
-                                            <span className={styles.identificationTargetOption}>
-                                                {getIdentificationTargetOptionText(selectedTarget)}
-                                            </span>
-                                        </Option>
+                                <Field label={selectedTargetSelectorLabel}>
+                                    {isEquipmentIdentificationTarget ? (
+                                        <Combobox
+                                            className={styles.controlFullWidth}
+                                            placeholder="Search or select equipment type"
+                                            selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
+                                            value={selectedTargetInputValue}
+                                            disabled={!selectedTargetTypeValue}
+                                            onChange={(event) => setEquipmentTypeSearchText(event.currentTarget.value)}
+                                            onOptionSelect={(_, data) => {
+                                                const optionValue = String(data.optionValue || "");
+                                                if (optionValue.startsWith("group:")) return;
+                                                const selected = findIdentificationTargetById(
+                                                    identificationOptions,
+                                                    selectedTargetTypeValue,
+                                                    optionValue
+                                                );
+                                                setEquipmentTypeSearchText(getIdentificationTargetOptionText(selected));
+                                                setDraftItem((current) =>
+                                                    current
+                                                        ? {
+                                                              ...current,
+                                                              identificationTargetId: selected?.id || "",
+                                                              identificationTarget: selected,
+                                                          }
+                                                        : current
+                                                );
+                                            }}
+                                        >
+                                            {shouldShowCurrentTarget && selectedTarget && (
+                                                <Option key={selectedTarget.id} value={selectedTarget.id}>
+                                                    <span className={styles.identificationTargetOption}>
+                                                        {getIdentificationTargetOptionText(selectedTarget)}
+                                                    </span>
+                                                </Option>
+                                            )}
+                                            {visibleSelectedTargetGroups.flatMap((group) => [
+                                                <Option key={`group:${group.id}`} value={`group:${group.id}`} disabled>
+                                                    <span className={styles.identificationGroupOption}>{group.name}</span>
+                                                </Option>,
+                                                ...group.options.map((option) => (
+                                                    <Option key={option.id} value={option.id}>
+                                                        <span className={styles.identificationTargetOption}>{option.name}</span>
+                                                    </Option>
+                                                )),
+                                            ])}
+                                        </Combobox>
+                                    ) : (
+                                        <Dropdown
+                                            className={styles.controlFullWidth}
+                                            placeholder={`Select ${selectedTargetSelectorLabel.toLowerCase()}`}
+                                            selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
+                                            value={getIdentificationTargetOptionText(selectedTarget)}
+                                            disabled={!selectedTargetTypeValue}
+                                            onOptionSelect={(_, data) => {
+                                                const optionValue = String(data.optionValue || "");
+                                                if (optionValue.startsWith("group:")) return;
+                                                const selected =
+                                                    optionValue === ANY_IDENTIFICATION_TARGET_ID
+                                                        ? createAnyIdentificationTarget(selectedTargetTypeValue)
+                                                        : findIdentificationTargetById(
+                                                              identificationOptions,
+                                                              selectedTargetTypeValue,
+                                                              optionValue
+                                                          );
+                                                setDraftItem((current) =>
+                                                    current
+                                                        ? {
+                                                              ...current,
+                                                              identificationTargetId: selected?.id || "",
+                                                              identificationTarget: selected,
+                                                          }
+                                                        : current
+                                                );
+                                            }}
+                                        >
+                                            {supportsAnyIdentificationTarget(selectedTargetTypeValue) && (
+                                                <Option key={ANY_IDENTIFICATION_TARGET_ID} value={ANY_IDENTIFICATION_TARGET_ID}>
+                                                    <span className={styles.identificationTargetOption}>
+                                                        {getAnyIdentificationTargetName(selectedTargetTypeValue)}
+                                                    </span>
+                                                </Option>
+                                            )}
+                                            {shouldShowCurrentTarget && selectedTarget && (
+                                                <Option key={selectedTarget.id} value={selectedTarget.id}>
+                                                    <span className={styles.identificationTargetOption}>
+                                                        {getIdentificationTargetOptionText(selectedTarget)}
+                                                    </span>
+                                                </Option>
+                                            )}
+                                            {visibleSelectedTargetGroups.flatMap((group) =>
+                                                group.options.map((option) => (
+                                                    <Option key={option.id} value={option.id}>
+                                                        <span className={styles.identificationTargetOption}>{option.name}</span>
+                                                    </Option>
+                                                ))
+                                            )}
+                                        </Dropdown>
                                     )}
-                                    {visibleSelectedTargetGroups.flatMap((group) => [
-                                        <Option key={`group:${group.id}`} value={`group:${group.id}`} disabled>
-                                            <span className={styles.identificationGroupOption}>{group.name}</span>
-                                        </Option>,
-                                        ...group.options.map((option) => (
-                                            <Option key={option.id} value={option.id}>
-                                                <span className={styles.identificationTargetOption}>{option.name}</span>
-                                            </Option>
-                                        )),
-                                    ])}
-                                </Combobox>
-                                ) : (
-                                <Dropdown
-                                    className={styles.controlFullWidth}
-                                    placeholder={`Select ${selectedTargetSelectorLabel.toLowerCase()}`}
-                                    selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
-                                    value={getIdentificationTargetOptionText(selectedTarget)}
-                                    disabled={!selectedTargetTypeValue}
-                                    onOptionSelect={(_, data) => {
-                                        const optionValue = String(data.optionValue || "");
-                                        if (optionValue.startsWith("group:")) return;
-                                        const selected =
-                                            optionValue === ANY_IDENTIFICATION_TARGET_ID
-                                                ? createAnyIdentificationTarget(selectedTargetTypeValue)
-                                                : findIdentificationTargetById(
-                                                      identificationOptions,
-                                                      selectedTargetTypeValue,
-                                                      optionValue
-                                                  );
-                                        setDraftItem((current) =>
-                                            current
-                                                ? {
-                                                      ...current,
-                                                      identificationTargetId: selected?.id || "",
-                                                      identificationTarget: selected,
-                                                  }
-                                                : current
-                                        );
-                                    }}
-                                >
-                                    {supportsAnyIdentificationTarget(selectedTargetTypeValue) && (
-                                        <Option key={ANY_IDENTIFICATION_TARGET_ID} value={ANY_IDENTIFICATION_TARGET_ID}>
-                                            <span className={styles.identificationTargetOption}>
-                                                {getAnyIdentificationTargetName(selectedTargetTypeValue)}
-                                            </span>
-                                        </Option>
-                                    )}
-                                    {shouldShowCurrentTarget && selectedTarget && (
-                                        <Option key={selectedTarget.id} value={selectedTarget.id}>
-                                            <span className={styles.identificationTargetOption}>
-                                                {getIdentificationTargetOptionText(selectedTarget)}
-                                            </span>
-                                        </Option>
-                                    )}
-                                    {selectedTargetGroups.flatMap((group) =>
-                                        group.options.map((option) => (
-                                            <Option key={option.id} value={option.id}>
-                                                <span className={styles.identificationTargetOption}>{option.name}</span>
-                                            </Option>
-                                        ))
-                                    )}
-                                </Dropdown>
-                                )}
-                            </Field>
+                                </Field>
                             )}
                         </div>
                     )}
@@ -6281,48 +6927,7 @@ function ChecklistDetails({
             setIsSaving(false);
         }
     };
-    const hasChecklistSections = flattenedSections.length > 0;
-    const hasChecklistItems = flattenedSections.some(({ section }) => section.items.length > 0);
-    const hasEmptySections = flattenedSections.some(
-        ({ section }) => section.sections.length === 0 && section.items.length === 0
-    );
-    const hasSubmittableContents = hasChecklistSections && hasChecklistItems && !hasEmptySections;
-    const canShowSubmitForApproval =
-        isVersionEditable &&
-        (version.statuscode === VERSION_STATUS_DRAFT || requiresAmendments);
-    const canSubmitForApproval =
-        canShowSubmitForApproval &&
-        !hasDefinitionChanges &&
-        hasSubmittableContents;
-    const canRespondToReview =
-        isVersionActive &&
-        version.statuscode === VERSION_STATUS_PENDING_REVIEW &&
-        userCanApproveChecklistVersion &&
-        !hasDefinitionChanges;
-    const versionActionLabel = requiresAmendments
-        ? requiresChecklistVersionReview
-            ? "Resubmit for Approval"
-            : "Publish Amendments"
-        : requiresChecklistVersionReview
-          ? "Submit for Approval"
-          : "Publish";
     const versionActionIcon = requiresChecklistVersionReview ? <SendRegular /> : <CheckmarkRegular />;
-    const versionActionDescription = requiresAmendments
-        ? requiresChecklistVersionReview
-            ? "This will resubmit the amended checklist version for review."
-            : "This will publish the amended checklist version and make it the active version."
-        : requiresChecklistVersionReview
-          ? "This will submit the checklist version for review. An approver will need to approve it before it can become the active version."
-          : "This will publish the checklist version and make it the active version.";
-    const versionActionDisabledReason = (() => {
-        if (isWorkflowActionRunning) return "This action is already running.";
-        if (hasDefinitionChanges) return "Save your changes before submitting or publishing this checklist version.";
-        if (!hasChecklistSections) return "Add at least one section before submitting or publishing.";
-        if (!hasChecklistItems) return "Add at least one checklist item before submitting or publishing.";
-        if (hasEmptySections) return "Remove empty sections or add content to them before submitting or publishing.";
-        return "";
-    })();
-    const isVersionActionDisabled = !canSubmitForApproval || isWorkflowActionRunning;
     const renderVersionActionButton = () => (
         <Tooltip
             relationship="description"
@@ -6438,21 +7043,9 @@ function ChecklistDetails({
     const renderPrintableSectionHtml = (section: ChecklistSection, depth = 0): string => {
         const hasChildren = section.sections.length > 0;
         const itemCount = section.items.length;
-        const sectionShade = depth === 0 ? "#eef4ff" : depth === 1 ? "#f5f8ff" : "#fbfcff";
-        const sectionAccent = depth === 0 ? "#2563eb" : depth === 1 ? "#60a5fa" : "#93c5fd";
-        const sectionMeta = [
-            section.bulkServiceable ? "Bulk check" : "",
-            hasChildren ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}` : "",
-            `${itemCount} item${itemCount === 1 ? "" : "s"}`,
-        ].filter(Boolean).join(" | ");
+        const sectionPresentation = getPrintableSectionPresentation(section, depth);
         const itemHtml = section.items.map((item) => {
-            const identifyText = item.requestItemIdentification
-                ? `Identify ${getIdentificationTargetTypeLabel(item.identificationTargetTypeValue).toLowerCase() || "item"}${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`
-                : "";
-            const itemMeta = [
-                item.quantity !== null && item.quantity !== undefined ? `Quantity ${item.quantity}` : "",
-                identifyText,
-            ].filter(Boolean).join(" | ");
+            const itemMeta = getPrintableItemMeta(item);
 
             return `
                 <div class="item">
@@ -6478,9 +7071,9 @@ function ChecklistDetails({
 
         return `
             <section class="section" style="margin-left: ${depth === 0 ? 0 : 10}px;">
-                <div class="section-header" style="background-color: ${sectionShade}; border-left-color: ${sectionAccent};">
+                <div class="section-header" style="background-color: ${sectionPresentation.shade}; border-left-color: ${sectionPresentation.accent};">
                     <h2>${escapePrintHtml(section.name || "Unnamed section")}</h2>
-                    <span>${escapePrintHtml(sectionMeta)}</span>
+                    <span>${escapePrintHtml(sectionPresentation.meta)}</span>
                 </div>
                 ${itemHtml ? `<div class="items">${itemHtml}</div>` : ""}
                 ${childHtml ? `<div class="section-children">${childHtml}</div>` : ""}
@@ -6756,13 +7349,7 @@ function ChecklistDetails({
     const renderPrintableSection = (section: ChecklistSection, depth = 0): React.ReactNode => {
         const hasChildren = section.sections.length > 0;
         const itemCount = section.items.length;
-        const sectionShade = depth === 0 ? "#eef4ff" : depth === 1 ? "#f5f8ff" : "#fbfcff";
-        const sectionAccent = depth === 0 ? "#2563eb" : depth === 1 ? "#60a5fa" : "#93c5fd";
-        const sectionMeta = [
-            section.bulkServiceable ? "Bulk check" : "",
-            hasChildren ? `${section.sections.length} child section${section.sections.length === 1 ? "" : "s"}` : "",
-            `${itemCount} item${itemCount === 1 ? "" : "s"}`,
-        ].filter(Boolean).join(" | ");
+        const sectionPresentation = getPrintableSectionPresentation(section, depth);
 
         return (
             <section
@@ -6773,23 +7360,17 @@ function ChecklistDetails({
                 <div
                     className={styles.printSectionHeader}
                     style={{
-                        backgroundColor: sectionShade,
-                        borderLeftColor: sectionAccent,
+                        backgroundColor: sectionPresentation.shade,
+                        borderLeftColor: sectionPresentation.accent,
                     }}
                 >
                     <h2 className={styles.printSectionTitle}>{section.name || "Unnamed section"}</h2>
-                    {sectionMeta && <span className={styles.printSectionMeta}>{sectionMeta}</span>}
+                    {sectionPresentation.meta && <span className={styles.printSectionMeta}>{sectionPresentation.meta}</span>}
                 </div>
                 {itemCount > 0 && (
                     <div className={styles.printItems}>
                         {section.items.map((item) => {
-                            const identifyText = item.requestItemIdentification
-                                ? `Identify ${getIdentificationTargetTypeLabel(item.identificationTargetTypeValue).toLowerCase() || "item"}${item.identificationTarget ? ` - ${getIdentificationTargetOptionText(item.identificationTarget)}` : ""}`
-                                : "";
-                            const itemMeta = [
-                                item.quantity !== null && item.quantity !== undefined ? `Quantity ${item.quantity}` : "",
-                                identifyText,
-                            ].filter(Boolean).join(" | ");
+                            const itemMeta = getPrintableItemMeta(item);
 
                             return (
                                 <div key={item.id} className={styles.printItem}>
@@ -6824,65 +7405,6 @@ function ChecklistDetails({
                     <div className={styles.printEmptyState}>No items have been defined for this section.</div>
                 )}
             </section>
-        );
-    };
-    const renderTimelineEntry = (entry: ChecklistVersionHistoryEntry, index: number) => {
-        const isFirst = index === 0;
-        const isLast = index === timelineEntries.length - 1;
-        const eventDateValue = entry.eventOn || entry.createdOn;
-        const friendlyEventDate = formatFriendlyDateTime(eventDateValue, relativeTimeNow);
-        const fullEventDate = formatFullTimelineDateTime(eventDateValue);
-        const metaParts = [
-            entry.eventBy ? `by ${entry.eventBy}` : "",
-        ].filter(Boolean);
-        const statusTransition = entry.fromStatusLabel || entry.toStatusLabel
-            ? `${entry.fromStatusLabel || "-"} -> ${entry.toStatusLabel || "-"}`
-            : "";
-        const marker = getTimelineEventMarker(entry, styles);
-        const TimelineMarkerIcon = marker.Icon;
-
-        return (
-            <div className={styles.timelineItem} key={entry.id || `${entry.title}-${index}`}>
-                <div className={[
-                    styles.timelineRail,
-                    isFirst ? styles.timelineRailFirst : "",
-                    isLast ? styles.timelineRailLast : "",
-                ].filter(Boolean).join(" ")}>
-                    <span className={[styles.timelineDot, marker.className].filter(Boolean).join(" ")}>
-                        <TimelineMarkerIcon />
-                    </span>
-                </div>
-                <div className={`${styles.timelineBody} ${isLast ? styles.timelineBodyLast : ""}`}>
-                    <div className={styles.timelineTitleRow}>
-                        <Text className={styles.timelineTitle}>{entry.title || entry.eventTypeLabel || "Checklist version event"}</Text>
-                        {friendlyEventDate && (
-                            <Tooltip relationship="description" content={fullEventDate || friendlyEventDate}>
-                                <span className={styles.timelineRelativeTime}>{friendlyEventDate}</span>
-                            </Tooltip>
-                        )}
-                    </div>
-                    {metaParts.length > 0 && (
-                        <Caption1 className={styles.timelineMeta}>{metaParts.join(" | ")}</Caption1>
-                    )}
-                    {entry.description && <Text className={styles.timelineText}>{entry.description}</Text>}
-                    {entry.comments && (
-                        <div className={styles.timelineComment}>
-                            <span className={styles.timelineCommentLabel}>Comment</span>
-                            <Text className={styles.timelineCommentText}>{entry.comments}</Text>
-                        </div>
-                    )}
-                    {(entry.reviewDecisionLabel || statusTransition) && (
-                        <div className={styles.timelineDetails}>
-                            {entry.reviewDecisionLabel && (
-                                <span className={styles.timelineChip}>{`Decision: ${entry.reviewDecisionLabel}`}</span>
-                            )}
-                            {statusTransition && (
-                                <span className={styles.timelineChip}>{`Status: ${statusTransition}`}</span>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
         );
     };
     const handleTabSelect = (_: any, data: any) => {
@@ -6954,37 +7476,14 @@ function ChecklistDetails({
                         </div>
                     </div>
                     <div className={styles.headerAction}>
-                        {canRespondToReview && (
-                            <>
-                                <Button
-                                    appearance="secondary"
-                                    className={styles.rejectButtonIcon}
-                                    icon={<DismissRegular />}
-                                    disabled={isWorkflowActionRunning}
-                                    onClick={() => requestReviewResponse("reject")}
-                                >
-                                    Reject
-                                </Button>
-                                <Button
-                                    appearance="secondary"
-                                    className={styles.requiresAmendmentsButtonIcon}
-                                    icon={<WarningRegular />}
-                                    disabled={isWorkflowActionRunning}
-                                    onClick={() => requestReviewResponse("requiresAmendments")}
-                                >
-                                    Requires Amendments
-                                </Button>
-                                <Button
-                                    appearance="primary"
-                                    icon={<CheckmarkRegular />}
-                                    disabled={isWorkflowActionRunning}
-                                    onClick={() => requestReviewResponse("approve")}
-                                >
-                                    Approve
-                                </Button>
-                            </>
-                        )}
-                        {canShowSubmitForApproval && renderVersionActionButton()}
+                        <ChecklistVersionActionGroup
+                            canRespondToReview={canRespondToReview}
+                            isWorkflowActionRunning={isWorkflowActionRunning}
+                            canShowSubmitForApproval={canShowSubmitForApproval}
+                            submitActionButton={renderVersionActionButton()}
+                            styles={styles}
+                            onReviewResponse={requestReviewResponse}
+                        />
                     </div>
                 </div>
             )}
@@ -7051,34 +7550,11 @@ function ChecklistDetails({
                             </Button>
                         )}
                         {useCompactVersionHeader && canRespondToReview && (
-                            <>
-                                <Button
-                                    appearance="secondary"
-                                    className={styles.rejectButtonIcon}
-                                    icon={<DismissRegular />}
-                                    disabled={isWorkflowActionRunning}
-                                    onClick={() => requestReviewResponse("reject")}
-                                >
-                                    Reject
-                                </Button>
-                                <Button
-                                    appearance="secondary"
-                                    className={styles.requiresAmendmentsButtonIcon}
-                                    icon={<WarningRegular />}
-                                    disabled={isWorkflowActionRunning}
-                                    onClick={() => requestReviewResponse("requiresAmendments")}
-                                >
-                                    Requires Amendments
-                                </Button>
-                                <Button
-                                    appearance="primary"
-                                    icon={<CheckmarkRegular />}
-                                    disabled={isWorkflowActionRunning}
-                                    onClick={() => requestReviewResponse("approve")}
-                                >
-                                    Approve
-                                </Button>
-                            </>
+                            <ReviewActionButtons
+                                disabled={isWorkflowActionRunning}
+                                styles={styles}
+                                onReviewResponse={requestReviewResponse}
+                            />
                         )}
                         {useCompactVersionHeader && canShowSubmitForApproval && renderVersionActionButton()}
                         {isVersionEditable && hasDefinitionChanges && (
@@ -7104,126 +7580,26 @@ function ChecklistDetails({
                     </div>
                 </div>
                 {activeTab === "general" ? (
-                    <div className={styles.tabPanel}>
-                        <div className={styles.formStack}>
-                            <section className={styles.generalSection}>
-                                <div className={styles.generalSectionHeader}>
-                                    <div className={styles.generalSectionHeading}>
-                                        <Text className={styles.generalSectionTitle}>Version</Text>
-                                    </div>
-                                    {useCompactVersionHeader && (
-                                        <div className={styles.sectionStatusRow}>
-                                            <StatusPill
-                                                statuscode={version.statuscode}
-                                                fallbackLabel={version.statusLabel}
-                                                statusOptions={statusOptions}
-                                                className={`${styles.statusPill} ${styles.headerStatusPill}`}
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-                                <div className={styles.generalFormGrid}>
-                                    <Field label="Checklist name" className={styles.generalFieldWide}>
-                                        <Input
-                                            className={styles.controlFullWidth}
-                                            value={checklistName}
-                                            disabled={!isVersionEditable}
-                                            onChange={(_, data) => {
-                                                if (!isVersionEditable) return;
-                                                setChecklistName(data.value);
-                                                markDefinitionChanged();
-                                            }}
-                                        />
-                                    </Field>
-                                    <Field label="Version type">
-                                        <Dropdown
-                                            className={styles.controlFullWidth}
-                                            selectedOptions={[String(versionType)]}
-                                            value={VERSION_TYPES.find((item) => item.key === versionType)?.text || ""}
-                                            disabled={!isVersionEditable}
-                                            onOptionSelect={(_, data) => {
-                                                if (!isVersionEditable) return;
-                                                setVersionType(Number(data.optionValue) || VERSION_TYPE_MINOR);
-                                                markDefinitionChanged();
-                                            }}
-                                        >
-                                            {VERSION_TYPES.map((item) => (
-                                                <Option key={item.key} value={String(item.key)}>
-                                                    {item.text}
-                                                </Option>
-                                            ))}
-                                        </Dropdown>
-                                    </Field>
-                                    <Field label="Version number">
-                                        <Input
-                                            className={styles.controlFullWidth}
-                                            type="number"
-                                            step="0.01"
-                                            value={versionNumber}
-                                            disabled={!isVersionEditable}
-                                            onChange={(_, data) => {
-                                                if (!isVersionEditable) return;
-                                                setVersionNumber(data.value);
-                                                markDefinitionChanged();
-                                            }}
-                                            onBlur={() => {
-                                                if (isVersionEditable) setVersionNumber((current) => formatVersionNumber(current));
-                                            }}
-                                        />
-                                    </Field>
-                                    <Field label="Description" className={styles.generalFieldWide}>
-                                        <Textarea
-                                            className={styles.controlFullWidth}
-                                            resize="vertical"
-                                            rows={5}
-                                            value={description}
-                                            disabled={!isVersionEditable}
-                                            onChange={(_, data) => {
-                                                if (!isVersionEditable) return;
-                                                setDescription(data.value);
-                                                markDefinitionChanged();
-                                            }}
-                                        />
-                                    </Field>
-                                </div>
-                            </section>
-                            <section className={styles.generalSection}>
-                                <div className={styles.generalSectionHeader}>
-                                    <div className={styles.generalSectionHeading}>
-                                        <Text className={styles.generalSectionTitle}>Application</Text>
-                                    </div>
-                                </div>
-                                <div className={styles.generalFormGrid}>
-                                    <Field label={appliesToTarget?.label || "Applied to"} className={styles.generalFieldWide}>
-                                        <Dropdown
-                                            className={styles.controlFullWidth}
-                                            placeholder={appliesToTarget ? `Select ${appliesToTarget.label.toLowerCase()}` : "No target type is configured"}
-                                            selectedOptions={appliesTo?.id ? [appliesTo.id] : []}
-                                            value={appliesTo ? getAppliesToOptionText(appliesTo) : ""}
-                                            disabled={!isVersionEditable || !appliesToTarget}
-                                            onOptionSelect={(_, data) => {
-                                                if (!isVersionEditable) return;
-                                                const selected = appliesToOptions.find((item) => item.id === data.optionValue) || null;
-                                                setAppliesTo(selected);
-                                                markDefinitionChanged();
-                                            }}
-                                        >
-                                            {appliesToOptions.map((item) => (
-                                                <Option key={item.id} value={item.id}>
-                                                    <span>
-                                                        {item.category && (
-                                                            <span className={styles.optionGroupText}>{`${item.category} / `}</span>
-                                                        )}
-                                                        {item.name}
-                                                    </span>
-                                                </Option>
-                                            ))}
-                                        </Dropdown>
-                                    </Field>
-                                </div>
-                            </section>
-                        </div>
-                    </div>
+                    <GeneralTab
+                        styles={styles}
+                        useCompactVersionHeader={useCompactVersionHeader}
+                        version={version}
+                        statusOptions={statusOptions}
+                        checklistName={checklistName}
+                        versionType={versionType}
+                        versionNumber={versionNumber}
+                        description={description}
+                        appliesTo={appliesTo}
+                        appliesToTarget={appliesToTarget}
+                        appliesToOptions={appliesToOptions}
+                        isVersionEditable={isVersionEditable}
+                        setChecklistName={setChecklistName}
+                        setVersionType={setVersionType}
+                        setVersionNumber={setVersionNumber}
+                        setDescription={setDescription}
+                        setAppliesTo={setAppliesTo}
+                        markDefinitionChanged={markDefinitionChanged}
+                    />
                 ) : activeTab === "contents" ? (
                     <div
                         className={styles.tabPanel}
@@ -7689,62 +8065,18 @@ function ChecklistDetails({
                         </div>
                     </div>
                 ) : activeTab === "options" ? (
-                    <div className={styles.tabPanel}>
-                        <div className={styles.optionsList}>
-                            {options.map((option) => {
-                                const definition = CHECKLIST_OPTION_DEFINITIONS.find(
-                                    (candidate) => candidate.key === option.key
-                                );
-                                if (!definition) return null;
-
-                                return (
-                                    <div className={styles.optionRow} key={option.key}>
-                                        <div className={styles.optionLabel}>
-                                            <Text weight="semibold">{definition.label}</Text>
-                                            <Text className={styles.optionDescription}>{definition.description}</Text>
-                                        </div>
-                                        {definition.type === "number" ? (
-                                            <Input
-                                                type="number"
-                                                min={1}
-                                                value={String(option.value || 1)}
-                                                disabled={!isVersionEditable}
-                                                onChange={(_, data) =>
-                                                    updateOption(option.key, Math.max(1, Number(data.value) || 1))
-                                                }
-                                                style={{ width: 96 }}
-                                            />
-                                        ) : (
-                                            <Checkbox
-                                                checked={Boolean(option.value)}
-                                                disabled={!isVersionEditable}
-                                                onChange={(_, data) => updateOption(option.key, Boolean(data.checked))}
-                                            />
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
+                    <OptionsTab
+                        styles={styles}
+                        options={options}
+                        isVersionEditable={isVersionEditable}
+                        updateOption={updateOption}
+                    />
                 ) : canShowApprovalHistory && activeTab === "approvalHistory" ? (
-                    <div className={styles.tabPanel}>
-                        <div className={styles.formStack}>
-                            <section className={styles.generalSection}>
-                                <div className={styles.generalSectionHeader}>
-                                    <div className={styles.generalSectionHeading}>
-                                        <Text className={styles.generalSectionTitle}>Timeline</Text>
-                                    </div>
-                                </div>
-                                {timelineEntries.length ? (
-                                    <div className={styles.timelineList}>
-                                        {timelineEntries.map(renderTimelineEntry)}
-                                    </div>
-                                ) : (
-                                    <Text className={styles.approvalHistoryEmpty}>No records were found in checklist version history.</Text>
-                                )}
-                            </section>
-                        </div>
-                    </div>
+                    <ApprovalHistoryTab
+                        styles={styles}
+                        timelineEntries={timelineEntries}
+                        relativeTimeNow={relativeTimeNow}
+                    />
                 ) : null}
             </div>
             <Dialog

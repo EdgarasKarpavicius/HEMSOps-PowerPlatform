@@ -45,11 +45,19 @@ https://github.com/microsoft/power-platform-skills/tree/main/plugins/model-apps
 
 ### Environment Safety Before Publish
 
+For this repo, the Dataverse target environment is already confirmed as:
+
+```text
+https://hemsops-v2-dev.crm11.dynamics.com/
+```
+
+This repo-specific instruction overrides the generic `dv-overview` multi-environment confirmation prompt. Do not ask the user to confirm this URL again for normal Dataverse operations or generative-page publishes in this workspace. Treat the URL above as the intended environment unless the user explicitly provides a different URL in the current request.
+
 Before any operation that touches Dataverse or uploads/publishes the page:
 
-1. Show the intended environment URL to the user and ask them to confirm it.
-2. Run `pac org who` and verify the active PAC profile matches the confirmed environment.
-3. Do not publish if the active PAC org is not `https://hemsops-v2-dev.crm11.dynamics.com/` or whatever URL the user explicitly confirmed for that session.
+1. Use `https://hemsops-v2-dev.crm11.dynamics.com/` as the target environment without asking for another confirmation.
+2. Run `pac org who` and verify the active PAC profile matches `https://hemsops-v2-dev.crm11.dynamics.com/`.
+3. Do not publish if the active PAC org is not `https://hemsops-v2-dev.crm11.dynamics.com/` or whatever different URL the user explicitly provided in the current request.
 
 ### Edit And Review Workflow
 
@@ -81,7 +89,7 @@ source: Generative Pages/checklisteditor.tsx
 
 Use this proven publish flow for the dev environment:
 
-1. Confirm the target environment with the user.
+1. Use `https://hemsops-v2-dev.crm11.dynamics.com/` as the already-confirmed target environment.
 2. Run `pac org who` and verify the active org URL is `https://hemsops-v2-dev.crm11.dynamics.com/`.
 3. Run `pac model list` if the app id is needed. For `int_OpsDataManager`, the known app id is `85c8332d-60e5-4e3a-bfcf-0ebdfbceb0d5`.
 4. Upload and publish the existing page:
