@@ -189,6 +189,8 @@ type RequiredChecklistRunOption = {
     name: string;
     versionSnapshotId: string;
     versionNumber?: string;
+    required?: boolean;
+    guidance?: string;
 };
 
 type AppliesToTargetDefinition = {
@@ -2061,6 +2063,27 @@ const useStyles = makeStyles({
         whiteSpace: "normal",
         lineHeight: "18px",
     },
+    requiredChecklistRunList: {
+        gridColumn: "1 / -1",
+        display: "grid",
+        gap: "8px",
+    },
+    requiredChecklistRunRow: {
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        gap: "8px",
+        alignItems: "start",
+        padding: "8px",
+        backgroundColor: tokens.colorNeutralBackground1,
+        ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
+        borderRadius: tokens.borderRadiusSmall,
+    },
+    requiredChecklistRunName: {
+        minWidth: 0,
+    },
+    requiredChecklistRunGuidance: {
+        gridColumn: "1 / -1",
+    },
     itemConfirmButton: {
         gridColumn: "3 / 4",
     },
@@ -2813,6 +2836,8 @@ function normalizeItems(items: any[]): ChecklistItem[] {
             name: String(checklist.name || checklist.checklistName || ""),
             versionSnapshotId: String(checklist.versionSnapshotId || checklist.checklistVersionId || ""),
             versionNumber: checklist.versionNumber ? String(checklist.versionNumber) : undefined,
+            required: checklist.required === undefined ? true : Boolean(checklist.required),
+            guidance: String(checklist.guidance || checklist.whenToComplete || ""),
         })).filter((checklist: RequiredChecklistRunOption) => checklist.id);
         return {
             id: String(item.id || makeId()),
@@ -3401,8 +3426,15 @@ function getIdentificationTargetOptionText(option: IdentificationTargetOption | 
 
 function getRequiredChecklistRunsText(checklists: RequiredChecklistRunOption[]) {
     if (!checklists.length) return "";
-    if (checklists.length === 1) return `Requires checklist run: ${checklists[0].name}`;
-    return `Requires ${checklists.length} checklist runs`;
+    const requiredCount = checklists.filter((checklist) => checklist.required ?? true).length;
+    const optionalCount = checklists.length - requiredCount;
+    if (checklists.length === 1) {
+        return `${requiredCount ? "Required" : "Optional"} checklist run: ${checklists[0].name}`;
+    }
+    return [
+        requiredCount ? `${requiredCount} required` : "",
+        optionalCount ? `${optionalCount} optional` : "",
+    ].filter(Boolean).join(", ") + " checklist runs";
 }
 
 function formatVersionNumber(value: unknown) {
@@ -3611,6 +3643,8 @@ async function loadPublishedChecklistRunOptionsForEquipmentType(
                     name: String(getValue(record, ["int_name"], "Unnamed checklist")),
                     versionSnapshotId,
                     versionNumber,
+                    required: true,
+                    guidance: "",
                 } as RequiredChecklistRunOption;
             } catch {
                 return null;
@@ -5279,13 +5313,32 @@ function ChecklistDetails({
 	        const equipmentTypeId = draftItem?.requestItemIdentification ? draftItem.identificationTargetId : "";
 	        if (!equipmentTypeId || requiredChecklistOptionsByEquipmentType[equipmentTypeId]) return;
 	        let isMounted = true;
+	        const loadingTimeoutId = window.setTimeout(() => {
+	            if (!isMounted) return;
+	            setRequiredChecklistOptionsByEquipmentType((current) => ({
+	                ...current,
+	                [equipmentTypeId]: current[equipmentTypeId] || [],
+	            }));
+	            setLoadingRequiredChecklistEquipmentTypeId((current) =>
+	                current === equipmentTypeId ? "" : current
+	            );
+	        }, 12000);
 	        setLoadingRequiredChecklistEquipmentTypeId(equipmentTypeId);
 	        loadPublishedChecklistRunOptionsForEquipmentType(equipmentTypeId, checklist.id || "")
 	            .then((items) => {
 	                if (!isMounted) return;
+	                window.clearTimeout(loadingTimeoutId);
 	                setRequiredChecklistOptionsByEquipmentType((current) => ({
 	                    ...current,
 	                    [equipmentTypeId]: items,
+	                }));
+	            })
+	            .catch(() => {
+	                if (!isMounted) return;
+	                window.clearTimeout(loadingTimeoutId);
+	                setRequiredChecklistOptionsByEquipmentType((current) => ({
+	                    ...current,
+	                    [equipmentTypeId]: [],
 	                }));
 	            })
 	            .finally(() => {
@@ -5293,6 +5346,7 @@ function ChecklistDetails({
 	            });
 	        return () => {
 	            isMounted = false;
+	            window.clearTimeout(loadingTimeoutId);
 	        };
 	    }, [
 	        checklist.id,
@@ -6452,12 +6506,21 @@ function ChecklistDetails({
 	        const loadedRequiredChecklistOptions = draftItem?.identificationTargetId
 	            ? requiredChecklistOptionsByEquipmentType[draftItem.identificationTargetId] || []
 	            : [];
-	        const requiredChecklistOptions = [
-	            ...(draftItem?.requiredChecklistRuns || []).filter((checklist) =>
-	                !loadedRequiredChecklistOptions.some((option) => option.id === checklist.id)
-	            ),
-	            ...loadedRequiredChecklistOptions,
-	        ];
+		        const savedRequiredChecklistRuns = draftItem?.requiredChecklistRuns || [];
+		        const savedRequiredChecklistById = new Map(savedRequiredChecklistRuns.map((checklist) => [checklist.id, checklist]));
+		        const requiredChecklistOptions = [
+		            ...savedRequiredChecklistRuns.filter((checklist) =>
+		                !loadedRequiredChecklistOptions.some((option) => option.id === checklist.id)
+		            ),
+		            ...loadedRequiredChecklistOptions.map((option) => {
+		                const saved = savedRequiredChecklistById.get(option.id);
+		                return {
+		                    ...option,
+		                    required: saved?.required ?? option.required ?? true,
+		                    guidance: saved?.guidance ?? option.guidance ?? "",
+		                };
+		            }),
+		        ];
 	        const selectedRequiredChecklistRuns = requiredChecklistOptions.filter((checklist) =>
 	            draftItem?.requiredChecklistRunIds.includes(checklist.id)
 	        );
@@ -6505,20 +6568,41 @@ function ChecklistDetails({
 	                    : current
 	            );
 	        };
-	        const selectRequiredChecklists = (selectedIds: readonly string[]) => {
-	            const selectedIdSet = new Set(selectedIds);
-	            setDraftItem((current) =>
-	                current
-	                    ? {
-	                          ...current,
-	                          requiredChecklistRunIds: [...selectedIds],
-	                          requiredChecklistRuns: requiredChecklistOptions.filter((checklist) =>
-	                              selectedIdSet.has(checklist.id)
-	                          ),
-	                      }
-	                    : current
-	            );
-	        };
+		        const selectRequiredChecklists = (selectedIds: readonly string[]) => {
+		            const selectedIdSet = new Set(selectedIds);
+		            setDraftItem((current) =>
+		                current
+		                    ? {
+		                          ...current,
+		                          requiredChecklistRunIds: [...selectedIds],
+		                          requiredChecklistRuns: requiredChecklistOptions.filter((checklist) =>
+		                              selectedIdSet.has(checklist.id)
+		                          ).map((checklist) => ({
+		                              ...checklist,
+		                              required: checklist.required ?? true,
+		                              guidance: checklist.guidance || "",
+		                          })),
+		                      }
+		                    : current
+		            );
+		        };
+		        const updateRequiredChecklistRun = (
+		            checklistId: string,
+		            updates: Partial<Pick<RequiredChecklistRunOption, "required" | "guidance">>
+		        ) => {
+		            setDraftItem((current) =>
+		                current
+		                    ? {
+		                          ...current,
+		                          requiredChecklistRuns: current.requiredChecklistRuns.map((checklist) =>
+		                              checklist.id === checklistId
+		                                  ? { ...checklist, ...updates }
+		                                  : checklist
+		                          ),
+		                      }
+		                    : current
+		            );
+		        };
 
         return (
             <div className={styles.itemEditCard}>
@@ -6657,7 +6741,13 @@ function ChecklistDetails({
 	                                        inlinePopup
 	                                        multiselect
 	                                        className={styles.controlFullWidth}
-	                                        placeholder={isLoadingRequiredChecklists ? "Loading checklists" : "Select checklists"}
+	                                        placeholder={
+	                                            isLoadingRequiredChecklists
+	                                                ? "Loading checklists"
+	                                                : requiredChecklistOptions.length === 0
+	                                                  ? "No published checklists found"
+	                                                  : "Select checklists"
+	                                        }
 	                                        selectedOptions={draftItem.requiredChecklistRunIds}
 	                                        value={selectedRequiredChecklistText}
 	                                        disabled={!selectedEquipmentType || isLoadingRequiredChecklists}
@@ -6670,12 +6760,58 @@ function ChecklistDetails({
 	                                                key={option.id}
 	                                                value={option.id}
 	                                                text={option.name}
-	                                            >
-	                                                {option.versionNumber ? `${option.name} v${option.versionNumber}` : option.name}
-	                                            </Option>
+		                                            >
+		                                                {option.versionNumber ? `${option.name} v${option.versionNumber}` : option.name}
+		                                            </Option>
 	                                        ))}
+	                                        {!isLoadingRequiredChecklists && requiredChecklistOptions.length === 0 && (
+	                                            <Option key="no-published-checklists" value="no-published-checklists" disabled>
+	                                                No published checklists found
+	                                            </Option>
+	                                        )}
 	                                    </Dropdown>
 	                                </Field>
+	                                {selectedRequiredChecklistRuns.length > 0 && (
+	                                    <div className={styles.requiredChecklistRunList}>
+	                                        {selectedRequiredChecklistRuns.map((checklist) => {
+	                                            const isRequired = checklist.required ?? true;
+	                                            return (
+	                                                <div key={checklist.id} className={styles.requiredChecklistRunRow}>
+	                                                    <div className={styles.requiredChecklistRunName}>
+	                                                        <Text weight="semibold">
+	                                                            {checklist.versionNumber
+	                                                                ? `${checklist.name} v${checklist.versionNumber}`
+	                                                                : checklist.name}
+	                                                        </Text>
+	                                                    </div>
+	                                                    <Checkbox
+	                                                        checked={isRequired}
+	                                                        label="Required"
+	                                                        onChange={(_, data) =>
+	                                                            updateRequiredChecklistRun(checklist.id, {
+	                                                                required: Boolean(data.checked),
+	                                                            })
+	                                                        }
+	                                                    />
+	                                                    {!isRequired && (
+	                                                        <Textarea
+	                                                            className={styles.requiredChecklistRunGuidance}
+	                                                            resize="vertical"
+	                                                            rows={2}
+	                                                            placeholder="When should this checklist be completed?"
+	                                                            value={checklist.guidance || ""}
+	                                                            onChange={(_, data) =>
+	                                                                updateRequiredChecklistRun(checklist.id, {
+	                                                                    guidance: data.value,
+	                                                                })
+	                                                            }
+	                                                        />
+	                                                    )}
+	                                                </div>
+	                                            );
+	                                        })}
+	                                    </div>
+	                                )}
 	                            )}
 	                        </div>
 	                    )}
