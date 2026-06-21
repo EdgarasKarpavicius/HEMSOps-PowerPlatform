@@ -5165,8 +5165,10 @@ function ChecklistDetails({
         versionActionDisabledReason,
         isVersionActionDisabled,
     } = workflowState;
-    const showAddContentActions = isVersionEditable;
-    const showEditHoverActions = isVersionEditable;
+    const isEditorDisabled = !isVersionEditable || isSaving;
+    const canShowVersionAction = canShowSubmitForApproval && !hasDefinitionChanges && !isSaving;
+    const showAddContentActions = !isEditorDisabled;
+    const showEditHoverActions = !isEditorDisabled;
 
     useEffect(() => {
         if (showEditHoverActions) return;
@@ -5177,15 +5179,15 @@ function ChecklistDetails({
     }, [showEditHoverActions]);
 
     const markDefinitionChanged = () => {
-        if (isVersionEditable) setHasDefinitionChanges(true);
+        if (!isEditorDisabled) setHasDefinitionChanges(true);
     };
     const updateSections = (updater: React.SetStateAction<ChecklistSection[]>) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         setSections(updater);
         markDefinitionChanged();
     };
     const updateOption = (key: string, value: boolean | number | string) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         setOptions((current) =>
             current.map((option) => (option.key === key ? { ...option, value } : option))
         );
@@ -5223,7 +5225,7 @@ function ChecklistDetails({
         [collapsedSectionIds, sections]
     );
     const visibleSections = useMemo(() => flattenVisibleSections(sections, collapsedSectionIds), [collapsedSectionIds, sections]);
-    const canFocusAddActions = showAddContentActions && isVersionEditable && !draftSection && !draftItem;
+    const canFocusAddActions = !isEditorDisabled && !draftSection && !draftItem;
     const sectionKeyboardTargets = useMemo(() => {
         const buildTargets = (items: ChecklistSection[]): SectionKeyboardTarget[] =>
             items.flatMap((section) => {
@@ -5570,7 +5572,7 @@ function ChecklistDetails({
         return next;
     };
     const startNewSection = (parentId: string | null, afterSectionId: string | null = null) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         setKeyboardPane("sections");
         setKeyboardNavigationActive(false);
         setFocusedSectionAction(null);
@@ -5615,11 +5617,11 @@ function ChecklistDetails({
             const key = event.key.toLowerCase();
             if (key === "s" && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
-                if (isVersionEditable && hasDefinitionChanges && !isSaving) handleSave();
+                if (!isEditorDisabled && hasDefinitionChanges) handleSave();
                 return;
             }
             if (activeTab !== "contents") return;
-            if (!isVersionEditable) return;
+            if (isEditorDisabled) return;
             if (event.ctrlKey || event.metaKey) return;
             if (isEditableKeyboardTarget(event.target)) return;
             if (draftSection || draftItem || editingSectionId || editingSelectedSectionTitleId) return;
@@ -5640,7 +5642,7 @@ function ChecklistDetails({
                 return;
             }
             if (event.key === "Enter" && keyboardPane === "sections") {
-                if (!isVersionEditable) return;
+                if (isEditorDisabled) return;
                 event.preventDefault();
                 if (event.shiftKey) {
                     startChildSectionFromFocus();
@@ -5660,19 +5662,19 @@ function ChecklistDetails({
                 return;
             }
             if (event.key === "Enter" && keyboardPane === "items") {
-                if (!isVersionEditable) return;
+                if (isEditorDisabled) return;
                 event.preventDefault();
                 startItemAfterFocus();
                 return;
             }
             if (event.key === " " && keyboardPane === "items" && keyboardNavigationActive && focusedItemAction) {
-                if (!isVersionEditable) return;
+                if (isEditorDisabled) return;
                 event.preventDefault();
                 activateFocusedItemAction();
                 return;
             }
             if (event.key === " " && keyboardPane === "items" && keyboardNavigationActive && selectedSection && selectedItem) {
-                if (!isVersionEditable) return;
+                if (isEditorDisabled) return;
                 event.preventDefault();
                 if (activateFocusedItemAction()) return;
                 startEditItem(selectedSection.id, selectedItem);
@@ -5684,7 +5686,7 @@ function ChecklistDetails({
                 keyboardPane === "sections" &&
                 highlightedSection
             ) {
-                if (!isVersionEditable) return;
+                if (isEditorDisabled) return;
                 event.preventDefault();
                 requestDeleteSection(highlightedSection);
                 return;
@@ -5696,7 +5698,7 @@ function ChecklistDetails({
                 selectedSection &&
                 selectedItem
             ) {
-                if (!isVersionEditable) return;
+                if (isEditorDisabled) return;
                 event.preventDefault();
                 requestDeleteItem(selectedSection.id, selectedItem);
                 return;
@@ -5716,7 +5718,7 @@ function ChecklistDetails({
         highlightedSection,
         hasDefinitionChanges,
         itemKeyboardTargets,
-        isVersionEditable,
+        isEditorDisabled,
         isSaving,
         keyboardNavigationActive,
         keyboardPane,
@@ -5738,7 +5740,7 @@ function ChecklistDetails({
         });
     };
     const confirmDraftSection = () => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         const nextName = draftSection?.name.trim() || "";
         if (!draftSection || !nextName) return;
         if (hasDuplicateSectionNameInLevel(sections, draftSection.parentId, nextName)) {
@@ -5770,7 +5772,7 @@ function ChecklistDetails({
         });
     };
     const startNewItem = (sectionId: string, afterItemId: string | null = null) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         setKeyboardPane("items");
         setSelectedItemId("");
         setFocusedSectionAction(null);
@@ -5793,14 +5795,14 @@ function ChecklistDetails({
         setDraftSection(null);
     };
     const startEditSectionName = (section: ChecklistSection) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         selectSectionPane(section.id);
         setSectionNameDraft(section.name || "");
         setEditingSectionId(section.id);
         setDraftItem(null);
     };
     const confirmEditingSectionName = () => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         const section = findSectionById(sections, editingSectionId);
         if (!section) {
             setEditingSectionId("");
@@ -5821,7 +5823,7 @@ function ChecklistDetails({
         setEditingSectionId("");
     };
     const startEditSelectedSectionTitle = (section: ChecklistSection) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         selectSectionPane(section.id);
         setSelectedSectionTitleDraft(section.name || "");
         setEditingSelectedSectionTitleId(section.id);
@@ -5830,7 +5832,7 @@ function ChecklistDetails({
         setDraftItem(null);
     };
     const confirmEditingSelectedSectionTitle = () => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         const section = findSectionById(sections, editingSelectedSectionTitleId);
         if (!section) {
             setEditingSelectedSectionTitleId("");
@@ -5851,7 +5853,7 @@ function ChecklistDetails({
         setEditingSelectedSectionTitleId("");
     };
 	    const startEditItem = (sectionId: string, item: ChecklistItem) => {
-	        if (!isVersionEditable) return;
+	        if (isEditorDisabled) return;
 	        setKeyboardPane("items");
 	        setSelectedItemId(item.id);
 	        const equipmentTarget =
@@ -5880,7 +5882,7 @@ function ChecklistDetails({
 	        setDraftSection(null);
 	    };
     const confirmDraftItem = (continueAdding = false) => {
-        if (!isVersionEditable) return false;
+        if (isEditorDisabled) return false;
         if (!draftItem?.name.trim()) return false;
 	        if (
 	            draftItem.requestItemIdentification &&
@@ -5942,7 +5944,7 @@ function ChecklistDetails({
         }
     };
     const handleSectionTreeKeyDown = (event: React.KeyboardEvent) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         if (event.defaultPrevented && event.key !== "ArrowUp" && event.key !== "ArrowDown" && event.key !== " ") return;
         if (isEditableKeyboardTarget(event.target)) return;
@@ -6075,7 +6077,7 @@ function ChecklistDetails({
         selectedSectionId,
     ]);
     const handleSectionDropById = (draggedSectionId: string, targetSectionId: string) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         if (!draggedSectionId || !targetSectionId) return;
         if (!canMoveSectionBeforeTarget(sections, draggedSectionId, targetSectionId)) return;
         updateSections((current) =>
@@ -6086,7 +6088,7 @@ function ChecklistDetails({
         updateDragOverTarget(null);
     };
     const handleSectionDropAfterById = (draggedSectionId: string, targetSectionId: string) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         if (!draggedSectionId || !targetSectionId) return;
         if (!canMoveSectionAfterTarget(sections, draggedSectionId, targetSectionId)) return;
         updateSections((current) =>
@@ -6097,7 +6099,7 @@ function ChecklistDetails({
         updateDragOverTarget(null);
     };
     const handleSectionChildDropById = (draggedSectionId: string, parentSectionId: string) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         if (draggedSectionId === parentSectionId) return;
         if (!canMoveSectionToParentEnd(sections, draggedSectionId, parentSectionId)) return;
         updateSections((current) =>
@@ -6114,7 +6116,7 @@ function ChecklistDetails({
         updateDragOverTarget(null);
     };
     const handleSectionChildrenEndDropById = (draggedSectionId: string, parentSectionId: string) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         if (!canDropSectionAtChildrenEnd(sections, draggedSectionId, parentSectionId)) return;
         updateSections((current) => moveSectionToParentEnd(current, draggedSectionId, parentSectionId));
         selectSection(draggedSectionId);
@@ -6123,7 +6125,7 @@ function ChecklistDetails({
         updateDragOverTarget(null);
     };
     const handleItemDrop = (targetItemId: string, placement: "before" | "after") => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         const currentDraggedItem = draggedItem?.type === "item" ? draggedItem : draggedItemRef.current;
         if (currentDraggedItem?.type !== "item" || currentDraggedItem.sectionId !== selectedSectionId) return;
         updateSections((current) =>
@@ -6211,7 +6213,7 @@ function ChecklistDetails({
         return getSectionInsertionTargetFromMidpoint(sections, sectionId, clientY, rowBounds);
     };
     const handleSectionPointerDown = (event: React.PointerEvent<HTMLElement>, section: ChecklistSection) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         if (event.button !== 0 || draftSection || draftItem) return;
         const target = event.target as HTMLElement;
         if (target.closest("button,input,textarea,select,[role='button']")) return;
@@ -6309,7 +6311,7 @@ function ChecklistDetails({
         updateDragOverTarget(null);
     };
     const handleItemPointerDown = (event: React.PointerEvent<HTMLDivElement>, item: ChecklistItem) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         if (event.button !== 0 || draftSection || draftItem || !selectedSection) return;
         const target = event.target as HTMLElement;
         if (target.closest("button,input,textarea,select,[role='button']")) return;
@@ -6394,7 +6396,7 @@ function ChecklistDetails({
         setKeyboardPane("sections");
     };
     const requestDeleteSection = (section: ChecklistSection) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         const totals = countSectionContents(section);
         if (totals.sections === 0 && totals.items === 0) {
             deleteSectionById(section.id);
@@ -6409,7 +6411,7 @@ function ChecklistDetails({
         });
     };
     const requestDeleteItem = (sectionId: string, item: ChecklistItem) => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         setPendingDelete({
             type: "item",
             sectionId,
@@ -6418,7 +6420,7 @@ function ChecklistDetails({
         });
     };
     const confirmDelete = () => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         if (!pendingDelete) return;
         if (pendingDelete.type === "section") {
             deleteSectionById(pendingDelete.id);
@@ -6453,6 +6455,7 @@ function ChecklistDetails({
                 autoFocus
                 placeholder="Enter section name"
                 value={draftSection?.name || ""}
+                disabled={isEditorDisabled}
                 onChange={(_, data) =>
                     setDraftSection((current) => current ? { ...current, name: data.value } : current)
                 }
@@ -6473,7 +6476,7 @@ function ChecklistDetails({
                 aria-label="Confirm section name"
                 appearance="primary"
                 icon={<CheckmarkRegular />}
-                disabled={!draftSection?.name.trim()}
+                disabled={isEditorDisabled || !draftSection?.name.trim()}
                 onClick={confirmDraftSection}
             />
         </div>
@@ -6612,6 +6615,7 @@ function ChecklistDetails({
                         ref={itemNameInputRef}
                         placeholder="Enter item name"
                         value={draftItem?.name || ""}
+                        disabled={isEditorDisabled}
                         onChange={(_, data) =>
                             setDraftItem((current) => current ? { ...current, name: data.value } : current)
                         }
@@ -6624,6 +6628,7 @@ function ChecklistDetails({
                         min={0}
                         placeholder="Not specified"
                         value={draftItem?.quantity || ""}
+                        disabled={isEditorDisabled}
                         onChange={(_, data) =>
                             setDraftItem((current) => current ? { ...current, quantity: data.value } : current)
                         }
@@ -6636,6 +6641,7 @@ function ChecklistDetails({
                         rows={3}
                         placeholder="Enter completion guidance, acceptance criteria, or supporting notes"
                         value={draftItem?.description || ""}
+                        disabled={isEditorDisabled}
                         onChange={(_, data) =>
                             setDraftItem((current) => current ? { ...current, description: data.value } : current)
                         }
@@ -6650,6 +6656,7 @@ function ChecklistDetails({
 	                        <Checkbox
 	                            checked={Boolean(draftItem?.requestItemIdentification)}
 	                            label="Requires equipment identification"
+	                            disabled={isEditorDisabled}
 	                            onChange={(_, data) =>
 	                                setDraftItem((current) =>
 	                                    current
@@ -6678,6 +6685,7 @@ function ChecklistDetails({
 	                                    placeholder="Select equipment category"
 	                                    selectedOptions={draftItem.identificationCategoryId ? [draftItem.identificationCategoryId] : []}
 	                                    value={selectedEquipmentCategory?.name || ""}
+	                                    disabled={isEditorDisabled}
 	                                    onOptionSelect={(_, data) => {
 	                                        selectEquipmentCategory(data.selectedOptions[0] || data.optionValue || "");
 	                                    }}
@@ -6701,7 +6709,7 @@ function ChecklistDetails({
 	                                    placeholder="Select equipment type"
 	                                    selectedOptions={draftItem.identificationTargetId ? [draftItem.identificationTargetId] : []}
 	                                    value={selectedEquipmentType?.name || ""}
-	                                    disabled={!selectedEquipmentCategory}
+	                                    disabled={isEditorDisabled || !selectedEquipmentCategory}
 	                                    onOptionSelect={(_, data) => {
 	                                        selectEquipmentType(data.selectedOptions[0] || data.optionValue || "");
 	                                    }}
@@ -6720,7 +6728,7 @@ function ChecklistDetails({
 	                            </Field>
 	                            <Checkbox
 	                                checked={Boolean(draftItem.requiresChecklistRuns)}
-	                                disabled={!selectedEquipmentType}
+	                                disabled={isEditorDisabled || !selectedEquipmentType}
 	                                label="Requires checklist runs"
 	                                onChange={(_, data) =>
 	                                    setDraftItem((current) =>
@@ -6736,82 +6744,86 @@ function ChecklistDetails({
 	                                }
 	                            />
 	                            {draftItem.requiresChecklistRuns && (
-	                                <Field label="Required checklists" style={{ gridColumn: "1 / -1" }}>
-	                                    <Dropdown
-	                                        inlinePopup
-	                                        multiselect
-	                                        className={styles.controlFullWidth}
-	                                        placeholder={
-	                                            isLoadingRequiredChecklists
-	                                                ? "Loading checklists"
-	                                                : requiredChecklistOptions.length === 0
-	                                                  ? "No published checklists found"
-	                                                  : "Select checklists"
-	                                        }
-	                                        selectedOptions={draftItem.requiredChecklistRunIds}
-	                                        value={selectedRequiredChecklistText}
-	                                        disabled={!selectedEquipmentType || isLoadingRequiredChecklists}
-	                                        onOptionSelect={(_, data) => {
-	                                            selectRequiredChecklists(data.selectedOptions);
-	                                        }}
-	                                    >
-	                                        {requiredChecklistOptions.map((option) => (
-	                                            <Option
-	                                                key={option.id}
-	                                                value={option.id}
-	                                                text={option.name}
-		                                            >
-		                                                {option.versionNumber ? `${option.name} v${option.versionNumber}` : option.name}
-		                                            </Option>
-	                                        ))}
-	                                        {!isLoadingRequiredChecklists && requiredChecklistOptions.length === 0 && (
-	                                            <Option key="no-published-checklists" value="no-published-checklists" disabled>
-	                                                No published checklists found
-	                                            </Option>
-	                                        )}
-	                                    </Dropdown>
-	                                </Field>
-	                                {selectedRequiredChecklistRuns.length > 0 && (
-	                                    <div className={styles.requiredChecklistRunList}>
-	                                        {selectedRequiredChecklistRuns.map((checklist) => {
-	                                            const isRequired = checklist.required ?? true;
-	                                            return (
-	                                                <div key={checklist.id} className={styles.requiredChecklistRunRow}>
-	                                                    <div className={styles.requiredChecklistRunName}>
-	                                                        <Text weight="semibold">
-	                                                            {checklist.versionNumber
-	                                                                ? `${checklist.name} v${checklist.versionNumber}`
-	                                                                : checklist.name}
-	                                                        </Text>
-	                                                    </div>
-	                                                    <Checkbox
-	                                                        checked={isRequired}
-	                                                        label="Required"
-	                                                        onChange={(_, data) =>
-	                                                            updateRequiredChecklistRun(checklist.id, {
-	                                                                required: Boolean(data.checked),
-	                                                            })
-	                                                        }
-	                                                    />
-	                                                    {!isRequired && (
-	                                                        <Textarea
-	                                                            className={styles.requiredChecklistRunGuidance}
-	                                                            resize="vertical"
-	                                                            rows={2}
-	                                                            placeholder="When should this checklist be completed?"
-	                                                            value={checklist.guidance || ""}
+	                                <>
+	                                    <Field label="Required checklists" style={{ gridColumn: "1 / -1" }}>
+	                                        <Dropdown
+	                                            inlinePopup
+	                                            multiselect
+	                                            className={styles.controlFullWidth}
+	                                            placeholder={
+	                                                isLoadingRequiredChecklists
+	                                                    ? "Loading checklists"
+	                                                    : requiredChecklistOptions.length === 0
+	                                                      ? "No published checklists found"
+	                                                      : "Select checklists"
+	                                            }
+	                                            selectedOptions={draftItem.requiredChecklistRunIds}
+	                                            value={selectedRequiredChecklistText}
+	                                            disabled={isEditorDisabled || !selectedEquipmentType || isLoadingRequiredChecklists}
+	                                            onOptionSelect={(_, data) => {
+	                                                selectRequiredChecklists(data.selectedOptions);
+	                                            }}
+	                                        >
+	                                            {requiredChecklistOptions.map((option) => (
+	                                                <Option
+	                                                    key={option.id}
+	                                                    value={option.id}
+	                                                    text={option.name}
+	                                                >
+	                                                    {option.versionNumber ? `${option.name} v${option.versionNumber}` : option.name}
+	                                                </Option>
+	                                            ))}
+	                                            {!isLoadingRequiredChecklists && requiredChecklistOptions.length === 0 && (
+	                                                <Option key="no-published-checklists" value="no-published-checklists" disabled>
+	                                                    No published checklists found
+	                                                </Option>
+	                                            )}
+	                                        </Dropdown>
+	                                    </Field>
+	                                    {selectedRequiredChecklistRuns.length > 0 && (
+	                                        <div className={styles.requiredChecklistRunList}>
+	                                            {selectedRequiredChecklistRuns.map((checklist) => {
+	                                                const isRequired = checklist.required ?? true;
+	                                                return (
+	                                                    <div key={checklist.id} className={styles.requiredChecklistRunRow}>
+	                                                        <div className={styles.requiredChecklistRunName}>
+	                                                            <Text weight="semibold">
+	                                                                {checklist.versionNumber
+	                                                                    ? `${checklist.name} v${checklist.versionNumber}`
+	                                                                    : checklist.name}
+	                                                            </Text>
+	                                                        </div>
+	                                                        <Checkbox
+	                                                            checked={isRequired}
+	                                                            label="Required"
+	                                                            disabled={isEditorDisabled}
 	                                                            onChange={(_, data) =>
 	                                                                updateRequiredChecklistRun(checklist.id, {
-	                                                                    guidance: data.value,
+	                                                                    required: Boolean(data.checked),
 	                                                                })
 	                                                            }
 	                                                        />
-	                                                    )}
-	                                                </div>
-	                                            );
-	                                        })}
-	                                    </div>
-	                                )}
+	                                                        {!isRequired && (
+	                                                            <Textarea
+	                                                                className={styles.requiredChecklistRunGuidance}
+	                                                                resize="vertical"
+	                                                                rows={2}
+	                                                                placeholder="When should this checklist be completed?"
+	                                                                value={checklist.guidance || ""}
+	                                                                disabled={isEditorDisabled}
+	                                                                onChange={(_, data) =>
+	                                                                    updateRequiredChecklistRun(checklist.id, {
+	                                                                        guidance: data.value,
+	                                                                    })
+	                                                                }
+	                                                            />
+	                                                        )}
+	                                                    </div>
+	                                                );
+	                                            })}
+	                                        </div>
+	                                    )}
+	                                </>
 	                            )}
 	                        </div>
 	                    )}
@@ -6822,6 +6834,7 @@ function ChecklistDetails({
                     className={styles.itemConfirmButton}
                     icon={<CheckmarkRegular />}
                     disabled={
+                        isEditorDisabled ||
                         !draftItem?.name.trim() ||
                         Boolean(
 	                            draftItem.requestItemIdentification &&
@@ -6959,7 +6972,7 @@ function ChecklistDetails({
                                     className={styles.sectionEditButton}
                                     icon={<EditRegular />}
                                     style={{ visibility: showEditHoverActions && hoveredSectionId === section.id && !isEditingThisSection ? "visible" : "hidden" }}
-                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                    disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                     onClick={(event) => {
                                         event.stopPropagation();
                                         startEditSectionName(section);
@@ -6971,7 +6984,7 @@ function ChecklistDetails({
                                     className={styles.sectionDeleteButton}
                                     icon={<DeleteRegular />}
                                     style={{ visibility: showEditHoverActions && hoveredSectionId === section.id ? "visible" : "hidden" }}
-                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                    disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                     onClick={(event) => {
                                         event.stopPropagation();
                                         requestDeleteSection(section);
@@ -6991,6 +7004,7 @@ function ChecklistDetails({
                                         autoFocus
                                         className={styles.sectionNameInlineInput}
                                         value={sectionNameDraft}
+                                        disabled={isEditorDisabled}
                                         onChange={(_, data) => setSectionNameDraft(data.value)}
                                         onKeyDown={(event) => {
                                             if (event.key === "Enter") {
@@ -7011,7 +7025,7 @@ function ChecklistDetails({
                                         appearance="primary"
                                         className={styles.sectionNameConfirmButton}
                                         icon={<CheckmarkRegular />}
-                                        disabled={!sectionNameDraft.trim()}
+                                        disabled={isEditorDisabled || !sectionNameDraft.trim()}
                                         onMouseDown={(event) => event.preventDefault()}
                                         onClick={(event) => {
                                             event.stopPropagation();
@@ -7122,7 +7136,7 @@ function ChecklistDetails({
                                             ) ||
                                             focusedAddButtonKey === `add-child-section-${section.id}`
                                         )}
-                                        disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                        disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                         onPointerDown={(event) => event.stopPropagation()}
                                         onFocus={() => {
                                             setKeyboardNavigationActive(true);
@@ -7189,7 +7203,7 @@ function ChecklistDetails({
         setHasDefinitionChanges(false);
     };
     const handleSave = async () => {
-        if (!isVersionEditable) return;
+        if (isEditorDisabled) return;
         setSaveError("");
         setIsSaving(true);
         try {
@@ -7708,7 +7722,7 @@ function ChecklistDetails({
     const handleContentsPanelKeyDownCapture = (event: React.KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
         if (event.key !== "Tab") return;
-        if (activeTab !== "contents" || !isVersionEditable) return;
+        if (activeTab !== "contents" || isEditorDisabled) return;
         if (isEditableKeyboardTarget(event.target)) return;
         if (draftSection || draftItem || editingSectionId || editingSelectedSectionTitleId) return;
 
@@ -7754,7 +7768,7 @@ function ChecklistDetails({
                         <ChecklistVersionActionGroup
                             canRespondToReview={canRespondToReview}
                             isWorkflowActionRunning={isWorkflowActionRunning}
-                            canShowSubmitForApproval={canShowSubmitForApproval}
+                            canShowSubmitForApproval={canShowVersionAction}
                             submitActionButton={renderVersionActionButton()}
                             styles={styles}
                             onReviewResponse={requestReviewResponse}
@@ -7831,7 +7845,7 @@ function ChecklistDetails({
                                 onReviewResponse={requestReviewResponse}
                             />
                         )}
-                        {useCompactVersionHeader && canShowSubmitForApproval && renderVersionActionButton()}
+                        {useCompactVersionHeader && canShowVersionAction && renderVersionActionButton()}
                         {isVersionEditable && hasDefinitionChanges && (
                             <div className={styles.saveActions}>
                                 <Button
@@ -7867,7 +7881,7 @@ function ChecklistDetails({
                         appliesTo={appliesTo}
                         appliesToTarget={appliesToTarget}
                         appliesToOptions={appliesToOptions}
-                        isVersionEditable={isVersionEditable}
+                        isVersionEditable={!isEditorDisabled}
                         setChecklistName={setChecklistName}
                         setVersionType={setVersionType}
                         setVersionNumber={setVersionNumber}
@@ -7892,7 +7906,7 @@ function ChecklistDetails({
                             window.setTimeout(() => contentsPanelRef.current?.focus(), 0);
                         }}
                     >
-                        {isVersionEditable && (
+                        {!isEditorDisabled && (
                             <div className={styles.shortcutHelpPanel}>
                                 <Button
                                     appearance="subtle"
@@ -8006,7 +8020,7 @@ function ChecklistDetails({
                                                         ) ||
                                                         focusedAddButtonKey === "add-top-level-section"
                                                     )}
-                                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                    disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                                     onPointerDown={(event) => event.stopPropagation()}
                                                     onFocus={() => {
                                                         setKeyboardNavigationActive(true);
@@ -8049,6 +8063,7 @@ function ChecklistDetails({
                                                                         autoFocus
                                                                         className={styles.selectedSectionTitleInput}
                                                                         value={selectedSectionTitleDraft}
+                                                                        disabled={isEditorDisabled}
                                                                         onChange={(_, data) => setSelectedSectionTitleDraft(data.value)}
                                                                         onKeyDown={(event) => {
                                                                             if (event.key === "Enter") {
@@ -8069,7 +8084,7 @@ function ChecklistDetails({
                                                                         appearance="primary"
                                                                         className={styles.sectionNameConfirmButton}
                                                                         icon={<CheckmarkRegular />}
-                                                                        disabled={!selectedSectionTitleDraft.trim()}
+                                                                        disabled={isEditorDisabled || !selectedSectionTitleDraft.trim()}
                                                                         onMouseDown={(event) => event.preventDefault()}
                                                                         onClick={(event) => {
                                                                             event.stopPropagation();
@@ -8093,7 +8108,7 @@ function ChecklistDetails({
                                                             appearance="subtle"
                                                             className={styles.sectionEditButton}
                                                             icon={<EditRegular />}
-                                                            disabled={!isVersionEditable || Boolean(draftSection || draftItem || editingSelectedSectionTitleId)}
+                                                            disabled={isEditorDisabled || Boolean(draftSection || draftItem || editingSelectedSectionTitleId)}
                                                             onClick={() => startEditSelectedSectionTitle(selectedSection)}
                                                         />
                                                     )}
@@ -8115,7 +8130,7 @@ function ChecklistDetails({
                                             <Checkbox
                                                 className={styles.sectionBulkCheckbox}
                                                 checked={selectedSection.bulkServiceable}
-                                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                                 label="Bulk check"
                                                 onChange={(_, data) => {
                                                     updateSections((current) =>
@@ -8137,7 +8152,7 @@ function ChecklistDetails({
                                             {showAddContentActions && (
                                                 <Button
                                                     icon={<AddRegular />}
-                                                    disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                    disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                                     onClick={() => startNewSection(selectedSection.id)}
                                                 >
                                                     Add child section
@@ -8205,7 +8220,7 @@ function ChecklistDetails({
                                                                     className={styles.itemDeleteButton}
                                                                     icon={<DeleteRegular />}
                                                                     style={{ visibility: showEditHoverActions && hoveredItemId === item.id ? "visible" : "hidden" }}
-                                                                    disabled={!isVersionEditable}
+                                                                    disabled={isEditorDisabled}
                                                                     onClick={(event) => {
                                                                         event.stopPropagation();
                                                                         requestDeleteItem(selectedSection.id, item);
@@ -8239,7 +8254,7 @@ function ChecklistDetails({
                                                             (keyboardNavigationActive && focusedItemAction?.type === "addItem") ||
                                                             focusedAddButtonKey === "add-item"
                                                         )}
-                                                        disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                        disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                                         onFocus={() => {
                                                             setKeyboardNavigationActive(true);
                                                             setKeyboardPane("items");
@@ -8267,7 +8282,7 @@ function ChecklistDetails({
                                                                 icon={<AddRegular />}
                                                                 className={focusedAddButtonKey === `placeholder-add-child-section-${selectedSection.id}` ? styles.keyboardActionFocus : undefined}
                                                                 style={getAddActionFocusStyle(focusedAddButtonKey === `placeholder-add-child-section-${selectedSection.id}`)}
-                                                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                                disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                                                 onFocus={() => {
                                                                     setKeyboardNavigationActive(true);
                                                                     setKeyboardPane("sections");
@@ -8289,7 +8304,7 @@ function ChecklistDetails({
                                                                     (keyboardNavigationActive && focusedItemAction?.type === "addItem") ||
                                                                     focusedAddButtonKey === "add-item-empty-section"
                                                                 )}
-                                                                disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                                disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                                                 onFocus={() => {
                                                                     setKeyboardNavigationActive(true);
                                                                     setKeyboardPane("items");
@@ -8319,7 +8334,7 @@ function ChecklistDetails({
                                                                 (keyboardNavigationActive && focusedItemAction?.type === "addItem") ||
                                                                 focusedAddButtonKey === "add-item-empty-list"
                                                             )}
-                                                            disabled={!isVersionEditable || Boolean(draftSection || draftItem)}
+                                                            disabled={isEditorDisabled || Boolean(draftSection || draftItem)}
                                                             onFocus={() => {
                                                                 setKeyboardNavigationActive(true);
                                                                 setKeyboardPane("items");
@@ -8346,7 +8361,7 @@ function ChecklistDetails({
                     <OptionsTab
                         styles={styles}
                         options={options}
-                        isVersionEditable={isVersionEditable}
+                        isVersionEditable={!isEditorDisabled}
                         updateOption={updateOption}
                     />
                 ) : canShowApprovalHistory && activeTab === "approvalHistory" ? (
@@ -8504,6 +8519,7 @@ function ChecklistDetails({
                     onKeyDown={(event) => {
                         if (event.key === "Enter") {
                             event.preventDefault();
+                            if (isEditorDisabled) return;
                             confirmDelete();
                         }
                         if (event.key === "Escape") {
@@ -8520,10 +8536,10 @@ function ChecklistDetails({
                             <Text>{getDeleteConfirmationMessage()}</Text>
                         </DialogContent>
                         <DialogActions>
-                            <Button appearance="secondary" onClick={() => setPendingDelete(null)}>
+                            <Button appearance="secondary" disabled={isEditorDisabled} onClick={() => setPendingDelete(null)}>
                                 Cancel
                             </Button>
-                            <Button appearance="primary" onClick={confirmDelete}>
+                            <Button appearance="primary" disabled={isEditorDisabled} onClick={confirmDelete}>
                                 Delete Permanently
                             </Button>
                         </DialogActions>
